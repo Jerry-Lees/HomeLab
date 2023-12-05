@@ -1,0 +1,89 @@
+#Deployment and service yaml file to deploy my "Calibre" container.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: calibre-app
+  labels:
+    app: calibre
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: calibre
+  template:
+    metadata:
+      labels:
+        app: calibre
+    spec:
+      containers:
+      - name: calibre
+        env:
+        - name: ROOT_PASSWORD
+          value: P@ssw0rd 
+        image: jiris97/calibre-gui
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 5800
+          name: calibre-tcp
+          protocol: TCP
+        - containerPort: 5900
+          name: calibre-vnc
+          protocol: TCP
+        - containerPort: 8081
+          name: calibre-ui-tcp
+          protocol: TCP
+        volumeMounts:
+        - mountPath: /config
+          name: calibre-config
+        - mountPath: /books
+          name: calibre-books
+        - mountPath: /etc/timezone
+          name: timezonefile
+        - mountPath: /etc/localtime
+          name: localtimefile
+# I "cheat" a bit with file storage. I use an iSCSI mount to a NAS rather than deal with storage classes. This is a foolder mounted as /sharedpath/storagelocation/ansiblehost/ansible
+# Yeah, it's several hundreds of dollars for that...
+# but my time is worth something, and in the long run it's way cheaper than continuing to patch the holes in the drywall. ;-)
+      volumes:
+      - name: calibre-config
+        hostPath:
+            path: /sharedpath/storagelocation/calibre/config
+            type: Directory
+      - name: calibre-books
+        hostPath:
+            path: /sharedpath/storagelocation/calibre/books
+            type: Directory
+      - name: timezonefile
+        hostPath:
+            path: /etc/timezone
+            type: File
+      - name: localtimefile
+        hostPath:
+            path: /etc/localtime
+            type: File
+---
+#I use metallb to simplify ingress in a L2 configuration. https://metallb.universe.tf/
+apiVersion: v1
+kind: Service
+metadata:
+  name: calibre-vs
+  annotations:
+    metallb.universe.tf/allow-shared-ip: default
+spec:
+  ports:
+  - port: 8081
+    name: calibre-ui-tcp
+    targetPort: 8081
+    protocol: TCP
+  - port: 5800
+    name: calibre-tcp
+    targetPort: 5800
+    protocol: TCP
+  - port: 5900
+    name: calibre-vnc
+    targetPort: 5900
+    protocol: TCP
+  loadBalancerIP: A.B.C.25
+  selector:
+    app: calibre
+  type: LoadBalancer
