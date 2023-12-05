@@ -1,0 +1,78 @@
+#Deployment and service yaml file to deploy my "XXXXX Container" customer container.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dashy
+  labels:
+    app: dashy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dashy
+  template:
+    metadata:
+      labels:
+        app: dashy
+    spec:
+      containers:
+      - name: dashy
+        image: A.B.C.30:5000/dashy:latest
+        ports:
+        - containerPort: 80
+# I "cheat" a bit with file storage. I use an iSCSI mount to a NAS rather than deal with storage classes. This is a foolder mounted as /sharedpath/storagelocation/ansiblehost/ansible
+# Yeah, it's several hundreds of dollars for that...
+# but my time is worth something, and in the long run it's way cheaper than continuing to patch the holes in the drywall. ;-)
+        volumeMounts:
+        - mountPath: /app/public/conf.yml
+          name: dashy-config
+        - mountPath: /app/public/item-icons
+          name: dashy-icons
+        - mountPath: /etc/timezone
+          name: timezonefile
+        - mountPath: /etc/localtime
+          name: localtimefile
+        resources:
+          limits:
+            cpu: ".5"
+            memory: "1Gi"
+          requests:
+            cpu: "0.25"
+            memory: "512Mi"
+      volumes:
+      - name: dashy-config
+        hostPath:
+            path: /sharedpath/storagelocation/dashy/config/conf.yml
+            type: File
+      - name: dashy-icons
+        hostPath:
+            path: /sharedpath/storagelocation/dashy/icons
+            type: Directory
+      - name: timezonefile
+        hostPath:
+            path: /etc/timezone
+            type: File
+      - name: localtimefile
+        hostPath:
+            path: /etc/localtime
+            type: File
+
+---
+#I use metallb to simplify ingress in a L2 configuration. https://metallb.universe.tf/
+apiVersion: v1
+kind: Service
+metadata:
+  name: dashy-vs
+  annotations:
+    metallb.universe.tf/allow-shared-ip: default
+spec:
+  ports:
+  - port: 80
+    name: dashy-http
+    targetPort: 80
+    protocol: TCP
+  loadBalancerIP: A.B.C.33
+  selector:
+    app: dashy
+  type: LoadBalancer
+
