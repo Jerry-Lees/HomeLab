@@ -1,0 +1,114 @@
+#Deployment and service yaml file to deploy my "ansible runner" customer container.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ansible
+  labels:
+    app: ansible
+spec:
+  selector:
+    matchLabels:
+      app: ansible
+  template:
+    metadata:
+      labels:
+        app: ansible
+    spec:
+      imagePullSecrets:
+      - name: regcred
+      containers:
+      - name: ansible
+        image: A.B.C.30:5000/ansiblehost:latest #currently 0.06
+        ports:
+        - containerPort: 22
+          name: ansible
+          protocol: TCP
+        volumeMounts:
+        - mountPath: /ansible
+          name: ansible-config
+        - mountPath: /etc/cron.d
+          name: ansible-cron
+        - mountPath: /etc/cron.daily
+          name: ansible-crondaily
+        - mountPath: /etc/cron.hourly
+          name: ansible-cronhourly
+        - mountPath: /etc/cron.monthly
+          name: ansible-cronmonthly
+        - mountPath: /etc/cron.weekly
+          name: ansible-cronweekly
+        - mountPath: /etc/crontab
+          name: ansible-crontab
+        - mountPath: /var/spool/cron/crontabs
+          name: ansible-crontabs
+        - mountPath: /etc/ssh/sshd_config
+          name: ansible-sshd
+        - mountPath: /etc/passwd
+          name: ansible-passwd1
+        - mountPath: /etc/passwd-
+          name: ansible-passwd2
+# I "cheat" a bit with file storage. I use an iSCSI mount to a NAS rather than deal with storage classes. This is a foolder mounted as /sharedpath/storagelocation/ansiblehost/ansible
+# Yeah, it's several hundreds of dollars for that...
+# but my time is worth something, and in the long run it's way cheaper than continuing to patch the holes in the drywall. ;-)
+      volumes:
+      - name: ansible-crontab
+        hostPath:
+            path: /sharedpath/storagelocation/ansiblehost/crontab
+            type: File
+      - name: ansible-crontabs
+        hostPath:
+            path: /sharedpath/storagelocation/ansiblehost/crontabs
+            type: Directory
+      - name: ansible-config
+        hostPath:
+            path: /sharedpath/storagelocation/ansiblehost/ansible
+            type: Directory
+      - name: ansible-cron
+        hostPath:cho
+            path: /sharedpath/storagelocation/ansiblehost/cron.d
+            type: Directory
+      - name: ansible-crondaily
+        hostPath:
+            path: /sharedpath/storagelocation/ansiblehost/cron.daily
+            type: Directory
+      - name: ansible-cronhourly
+        hostPath:
+            path: /sharedpath/storagelocation/ansiblehost/cron.hourly
+            type: Directory
+      - name: ansible-cronmonthly
+        hostPath:
+            path: /sharedpath/storagelocation/ansiblehost/cron.monthly
+            type: Directory
+      - name: ansible-cronweekly
+        hostPath:
+            path: /sharedpath/storagelocation/ansiblehost/cron.weekly
+            type: Directory
+      - name: ansible-sshd
+        hostPath:
+            path: /sharedpath/storagelocation/ansiblehost/sshd_config
+            type: File
+      - name: ansible-passwd1
+        hostPath:
+            path: /sharedpath/storagelocation/ansiblehost/passwd1
+            type: File
+      - name: ansible-passwd2
+        hostPath:
+            path: /sharedpath/storagelocation/ansiblehost/passwd2
+            type: File
+---
+#I use metallb to simplify ingress in a L2 configuration. https://metallb.universe.tf/
+apiVersion: v1
+kind: Service
+metadata:
+  name: ansible-vs
+  annotations:
+    metallb.universe.tf/allow-shared-ip: default
+spec:
+  ports:
+  - port: 22
+    name: ansible
+    targetPort: 22
+    protocol: TCP
+  loadBalancerIP: A.B.C.15
+  selector:
+    app: ansible
+  type: LoadBalancer
