@@ -12,12 +12,12 @@ This repository is intended to be "everything I need" to recover systems (not da
 # My Setup
 This section should detail things that are "odd" about my setup. Maybe they are better, maybe not-- but they are all concious decisions made for a valid reason at one point or another along the way. We all have them.
 
-## kubernetes
-First, ingress... long ago I didn't know as much about k8s as I do now and likely still not nearly enough. Ingress is a PITA for k8s. MetalLB solves that for me just fine for a Home Lab. Is it production grade... No. Are you likely to be using it at "the office".. I doubt it, but anything's possible. Is it good enough and simple enough, yes. I took the easy path here and really haven't looked back or regretted it. All teh Services in my Kubernetes Yamls will reference a pool of IPs that are setup in k8s as well as a IP address teh service is listening on on my network. That service is then accessible (and it ARPs) by all my clients on the network... and even the Internet at large if I setup a PAT on the firewall.
+## Kubernetes
+First, ingress... long ago I didn't know as much about k8s as I do now and likely still not nearly enough. Ingress is a PITA for k8s. MetalLB solves that for me just fine for a Home Lab. Is it production grade... No. Are you likely to be using it at "the office".. I doubt it, but anything's possible. Is it good enough and simple enough, yes. I took the easy path here and really haven't looked back or regretted it. All the Services in my Kubernetes Yamls will reference a pool of IPs that are setup in k8s as well as a IP address the service is listening on on my network. That service is then accessible (and it ARPs) by all my clients on the network... and even the Internet at large if I setup a PAT on the firewall.
 
 Second, Storage... Storage classes for some reason escaped me and I struggled to get them up and running years ago. It was me, it was my lack of willingness to dig it--- so I did it the way I knew how... with a mounted Block device (LUN) via iSCSI. My storage that containes the files that need to be persistent when a pod dies or becomes unhealth is a mounted iSCSI drive on a NAS that is formatted for OCFS2 and all my nodes are a part of that cluster.
 
-It's important to recognize that teh nodes are a part of a OCFS2 Cluster--- that way they don't clobber each other's writes as they would with a less than cluster aware file system. This is probably harder than it needs to be, but then again-- it works and well.... choices were made. ;-)
+It's important to recognize that the nodes are a part of a OCFS2 Cluster--- that way they don't clobber each other's writes as they would with a less than cluster aware file system. This is probably harder than it needs to be, but then again-- it works and well.... choices were made. ;-)
 
 
 # Some notes on format
