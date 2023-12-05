@@ -1,0 +1,96 @@
+#Deployment and service yaml file to deploy my "Primary DNS Container" customer container.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bind01-dns
+  labels:
+    app: dns01
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dns01
+  template:
+    metadata:
+      labels:
+        app: dns01
+    spec:
+      containers:
+      - name: dns01
+        env:
+        - name: ROOT_PASSWORD
+          value: P@ssw0rd 
+        image: sameersbn/bind
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 53
+          name: dns-tcp
+          protocol: TCP
+        - containerPort: 53
+          name: dns-udp
+          protocol: UDP
+        - containerPort: 10000
+          name: webmin
+        volumeMounts:
+        - mountPath: /data
+          name: dns-config
+        - mountPath: /etc/timezone
+          name: timezonefile
+        - mountPath: /etc/localtime
+          name: localtimefile
+# I "cheat" a bit with file storage. I use an iSCSI mount to a NAS rather than deal with storage classes. This is a foolder mounted as /sharedpath/storagelocation/ansiblehost/ansible
+# Yeah, it's several hundreds of dollars for that...
+# but my time is worth something, and in the long run it's way cheaper than continuing to patch the holes in the drywall. ;-)
+      volumes:
+      - name: dns-config
+        hostPath:
+            path: /sharedpath/storagelocation/DNS/bind01/config
+            type: Directory
+      - name: timezonefile
+        hostPath:
+            path: /etc/timezone
+            type: File
+      - name: localtimefile
+        hostPath:
+            path: /etc/localtime
+            type: File
+
+---
+#I use metallb to simplify ingress in a L2 configuration. https://metallb.universe.tf/
+apiVersion: v1
+kind: Service
+metadata:
+  name: dns01-vs
+  annotations:
+    metallb.universe.tf/allow-shared-ip: default
+spec:
+  ports:
+  - port: 53
+    name: dns01-tcp
+    targetPort: 53
+    protocol: TCP
+  - port: 10000
+    name: webmin
+    targetPort: 10000
+    protocol: TCP
+  loadBalancerIP: A.B.C.12
+  selector:
+    app: dns01
+  type: LoadBalancer
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dns01-udp-vs
+  annotations:
+    metallb.universe.tf/allow-shared-ip: default
+spec:
+  ports:
+  - port: 53
+    name: dns01-udp
+    targetPort: 53
+    protocol: UDP
+  loadBalancerIP: A.B.C.12
+  selector:
+    app: dns01
+  type: LoadBalancer
