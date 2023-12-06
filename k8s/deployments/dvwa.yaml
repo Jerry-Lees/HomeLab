@@ -1,0 +1,131 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dvwa01-http
+  labels:
+    app: dvwa01
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dvwa01
+  template:
+    metadata:
+      labels:
+        app: dvwa01
+    spec:
+      containers:
+      - name: dvwa01
+        image: vulnerables/web-dvwa
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 80
+          name: dvwa01-http
+          protocol: TCP
+        volumeMounts:
+        - mountPath: /etc/timezone
+          name: timezonefile
+        - mountPath: /etc/localtime
+          name: localtimefile
+#        resources:
+#          limits:
+#            cpu: ".5"
+#            memory: "1Gi"
+#          requests:
+#            cpu: "0.25"
+#            memory: "512Mi"
+      volumes:
+      - name: timezonefile
+        hostPath:
+            path: /etc/timezone
+            type: File
+      - name: localtimefile
+        hostPath:
+            path: /etc/localtime
+            type: File
+      
+...
+apiVersion: v1
+kind: Service
+metadata:
+  name: dvwa01-vs
+  annotations:
+    metallb.universe.tf/allow-shared-ip: default
+spec:
+  ports:
+  - port: 80
+    name: dvwa01-http
+    targetPort: 80
+    protocol: TCP
+  loadBalancerIP: A.B.C.22
+  selector:
+    app: dvwa01
+  type: LoadBalancer
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dvwa02-http
+  labels:
+    app: dvwa02
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dvwa02
+  template:
+    metadata:
+      labels:
+        app: dvwa02
+    spec:
+      containers:
+      - name: dvwa02
+        image: vulnerables/web-dvwa
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 80
+          name: dvwa02-http
+          protocol: TCP
+        volumeMounts:
+        - mountPath: /etc/timezone
+          name: timezonefile
+        - mountPath: /etc/localtime
+          name: localtimefile
+#        resources:
+#          limits:
+#            cpu: ".5"
+#            memory: "1Gi"
+#          requests:
+#            cpu: "0.25"
+#            memory: "512Mi"
+      volumes:
+      - name: timezonefile
+        hostPath:
+            path: /etc/timezone
+            type: File
+      - name: localtimefile
+        hostPath:
+            path: /etc/localtime
+            type: File
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dvwa02-vs
+  annotations:
+    metallb.universe.tf/allow-shared-ip: default
+spec:
+  ports:
+  - port: 80
+    name: dvwa02-http
+    targetPort: 80
+    protocol: TCP
+  loadBalancerIP: A.B.C.23
+  selector:
+    app: dvwa02
+  type: LoadBalancer
+
+
