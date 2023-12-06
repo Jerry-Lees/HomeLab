@@ -26,7 +26,7 @@ The following sections give you some assistance in recognizing these points in t
 
 The below sections detail the things you will have to modify for certain.
 
-## Fix IPs)
+## Fix IPs
 Obviously, Internal IPs need to be masked. I will replace the first three octets of my internal addresses with "A.B.C.", "A.B.D.", etc. A sed statement with your ranges should be all that's needed to correct this... and of course make sure you aren't generating duplicates on your network.
 
  sed -i "s/A.B.C./[your subnet here]/g" $1
@@ -47,4 +47,18 @@ Paths should also me masked, so the following will assist you in that effort. (T
 
  sed -i "s/\/sharedpath\/storagelocation\//\/mount-point-here\/path-here\//g" $1
  
- 
+## Tricks/Lessons learned
+
+One item you will see throughout the kubernetes yaml files in this repository is:
+
+      - name: timezonefile
+        hostPath:
+            path: /etc/timezone
+            type: File
+      - name: localtimefile
+        hostPath:
+            path: /etc/localtime
+            type: File
+
+This is there becasue it forces the container to the same timezone and local time as the host it is running on. I looked at many different ways to "sync" time on my containers running in my cluster-- this seemed to be teh most fool proof and elegant.
+			
