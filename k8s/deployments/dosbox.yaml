@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dosbox-vnc
+  labels:
+    app: dns
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dosbox
+  template:
+    metadata:
+      labels:
+        app: dosbox
+    spec:
+      containers:
+      - name: dosbox
+        env:
+        - name: VNCPASSWORD
+          value: P@ssw0rd 
+        image: jgoerzen/dosbox
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 5901
+          name: dosbox-tcp
+          protocol: TCP
+        volumeMounts:
+        - mountPath: /dos
+          name: dosbox-config
+        - mountPath: /etc/timezone
+          name: timezonefile
+        - mountPath: /etc/localtime
+          name: localtimefile
+          
+        resources:
+          limits:
+            cpu: ".5"
+            memory: "1Gi"
+          requests:
+            cpu: "0.25"
+            memory: "512Mi"
+      volumes:
+      - name: dosbox-config
+        hostPath:
+            path: /sharedpath/storagelocation/dosbox
+            type: Directory
+      - name: timezonefile
+        hostPath:
+            path: /etc/timezone
+            type: File
+      - name: localtimefile
+        hostPath:
+            path: /etc/localtime
+            type: File
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dosbox-vs
+  annotations:
+    metallb.universe.tf/allow-shared-ip: default
+spec:
+  ports:
+  - port: 5901
+    name: dosbox-tcp
+    targetPort: 5901
+    protocol: TCP
+  loadBalancerIP: A.B.C.21
+  selector:
+    app: dosbox
+  type: LoadBalancer
+
