@@ -1,0 +1,110 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: juiceshop01-server
+  labels:
+    app: juiceshop01-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: juiceshop01-server
+  template:
+    metadata:
+      labels:
+        app: juiceshop01-server
+    spec:
+      containers:
+      - name: juiceshop01-server
+        image: bkimminich/juice-shop
+        ports:
+        - containerPort: 3000
+          name: juice01-http
+          protocol: TCP
+        volumeMounts:
+        - mountPath: /etc/timezone
+          name: timezonefile
+        - mountPath: /etc/localtime
+          name: localtimefile
+      volumes:
+      - name: timezonefile
+        hostPath:
+            path: /etc/timezone
+            type: File
+      - name: localtimefile
+        hostPath:
+            path: /etc/localtime
+            type: File
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: juiceshop01-vs
+  annotations:
+    metallb.universe.tf/allow-shared-ip: default
+spec:
+  ports:
+  - port: 8080
+    name: juice01-http
+    targetPort: 3000
+    protocol: TCP
+  loadBalancerIP: A.B.C.22
+  selector:
+    app: juiceshop01-server
+  type: LoadBalancer
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: juiceshop02-server
+  labels:
+    app: juiceshop02-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: juiceshop02-server
+  template:
+    metadata:
+      labels:
+        app: juiceshop02-server
+    spec:
+      containers:
+      - name: juiceshop02-server
+        image: bkimminich/juice-shop
+        ports:
+        - containerPort: 3000
+          name: juice02-http
+          protocol: TCP
+        volumeMounts:
+        - mountPath: /etc/timezone
+          name: timezonefile
+        - mountPath: /etc/localtime
+          name: localtimefile
+      volumes:
+      - name: timezonefile
+        hostPath:
+            path: /etc/timezone
+            type: File
+      - name: localtimefile
+        hostPath:
+            path: /etc/localtime
+            type: File
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: juiceshop02-vs
+  annotations:
+    metallb.universe.tf/allow-shared-ip: default
+spec:
+  ports:
+  - port: 8080
+    name: juice02-http
+    targetPort: 3000
+    protocol: TCP
+  loadBalancerIP: A.B.C.23
+  selector:
+    app: juiceshop02-server
+  type: LoadBalancer
