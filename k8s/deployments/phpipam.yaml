@@ -1,0 +1,163 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: phpipam
+  labels:
+    app: phpipam
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: phpipam
+  template:
+    metadata:
+      labels:
+        app: phpipam
+    spec:
+      hostname: phpipam
+      containers:
+      - name: phpipam
+        env:
+        - name: IPAM_DATABASE_USER
+          value: root
+        - name: IPAM_DATABASE_PASS
+          value: "!2938gjaouyFyowjTH-"
+        - name: IPAM_DATABASE_NAME
+          value: phpipam
+        - name: IPAM_DATABASE_PORT
+          value: "3306"
+        - name: IPAM_DATABASE_HOST
+          value: A.B.C.32
+        - name: SCAN_INTERVAL
+          value: "5m"
+#        - name: IPAM_CONFIG_FILE
+#          value: /config/config.php
+        image: phpipam/phpipam-www:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 80
+          name: http
+          protocol: TCP
+        - containerPort: 443
+          name: https
+          protocol: TCP
+        volumeMounts:
+        - mountPath: /phpipam
+          name: phpipam
+        - mountPath: /etc/timezone
+          name: timezonefile
+        - mountPath: /etc/localtime
+          name: localtimefile
+        resources:
+          limits:
+            cpu: ".5"
+            memory: "1Gi"
+          requests:
+            cpu: "0.25"
+            memory: "512Mi"
+
+      - name: phpipam-cron
+        image: phpipam/phpipam-cron:latest
+        imagePullPolicy: Always
+        env:
+        - name: TZ
+          value: US/Central
+        - name: IPAM_DATABASE_USER
+          value: root
+        - name: IPAM_DATABASE_HOST
+          value: A.B.C.32
+        - name: IPAM_DATABASE_PASS
+          value: "!2938gjaouyFyowjTH-"
+        - name: IPAM_DATABASE_NAME
+          value: phpipam
+        - name: IPAM_DATABASE_PORT
+          value: "3306"
+        - name: SCAN_INTERVAL
+          value: "5m"
+        - name: IPAM_DATABASE_WEBHOST 
+          value: A.B.C.32
+        - name: PROXY_ENABLED
+          value: "false"
+        - name: IPAM_DEBUG
+          value: "false"
+        volumeMounts:
+        - mountPath: /etc/timezone
+          name: timezonefile
+        - mountPath: /etc/localtime
+          name: localtimefile
+        resources:
+          limits:
+            cpu: ".5"
+            memory: "1Gi"
+          requests:
+            cpu: "0.25"
+            memory: "512Mi"
+
+      - name: phpipam-mariadb
+        image: mariadb:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 3306
+          name: dbport
+          protocol: TCP
+        env:
+        - name: MARIADB_ROOT_PASSWORD
+          value: "!2938gjaouyFyowjTH-"
+        volumeMounts:
+        - mountPath: /var/lib/mysql
+          name: database
+        - mountPath: /etc/timezone
+          name: timezonefile
+        - mountPath: /etc/localtime
+          name: localtimefile
+        resources:
+          limits:
+            cpu: ".5"
+            memory: "1Gi"
+          requests:
+            cpu: "0.25"
+            memory: "512Mi"
+
+      volumes:
+      - name: phpipam
+        hostPath:
+            path: /sharedpath/storagelocation/phpipam/phpipam
+            type: Directory
+      - name: database
+        hostPath:
+            path: /sharedpath/storagelocation/phpipam/database
+            type: Directory
+      - name: timezonefile
+        hostPath:
+            path: /etc/timezone
+            type: File
+      - name: localtimefile
+        hostPath:
+            path: /etc/localtime
+            type: File
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: phpipam-lab-vs
+  annotations:
+    metallb.universe.tf/allow-shared-ip: default
+spec:
+  ports:
+  - port: 80
+    name: http
+    targetPort: 80
+    protocol: TCP
+  - port: 443
+    name: https
+    targetPort: 443
+    protocol: TCP
+  - port: 3306
+    name: dbport
+    targetPort: 3306
+    protocol: TCP
+  loadBalancerIP: A.B.C.32
+  selector:
+    app: phpipam
+  type: LoadBalancer
