@@ -1,0 +1,107 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: registry
+  labels:
+    app: registry
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: registry
+  template:
+    metadata:
+      labels:
+        app: registry
+    spec:
+      containers:
+      - name: registry
+        env:
+#        - name: REGISTRY_AUTH
+#          value: htpasswd 
+#        - name: REGISTRY_AUTH_HTPASSWD_REALM
+#          value: "Registry Realm"
+#        - name: REGISTRY_AUTH_HTPASSWD_PATH
+#          value: /auth/htpasswd
+        - name: REGISTRY_HTTP_ADDR
+          value: 0.0.0.0:5000
+        - name: REGISTRY_HTTP_TLS_CERTIFICATE
+          value: /certs/public/domain.crt
+        - name: REGISTRY_HTTP_TLS_KEY
+          value: /certs/private/domain.key
+#Your registry must have `Access-Control-Allow-Origin` header set to `http://A.B.C.30`
+#        - name: REGISTRY_HTTP_HEADERS_Access-Control-Allow-Origin
+#          value: A.B.C.30
+
+#        REGISTRY_HTTP_HEADERS_Access-Control-Allow-Credentials: "[true]"
+#        REGISTRY_HTTP_HEADERS_Access-Control-Allow-Headers: "['Authorization', 'Accept']"
+#        REGISTRY_HTTP_HEADERS_Access-Control-Allow-Methods: "['HEAD', 'GET', 'OPTIONS']"
+
+        image: registry:2.7.0
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 5000
+          name: registry
+          protocol: TCP
+        volumeMounts:
+        - mountPath: /var/lib/registry
+          name: registry-repository
+        - mountPath: /certs
+          name: registry-certs
+        - mountPath: /etc/docker/registry/config.yml
+          name: registry-config
+        - mountPath: /auth
+          name: registry-auth
+        - mountPath: /etc/timezone
+          name: timezonefile
+        - mountPath: /etc/localtime
+          name: localtimefile
+        resources:
+          limits:
+            cpu: ".5"
+            memory: "1Gi"
+          requests:
+            cpu: "0.25"
+            memory: "512Mi"
+      volumes:
+      - name: registry-repository
+        hostPath:
+            path: /sharedpath/storagelocation/registry
+            type: Directory
+      - name: registry-auth
+        hostPath:
+            path: /sharedpath/storagelocation/registry/auth
+            type: Directory
+      - name: registry-certs
+        hostPath:
+            path: /sharedpath/storagelocation/registry/certs
+            type: Directory
+      - name: registry-config
+        hostPath:
+            path: /sharedpath/storagelocation/registry/config.yml
+            type: File
+      - name: timezonefile
+        hostPath:
+            path: /etc/timezone
+            type: File
+      - name: localtimefile
+        hostPath:
+            path: /etc/localtime
+            type: File
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: registery-vs
+  annotations:
+    metallb.universe.tf/allow-shared-ip: default
+spec:
+  ports:
+  - port: 5000
+    name: registry
+    targetPort: 5000
+    protocol: TCP
+  loadBalancerIP: A.B.C.30
+  selector:
+    app: registry
+  type: LoadBalancer
