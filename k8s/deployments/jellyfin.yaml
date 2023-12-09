@@ -1,0 +1,141 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jellyfin-server
+  labels:
+    app: jellyfin-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jellyfin-server
+  template:
+    metadata:
+      labels:
+        app: jellyfin-server
+    spec:
+      containers:
+      - name: jellyfin-server
+        env:
+        - name: PUID
+          value: "1000"
+        - name: PGID
+          value: "1000"
+        - name: TZ
+          value: America/Central
+        - name: JELLYFIN_PublishedServerUrl
+          value: A.B.C.37
+        image: linuxserver/jellyfin:latest
+        ports:
+        - containerPort: 22
+          name: jellyfin-ssh
+          protocol: TCP
+          protocol: TCP
+        - containerPort: 8096
+          name: jellyfin-8096
+          protocol: TCP
+        - containerPort: 8920
+          name: jellyfin-8920
+          protocol: TCP
+        - containerPort: 7359
+          name: jellyfin-7359
+          protocol: TCP
+        - containerPort: 1900
+          name: jellyfin-1900
+          protocol: TCP
+        volumeMounts:
+        - mountPath: /config
+          name: jellyfin-config
+        - mountPath: /data/movies
+          name: jellyfin-movies
+        - mountPath: /data/tvshows
+          name: jellyfin-tv
+        - mountPath: /data/bubbatv
+          name: jellyfin-bubba
+        - mountPath: /data/christmas
+          name: jellyfin-christmas
+        - mountPath: /data/family
+          name: jellyfin-family
+#        - mountPath: /data/new
+#          name: jellyfin-new
+        - mountPath: /etc/timezone
+          name: timezonefile
+        - mountPath: /etc/localtime
+          name: localtimefile
+        resources:
+          limits:
+            cpu: "2"
+            memory: "5Gi"
+          requests:
+            cpu: "2"
+            memory: "2Gi"
+      volumes:
+      - name: jellyfin-config
+        hostPath:
+            path: /sharedpath/storagelocation/jellyfin-server/config
+            type: Directory
+#      - name: jellyfin-new
+#        hostPath:
+#            path: /Movies/New
+#            type: Directory
+      - name: jellyfin-family
+        hostPath:
+            path: /Movies/Family
+            type: Directory
+      - name: jellyfin-christmas
+        hostPath:
+            path: /Movies/Christmas
+            type: Directory
+      - name: jellyfin-movies
+        hostPath:
+            path: /Movies/Movies
+            type: Directory
+      - name: jellyfin-tv
+        hostPath:
+            path: /Movies/TV
+            type: Directory
+      - name: jellyfin-bubba
+        hostPath:
+            path: /Movies/BubbaTV
+            type: Directory
+      - name: timezonefile
+        hostPath:
+            path: /etc/timezone
+            type: File
+      - name: localtimefile
+        hostPath:
+            path: /etc/localtime
+            type: File
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jellyfin-vs
+  annotations:
+    metallb.universe.tf/allow-shared-ip: default
+spec:
+  ports:
+  - port: 22
+    name: jellyfin-ssh
+    targetPort: 22
+    protocol: TCP
+  - port: 8096
+    name: jellyfin-8096
+    targetPort: 8096
+    protocol: TCP
+  - port: 8920
+    name: jellyfin-8920
+    targetPort: 8920
+    protocol: TCP
+  - port: 7359
+    name: jellyfin-7359
+    targetPort: 7359
+    protocol: TCP
+  - port: 1900
+    name: jellyfin-1900
+    targetPort: 1900
+    protocol: TCP
+  loadBalancerIP: A.B.C.37
+  selector:
+    app: jellyfin-server
+  type: LoadBalancer
