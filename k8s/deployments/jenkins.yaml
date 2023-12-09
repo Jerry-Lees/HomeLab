@@ -1,0 +1,97 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jenkins-server
+  labels:
+    app: jenkins
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jenkins
+  template:
+    metadata:
+      labels:
+        app: jenkins
+    spec:
+      containers:
+      - name: jenkins
+#        env:
+#        - name: jenkins_HOME
+#          value: /sharedpath/storagelocation/jenkins 
+        image: A.B.C.30:5000/jenkins:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+          name: jenkins-httpalt
+          protocol: TCP
+        - containerPort: 50000
+          name: jenkins-50000
+          protocol: TCP
+        - containerPort: 22
+          name: jenkins-22
+          protocol: TCP
+        volumeMounts:
+        - mountPath: /var/jenkins_home
+          name: jenkins-automation
+        - mountPath: /automation
+          name: jenkins-data
+        - mountPath: /orchestration
+          name: jenkins-orchestration
+        - mountPath: /etc/timezone
+          name: timezonefile
+        - mountPath: /etc/localtime
+          name: localtimefile
+        resources:
+          limits:
+            cpu: ".5"
+            memory: "1Gi"
+          requests:
+            cpu: "0.25"
+            memory: "512Mi"
+      volumes:
+      - name: jenkins-data
+        hostPath:
+            path: /sharedpath/storagelocation/jenkins/jenkins_home
+            type: Directory
+      - name: jenkins-automation
+        hostPath:
+            path: /sharedpath/storagelocation/jenkins/automation
+            type: Directory
+      - name: jenkins-orchestration
+        hostPath:
+            path: /sharedpath/storagelocation/orchestration
+            type: Directory
+      - name: timezonefile
+        hostPath:
+            path: /etc/timezone
+            type: File
+      - name: localtimefile
+        hostPath:
+            path: /etc/localtime
+            type: File
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jenkins-vs
+  annotations:
+    metallb.universe.tf/allow-shared-ip: default
+spec:
+  ports:
+  - port: 8080
+    name: jenkins-httpalt
+    targetPort: 8080
+    protocol: TCP
+  - port: 50000
+    name: jenkins-50000
+    targetPort: 50000
+  - port: 22
+    name: jenkins-22
+    targetPort: 22
+    protocol: TCP
+  loadBalancerIP: A.B.C.31
+  selector:
+    app: jenkins
+  type: LoadBalancer
+
