@@ -1,0 +1,101 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rsyslog
+  labels:
+    app: rsyslog
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rsyslog
+  template:
+    metadata:
+      labels:
+        app: rsyslog
+    spec:
+      containers:
+      - name: rsyslog
+        securityContext:
+          capabilities:
+            add:
+              - NET_ADMIN
+        env:
+        - name: SYSLOG_USERNAME
+          value: 'root'
+        - name: SYSLOG_PASSWORD
+          value: "P@ssw0rd" 
+        image: pbertera/syslogserver
+        ports:
+        - containerPort: 80
+          name: dns-tcp
+          protocol: TCP
+        - containerPort: 514
+          name: dns-udp
+          protocol: UDP
+        volumeMounts:
+        - mountPath: /var/log
+          name: rsyslog-config
+        - mountPath: /var/spool/rrsyslog
+          name: rsyslog-spool
+        - mountPath: /etc/timezone
+          name: timezonefile
+        - mountPath: /etc/localtime
+          name: localtimefile
+        resources:
+          limits:
+            cpu: ".5"
+            memory: "1Gi"
+          requests:
+            cpu: "0.25"
+            memory: "512Mi"
+      volumes:
+      - name: rsyslog-config
+        hostPath:
+            path: /sharedpath/storagelocation/rsyslog/log
+            type: Directory
+      - name: rsyslog-spool
+        hostPath:
+            path: /sharedpath/storagelocation/rsyslog/rsyslog
+            type: Directory
+      - name: timezonefile
+        hostPath:
+            path: /etc/timezone
+            type: File
+      - name: localtimefile
+        hostPath:
+            path: /etc/localtime
+            type: File
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rsyslog-vs
+  annotations:
+    metallb.universe.tf/allow-shared-ip: default
+spec:
+  ports:
+  - port: 80
+    name: rsyslog-tcp
+    targetPort: 80
+  loadBalancerIP: A.B.C.14
+  selector:
+    app: rsyslog
+  type: LoadBalancer
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rsyslog-udp-vs
+  annotations:
+    metallb.universe.tf/allow-shared-ip: default
+spec:
+  ports:
+  - port: 514
+    name: rsyslog-udp
+    targetPort: 514
+    protocol: UDP
+  loadBalancerIP: A.B.C.14
+  selector:
+    app: rsyslog
+  type: LoadBalancer
