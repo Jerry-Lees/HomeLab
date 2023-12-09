@@ -1,0 +1,108 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pihole
+  labels:
+    app: pihole
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pihole
+  template:
+    metadata:
+      labels:
+        app: pihole
+    spec:
+      containers:
+      - name: pihole
+        securityContext:
+          capabilities:
+            add:
+              - NET_ADMIN
+        env:
+        - name: TZ
+          value: 'America/Chicago'
+        - name: WEBPASSWORD
+          value: "P@ssw0rd" 
+        image: pihole/pihole
+        ports:
+        - containerPort: 53
+          name: dns-tcp
+          protocol: TCP
+        - containerPort: 53
+          name: dns-udp
+          protocol: UDP
+        - containerPort: 80
+          name: http
+          protocol: TCP
+        - containerPort: 443
+          name: https
+          protocol: TCP
+        - containerPort: 67
+          name: dhcp
+          protocol: UDP
+        volumeMounts:
+        - mountPath: /etc/pihole
+          name: pihole-config
+        - mountPath: /etc/dnsmasq.d
+          name: dnsmasq-d
+#        resources:
+#          limits:
+#            cpu: ".5"
+#            memory: "1Gi"
+#          requests:
+#            cpu: "0.25"
+#            memory: "512Mi"
+      volumes:
+      - name: pihole-config
+        hostPath:
+            path: /sharedpath/storagelocation/pihole/config
+            type: Directory
+      - name: dnsmasq-d
+        hostPath:
+            path: /sharedpath/storagelocation/pihole/dnsmasq.d
+            type: Directory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pihole-vs
+  annotations:
+    metallb.universe.tf/allow-shared-ip: default
+spec:
+  ports:
+  - port: 53
+    name: pihole-tcp
+    targetPort: 53
+  - port: 80
+    name: http
+    targetPort: 80
+  - port: 443
+    name: https
+    targetPort: 443
+  loadBalancerIP: A.B.C.13
+  selector:
+    app: pihole
+  type: LoadBalancer
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pihole-udp-vs
+  annotations:
+    metallb.universe.tf/allow-shared-ip: default
+spec:
+  ports:
+  - port: 53
+    name: pihole-udp
+    targetPort: 53
+    protocol: UDP
+  - port: 67
+    name: pihole-dhcp
+    targetPort: 53
+    protocol: UDP
+  loadBalancerIP: A.B.C.13
+  selector:
+    app: pihole
+  type: LoadBalancer
