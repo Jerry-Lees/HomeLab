@@ -1,0 +1,96 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mediawiki
+  labels:
+    app: wiki
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wiki
+  template:
+    metadata:
+      labels:
+        app: wiki
+    spec:
+      containers:
+      - name: wiki
+        env:
+        - name: ROOT_PASSWORD
+          value: P@ssw0rd 
+        image: mediawiki:1.35.1
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+          name: wiki-tcp
+          protocol: TCP
+        volumeMounts:
+#        - mountPath: /var/www
+#          name: wiki-config
+        - mountPath: /var/www/data
+          name: wiki-database
+        - mountPath: /var/www/html/includes/Setup.php
+          name: wiki-setupphp
+        - mountPath: /var/www/html/LocalSettings.php
+          name: localsettings
+        - mountPath: /uploads
+          name: wiki-uploads
+        - mountPath: /var/www/html/extensions
+          name: wiki-extensions
+        - mountPath: /var/log
+          name: wiki-oslogs
+        - mountPath: /etc/timezone
+          name: timezonefile
+        - mountPath: /etc/localtime
+          name: localtimefile
+      volumes:
+      - name: wiki-database
+        hostPath:
+            path: /sharedpath/storagelocation/mediawiki/wikifiles/data
+            type: Directory
+      - name: wiki-setupphp
+        hostPath:
+            path: /sharedpath/storagelocation/mediawiki/configfiles/Setup.php
+            type: File
+      - name: localsettings
+        hostPath:
+            path: /sharedpath/storagelocation/mediawiki/configfiles/LocalSettings.php
+            type: File
+      - name: wiki-uploads
+        hostPath:
+            path: /sharedpath/storagelocation/mediawiki/uploads
+            type: Directory
+      - name: wiki-extensions
+        hostPath:
+            path: /sharedpath/storagelocation/mediawiki/extensions
+            type: Directory
+      - name: wiki-oslogs
+        hostPath:
+            path: /sharedpath/storagelocation/mediawiki/oslogs
+            type: Directory
+      - name: timezonefile
+        hostPath:
+            path: /etc/timezone
+            type: File
+      - name: localtimefile
+        hostPath:
+            path: /etc/localtime
+            type: File
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wiki-vs
+  annotations:
+    metallb.universe.tf/allow-shared-ip: default
+spec:
+  ports:
+  - port: 80
+    name: wiki-tcp
+    targetPort: 80
+    protocol: TCP
+  loadBalancerIP: A.B.C.20
+  selector:
+    app: wiki
+  type: LoadBalancer
