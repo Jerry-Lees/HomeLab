@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: guacamole
+  labels:
+    app: wiki
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: guac
+  template:
+    metadata:
+      labels:
+        app: guac
+    spec:
+      containers:
+      - name: guac
+        env:
+        - name: TZ
+          value: "Americas/Chicago"
+        image: abesnier/guacamole:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+          name: guac-tcp
+          protocol: TCP
+        volumeMounts:
+        - mountPath: /config
+          name: guac-config
+        - mountPath: /etc/timezone
+          name: timezonefile
+        - mountPath: /etc/localtime
+          name: localtimefile
+      volumes:
+      - name: guac-config
+        hostPath:
+            path: /sharedpath/storagelocation/guacamole/config
+            type: Directory
+      - name: timezonefile
+        hostPath:
+            path: /etc/timezone
+            type: File
+      - name: localtimefile
+        hostPath:
+            path: /etc/localtime
+            type: File
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: guac-vs
+  annotations:
+    metallb.universe.tf/allow-shared-ip: default
+spec:
+  ports:
+  - port: 8080
+    name: guac-tcp
+    targetPort: 8080
+    protocol: TCP
+  loadBalancerIP: A.B.C.38
+  selector:
+    app: guac
+  type: LoadBalancer
