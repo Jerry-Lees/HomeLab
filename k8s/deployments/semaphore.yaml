@@ -1,0 +1,78 @@
+#Deployment and service yaml file to deploy my "ansible semaphore runner" container.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: semaphore
+  labels:
+    app: semaphore
+spec:
+  selector:
+    matchLabels:
+      app: semaphore
+  template:
+    metadata:
+      labels:
+        app: semaphore
+    spec:
+      containers:
+      - name: semaphore
+        env:
+        - name: SEMAPHORE_DB_DIALECT
+          value: bolt
+        - name: SEMAPHORE_ADMIN_PASSWORD
+          value: P@ssw0rd
+        - name: SEMAPHORE_ADMIN_NAME
+          value: admin
+        - name: SEMAPHORE_ADMIN_EMAIL
+          value: admin@localhost
+        - name: SEMAPHORE_ADMIN
+          value: admin        
+        image: semaphoreui/semaphore:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 3000
+          name: semaphore
+          protocol: TCP
+        volumeMounts:
+        - mountPath: /etc/semaphore # config.json location
+          name: semaphore-config
+        - mountPath: /var/lib/semaphore # database.boltdb location (Not required if using mysql or postgres)
+          name: semaphore-db
+        - mountPath: /ansible # ansible files
+          name: ansiblefiles
+          
+# I "cheat" a bit with file storage. I use an iSCSI mount to a NAS rather than deal with storage classes. This is a folder mounted as /sharedpath/storagelocation/semaphorehost/semaphore
+# Yeah, it's several hundreds of dollars for that...
+# but my time is worth something, and in the long run it's way cheaper than continuing to patch the holes in the drywall. ;-)
+      volumes:
+      - name: semaphore-config
+        hostPath:
+            path: /sharedpath/storagelocation/semaphorehost/home
+            type: Directory
+      - name: semaphore-db
+        hostPath:
+            path: /sharedpath/storagelocation/semaphorehost/lib
+            type: Directory
+      - name: ansiblefiles
+        hostPath:
+            path: /sharedpath/storagelocation/ansiblehost/ansible
+            type: Directory
+
+---
+#I use metallb to simplify ingress in a L2 configuration. https://metallb.universe.tf/
+apiVersion: v1
+kind: Service
+metadata:
+  name: semaphore-vs
+  annotations:
+    metallb.universe.tf/allow-shared-ip: default
+spec:
+  ports:
+  - port: 3000
+    name: semaphore
+    targetPort: 3000
+    protocol: TCP
+  loadBalancerIP: A.B.C.15
+  selector:
+    app: semaphore
+  type: LoadBalancer
