@@ -63,7 +63,7 @@ spec:
             path: /sharedpath/storagelocation/ansiblehost/ansible
             type: Directory
       - name: ansible-cron
-        hostPath:cho
+        hostPath:
             path: /sharedpath/storagelocation/ansiblehost/cron.d
             type: Directory
       - name: ansible-crondaily
