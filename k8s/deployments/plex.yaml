@@ -1,0 +1,140 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: plex-server
+  labels:
+    app: plex-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: plex-server
+  template:
+    metadata:
+      labels:
+        app: plex-server
+    spec:
+      containers:
+      - name: plex-server
+        env:
+#replace YOUR claim ID below:
+        - name: PLEX_CLAIM
+          value: claim-ID-GOES-HERE
+        image: linuxserver/plex:latest
+        ports:
+        - containerPort: 22
+          name: plex-ssh
+          protocol: TCP
+        - containerPort: 32400
+          name: plex-www
+          protocol: TCP
+        - containerPort: 1900
+          name: plex-dlna1
+          protocol: UDP
+        - containerPort: 5353
+          name: plex-bonjour
+          protocol: UDP
+        - containerPort: 8234
+          name: plex-roku
+          protocol: UDP
+        - containerPort: 42410
+          name: plex-gdm1
+          protocol: UDP
+        - containerPort: 32412
+          name: plex-gdm2
+          protocol: UDP
+        - containerPort: 32413
+          name: plex-gdm3
+          protocol: UDP
+        - containerPort: 32414
+          name: plex-gdm4
+          protocol: UDP
+        - containerPort: 32469
+          name: plex-dlna2
+          protocol: UDP
+        volumeMounts:
+        - mountPath: /config
+          name: plex-config
+        - mountPath: /Movies
+          name: plex-movies
+        - mountPath: /etc/timezone
+          name: timezonefile
+        - mountPath: /etc/localtime
+          name: localtimefile
+        resources:
+          limits:
+            cpu: "2"
+            memory: "5Gi"
+          requests:
+            cpu: "2"
+            memory: "2Gi"
+      volumes:
+      - name: plex-config
+        hostPath:
+            path: /sharedpath/storagelocation/plex-server/config
+            type: Directory
+      - name: plex-movies
+        hostPath:
+            path: /Movies # The exported directory
+            type: Directory
+      - name: timezonefile
+        hostPath:
+            path: /etc/timezone
+            type: File
+      - name: localtimefile
+        hostPath:
+            path: /etc/localtime
+            type: File
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: plex-vs
+  annotations:
+    metallb.universe.tf/allow-shared-ip: default
+spec:
+  ports:
+  - port: 22
+    name: plex-ssh
+    targetPort: 22
+    protocol: TCP
+  - port: 32400
+    name: plex-www
+    targetPort: 32400
+    protocol: TCP
+  - port: 1900
+    name: plex-dlna1
+    targetPort: 1900
+    protocol: TCP
+  - port: 5353
+    name: plex-bonjour
+    targetPort: 5353
+    protocol: TCP
+  - port: 8234
+    name: plex-roku
+    targetPort: 8234
+    protocol: TCP
+  - port: 42410
+    name: plex-gdm1
+    targetPort: 42410
+    protocol: TCP
+  - port: 32412
+    name: plex-gdm2
+    targetPort: 32412
+    protocol: TCP
+  - port: 32413
+    name: plex-gdm3
+    targetPort: 32413
+    protocol: TCP
+  - port: 32414
+    name: plex-gdm4
+    targetPort: 32414
+    protocol: TCP
+  - port: 32490
+    name: plex-dlna2
+    targetPort: 32490
+    protocol: TCP
+  loadBalancerIP: A.B.C.36
+  selector:
+    app: plex-server
+  type: LoadBalancer
