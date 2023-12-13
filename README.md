@@ -29,23 +29,28 @@ The below sections detail the things you will have to modify for certain.
 ## Fix IPs
 Obviously, Internal IPs need to be masked. I will replace the first three octets of my internal addresses with "A.B.C.", "A.B.D.", etc. A sed statement with your ranges should be all that's needed to correct this... and of course make sure you aren't generating duplicates on your network.
 
- sed -i "s/A.B.C./[your subnet here]/g" $1
+ sed -i "s/A.B.C./[your subnet here]/g" filename.yaml
   or
- sed -i "s/A.B.D./[your subnet here]/g" $1
+ sed -i "s/A.B.D./[your subnet here]/g" filename.yaml
 
 ## Password masking
 Clearly passwords need to go from the files to be sharable. No... P@ssw0rd, P@ssw0rd01, and Password01 are *NOT* my passwords. 
 
- sed -i "s/P@ssw0rd/[your password here]/g" $1
+ sed -i "s/P@ssw0rd/[your password here]/g" filename.yaml
   or 
- sed -i "s/P@ssw0rd01/[your password here]/g" $1
+ sed -i "s/P@ssw0rd01/[your password here]/g" filename.yaml
   or 
- sed -i "s/Password01/[your password here]/g" $1
+ sed -i "s/Password01/[your password here]/g" filename.yaml
 
 ## Path masking
 Paths should also me masked, so the following will assist you in that effort. (Though, you could also do away with the mechanism I mention above and NOT use an iSCSI disk like I am and manage your own storage methods. That is an excercise for the reader.)
 
- sed -i "s/\/sharedpath\/storagelocation\//\/mount-point-here\/path-here\//g" $1
+ sed -i "s/\/sharedpath\/storagelocation\//\/mount-point-here\/path-here\//g" filename.yaml
+
+## Domain/FQDN masking
+domainnames needed to be masked as well. To undo this, run the following:
+sed -i "s/example.com/your-domain.tld/g" filename.yaml
+
  
 ## Tricks/Lessons learned
 
