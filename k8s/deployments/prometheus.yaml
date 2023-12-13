@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  labels:
+    app: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      containers:
+      - name: prometheus
+        env:
+#        - name: 
+#          value: 
+        image: prom/prometheus:latest
+        ports:
+        - containerPort: 9090
+          name: prometheus
+          protocol: TCP
+        volumeMounts:
+        - mountPath: /tempmnt
+          name: tmp
+        - mountPath: /etc/prometheus/prometheus.yml
+          name: prometheus-yml
+        - mountPath: /etc/timezone
+          name: timezonefile
+        - mountPath: /etc/localtime
+          name: localtimefile
+        resources:
+          limits:
+            cpu: ".5"
+            memory: "1Gi"
+          requests:
+            cpu: "0.25"
+            memory: "512Mi"
+      volumes:
+      - name: tmp
+        hostPath:
+            path: /sharedpath/storagelocation/prometheus/
+            type: Directory
+      - name: prometheus-yml
+        hostPath:
+            path: /sharedpath/storagelocation/prometheus/config/prometheus.yml
+            type: File
+      - name: timezonefile
+        hostPath:
+            path: /etc/timezone
+            type: File
+      - name: localtimefile
+        hostPath:
+            path: /etc/localtime
+            type: File
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-vs
+  annotations:
+    metallb.universe.tf/allow-shared-ip: default
+spec:
+  ports:
+  - port: 9090
+    name: prometheus
+    targetPort: 9090
+    protocol: TCP
+  loadBalancerIP: A.B.C.27
+  selector:
+    app: prometheus
+  type: LoadBalancer
