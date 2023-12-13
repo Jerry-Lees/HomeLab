@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: splunkapp
+  labels:
+    app: splunk
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: splunk
+  template:
+    metadata:
+      labels:
+        app: splunk
+    spec:
+      containers:
+      - name: splunk
+        env:
+        - name: SPLUNK_PASSWORD
+          value: P@ssw0rd01
+        - name: SPLUNK_START_ARGS
+          value: "--accept-license"
+        image: splunk/splunk:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+          name: splunk-tcp
+          protocol: TCP
+        volumeMounts:
+        - mountPath: /opt/splunk/etc/system/local2
+          name: splunk-local
+        - mountPath: /opt/splunk/etc/apps
+          name: splunk-apps
+        - mountPath: /opt/splunk/var/lib/splunk2
+          name: splunk-tmp
+        - mountPath: /etc/timezone
+          name: timezonefile
+        - mountPath: /etc/localtime
+          name: localtimefile
+        resources:
+          limits:
+            cpu: ".5"
+            memory: "1Gi"
+          requests:
+            cpu: "0.25"
+            memory: "512Mi"
+      volumes:
+      - name: splunk-local
+        hostPath:
+            path: /sharedpath/storagelocation/splunk/etc/system/local/
+            type: Directory
+      - name: splunk-apps
+        hostPath:
+            path: /sharedpath/storagelocation/splunk/etc/apps/
+            type: Directory
+      - name: splunk-tmp
+        hostPath:
+            path: /sharedpath/storagelocation/splunk/var/lib/splunk/
+            type: Directory
+      - name: timezonefile
+        hostPath:
+            path: /etc/timezone
+            type: File
+      - name: localtimefile
+        hostPath:
+            path: /etc/localtime
+            type: File
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: splunk-vs
+  annotations:
+    metallb.universe.tf/allow-shared-ip: default
+spec:
+  ports:
+  - port: 8000
+    name: splunk-tcp
+    targetPort: 8000
+    protocol: TCP
+  loadBalancerIP: A.B.C.27
+  selector:
+    app: splunk
+  type: LoadBalancer
