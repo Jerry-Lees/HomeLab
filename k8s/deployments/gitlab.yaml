@@ -1,0 +1,171 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitlab-server
+  labels:
+    app: gitlab
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gitlab
+  template:
+    metadata:
+      labels:
+        app: gitlab
+    spec:
+      containers:
+      - name: gitlab
+        env:
+        - name: GITLAB_HOME
+          value: /sharedpath/storagelocation/gitlab 
+        - name: GITLAB_SKIP_UNMIGRATED_DATA_CHECK
+          value: "true"
+#NOTE!!! In the below entries, you will need to generate your own certs/keys/etc.
+        - name: GITLAB_OMNIBUS_CONFIG
+          value: |
+            # Add any other gitlab.rb configuration here, each on its own line
+            external_url 'https://gitlab.example.com'
+            gitlab_rails['internal_api_url'] = 'https://gitlab.example.com'
+            gitlab_rails['gitlab_shell_ssh_port'] = 22
+            nginx['redirect_http_to_https'] = true
+            nginx['ssl_certificate'] = "/etc/gitlab/ssl/gitlab.example.com.crt"#"/etc/gitlab/ssl/fullchain.pem"
+            nginx['ssl_certificate_key'] = "/etc/gitlab/ssl/gitlab.example.com.key"#"/etc/gitlab/ssl/privkey.pem"
+            nginx['ssl_dhparam'] = "/etc/gitlab/ssl/dhparams.pem"
+            prometheus['monitor_kubernetes'] = false
+#for upgrading
+        image: gitlab/gitlab-ce:latest
+        imagePullPolicy: Always
+        resources:
+          requests:
+            memory: "1G"
+            cpu: "1"
+          limits:
+            memory: "1500G"
+            cpu: "2"
+#        image: gitlab/gitlab-ce:latest
+#        imagePullPolicy: Always
+#for normal, versions from: https://hub.docker.com/r/gitlab/gitlab-ce/tags
+#        image: gitlab/gitlab-ce:16.2.3-ce.0
+#        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 80
+          name: gitlab-http
+          protocol: TCP
+        - containerPort: 443
+          name: gitlab-https
+          protocol: TCP
+        - containerPort: 22
+          name: gitlab-ssh
+          protocol: TCP
+        volumeMounts:
+        - mountPath: /var/opt/gitlab
+          name: gitlab-data
+        - mountPath: /etc/gitlab/ssl/dhparams.pem
+          name: gitlab-dhparms
+        - mountPath: /etc/gitlab/ssl/gitlab.example.com.crt
+          name: gitlab-crt
+        - mountPath: /etc/gitlab/ssl/gitlab.example.com.key
+          name: gitlab-key
+        - mountPath: /var/log/gitlab
+          name: gitlab-log-general
+        - mountPath: /opt/gitlab/version-manifest.txt
+          name: gitlab-version-manifest
+#        - mountPath: /etc/gitlab
+#          name: gitlab-config
+#        - mountPath: /etc/ssh/ssh_config
+#          name: gitlab-sshconfig
+#        - mountPath: /etc/ssh/sshd_config
+#          name: gitlab-sshdconfig
+        - mountPath: /etc/timezone
+          name: gitlab-timezone
+        - mountPath: /etc/localtime
+          name: gitlab-localtime
+#        - mountPath: /opt/gitlab/embedded/cookbooks/cache
+#          name: gitlab-chefcache
+#        - mountPath: /var/opt/gitlab/postgresql/data/postgresql.conf
+#          name: gitlab-pgconf
+      volumes:
+#      - name: gitlab-chefcache
+#        hostPath:
+#            path: /sharedpath/storagelocation/gitlab/chefcache
+#            type: Directory
+      - name: gitlab-dhparms
+        hostPath:
+            path: /sharedpath/storagelocation/gitlab/dhparms.pem
+            type: File
+      - name: gitlab-crt
+        hostPath:
+            path: /sharedpath/storagelocation/gitlab/gitlab.example.com.crt
+            type: File
+      - name: gitlab-key
+        hostPath:
+            path: /sharedpath/storagelocation/gitlab/gitlab.example.com.key
+            type: File
+      - name: gitlab-data
+        hostPath:
+            path: /sharedpath/storagelocation/gitlab/data
+            type: Directory
+      - name: gitlab-log-general
+        hostPath:
+            path: /sharedpath/storagelocation/gitlab/logs
+            type: Directory
+##      - name: gitlab-log-gitlab-rails
+##        hostPath:
+##            path: /sharedpath/storagelocation/gitlab/logs/log-gitlab-rails
+##            type: Directory
+      - name: gitlab-version-manifest
+        hostPath:
+            path: /sharedpath/storagelocation/gitlab/version-manifest.txt
+            type: File
+#      - name: gitlab-config
+#        hostPath:
+#            path: /sharedpath/storagelocation/gitlab/config
+#            type: Directory
+#      - name: gitlab-sshconfig
+#        hostPath:
+#            path: /sharedpath/storagelocation/gitlab/ssh_config
+#            type: File
+#      - name: gitlab-sshdconfig
+#        hostPath:
+#            path: /sharedpath/storagelocation/gitlab/sshd_config
+#            type: File
+#      - name: gitlab-pgconf
+#        hostPath:
+#            path: /sharedpath/storagelocation/gitlab/postgresql.conf
+#            type: File
+      - name: gitlab-timezone
+        hostPath:
+            path: /etc/timezone
+            type: File
+      - name: gitlab-localtime
+        hostPath:
+            path: /etc/localtime
+            type: File
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gitlab-vs
+  annotations:
+    metallb.universe.tf/allow-shared-ip: default
+spec:
+  ports:
+  - port: 22
+    name: gitlab-ssh
+    targetPort: 22
+    protocol: TCP
+  - port: 80
+    name: gitlab-http
+    targetPort: 80
+    protocol: TCP
+  - port: 443
+    name: gitlab-https
+    targetPort: 443
+    protocol: TCP
+  loadBalancerIP: A.B.C.26
+  selector:
+    app: gitlab
+  type: LoadBalancer
+
