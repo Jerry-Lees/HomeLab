@@ -1,0 +1,97 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  labels:
+    app: grafana
+spec:
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      imagePullSecrets:
+      - name: regcred
+      containers:
+      - name: grafana
+        env:
+        - name: GF_LOG_MODE
+          value: "console file"
+#        - name: 
+#          value: 
+        image: grafana/grafana-oss:latest
+        ports:
+        - containerPort: 3000
+          name: grafana
+          protocol: TCP
+        volumeMounts:
+        - mountPath: /tempmnt
+          name: tmp
+        - mountPath: /var/lib/grafana
+          name: grafana-storage
+        - mountPath: /etc/grafana/
+          name: grafana-config
+        - mountPath: /usr/share/grafana
+          name: grafana-home
+        - mountPath: /var/log/grafana
+          name: grafana-logs
+        - mountPath: /etc/timezone
+          name: timezonefile
+        - mountPath: /etc/localtime
+          name: localtimefile
+        resources:
+          limits:
+            cpu: ".5"
+            memory: "1Gi"
+          requests:
+            cpu: "0.25"
+            memory: "512Mi"
+      volumes:
+      - name: tmp
+        hostPath:
+            path: /sharedpath/storagelocation/grafana/
+            type: Directory
+      - name: grafana-storage
+        hostPath:
+            path: /sharedpath/storagelocation/grafana/storage/
+            type: Directory
+      - name: grafana-config
+        hostPath:
+            path: /sharedpath/storagelocation/grafana/config/
+            type: Directory
+      - name: grafana-home
+        hostPath:
+            path: /sharedpath/storagelocation/grafana/home/
+            type: Directory
+      - name: grafana-logs
+        hostPath:
+            path: /sharedpath/storagelocation/grafana/logs/
+            type: Directory
+      - name: timezonefile
+        hostPath:
+            path: /etc/timezone
+            type: File
+      - name: localtimefile
+        hostPath:
+            path: /etc/localtime
+            type: File
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana-vs
+  annotations:
+    metallb.universe.tf/allow-shared-ip: default
+spec:
+  ports:
+  - port: 3000
+    name: grafana
+    targetPort: 3000
+    protocol: TCP
+  loadBalancerIP: A.B.C.26
+  selector:
+    app: grafana
+  type: LoadBalancer

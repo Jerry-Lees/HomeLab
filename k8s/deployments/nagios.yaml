@@ -1,0 +1,107 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nagios-core-docker
+  labels:
+    app: nagios-core-docker
+spec:
+  selector:
+    matchLabels:
+      app: nagios-core-docker
+  template:
+    metadata:
+      labels:
+        app: nagios-core-docker
+    spec:
+      containers:
+      - name: nagios-core-docker
+        image: A.B.C.30:5000/nagios-core:latest #was 4.1.14
+        ports:
+        - containerPort: 22
+          name: nagios-ssh
+          protocol: TCP
+        - containerPort: 80
+          name: nagios-www
+          protocol: TCP
+        - containerPort: 443
+          name: nagios-https
+          protocol: TCP
+#        - containerPort: 10000
+#          name: nagios-core-webmin
+#          protocol: TCP
+        volumeMounts:
+        - mountPath: /usr/local/nagios/etc
+          name: nagios-core-docker-config
+        - mountPath: /usr/local/nagios/var/nagios.log
+          name: nagios-core-docker-log
+        - mountPath: /usr/local/nagios/libexec
+          name: nagios-core-docker-plugins
+        - mountPath: /etc/timezone
+          name: timezonefile
+        - mountPath: /etc/localtime
+          name: localtimefile
+        - mountPath: /usr/share/snmp/mibs/
+          name: nagios-core-docker-mibs
+
+        resources:
+          limits:
+            cpu: "1"
+            memory: "1Gi"
+          requests:
+            cpu: ".5"
+            memory: "512Mi"
+      volumes:
+      - name: nagios-core-docker-plugins
+        hostPath:
+            path: /sharedpath/storagelocation/nagios-core-docker/libexec
+            type: Directory
+      - name: nagios-core-docker-config
+        hostPath:
+            path: /sharedpath/storagelocation/nagios-core-docker/etc
+            type: Directory
+      - name: nagios-core-docker-log
+        hostPath:
+            path: /sharedpath/storagelocation/nagios-core-docker/logs/nagios.log
+            type: File
+      - name: timezonefile
+        hostPath:
+            path: /etc/timezone
+            type: File
+      - name: localtimefile
+        hostPath:
+            path: /etc/localtime
+            type: File
+      - name: nagios-core-docker-mibs
+        hostPath:
+            path: /sharedpath/storagelocation/nagios-core-docker/mibs
+            type: Directory
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nagios-core-docker-vs
+  annotations:
+    metallb.universe.tf/allow-shared-ip: default
+spec:
+  ports:
+  - port: 22
+    name: nagios-ssh
+    targetPort: 22
+    protocol: TCP
+  - port: 80
+    name: nagios-www
+    targetPort: 80
+    protocol: TCP
+  - port: 443
+    name: nagios-https
+    targetPort: 443
+    protocol: TCP
+#  - port: 10000
+#    name: nagios-webmin
+#    targetPort: 10000
+#    protocol: TCP
+  loadBalancerIP: A.B.C.35
+  selector:
+    app: nagios-core-docker
+  type: LoadBalancer
