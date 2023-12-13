@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nessus01-http
+  labels:
+    app: nessus01
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nessus01
+  template:
+    metadata:
+      labels:
+        app: nessus01
+    spec:
+      containers:
+      - name: nessus01
+        env:
+          - name: USERNAME
+            value: "admin"
+          - name: PASSWORD
+            value: "P@ssw0rd"
+          - name: AUTO_UPDATE
+            value: "all"
+        image: tenableofficial/nessus
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8834
+          name: nessus01-http
+          protocol: TCP
+        volumeMounts:
+        - mountPath: /opt/nessus/
+          name: nessus-optapp
+        - mountPath: /var/nessus/
+          name: nessus-var
+        - mountPath: /etc/timezone
+          name: timezonefile
+        - mountPath: /etc/localtime
+          name: localtimefile
+        resources:
+          limits:
+            cpu: ".2"
+            memory: "1Gi"
+          requests:
+            cpu: "0.1"
+            memory: "512Mi"
+      volumes:
+      - name: nessus-optapp
+        hostPath:
+            path: /sharedpath/storagelocation/nessus/opt/nessus
+            type: Directory
+      - name: nessus-var
+        hostPath:
+            path: /sharedpath/storagelocation/nessus/var/nessus
+            type: Directory
+      - name: timezonefile
+        hostPath:
+            path: /etc/timezone
+            type: File
+      - name: localtimefile
+        hostPath:
+            path: /etc/localtime
+            type: File
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nessus01-vs
+  annotations:
+    metallb.universe.tf/allow-shared-ip: default
+spec:
+  ports:
+  - port: 8834
+    name: nessus01-http
+    targetPort: 8834
+    protocol: TCP
+  loadBalancerIP: A.B.C.125
+  selector:
+    app: nessus01
+  type: LoadBalancer
