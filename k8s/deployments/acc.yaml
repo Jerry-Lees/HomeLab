@@ -1,0 +1,67 @@
+#Note: To execute a converstion run the following curl command
+# curl A.B.C.16:8080/as3converter -X POST  --form "conf=@bigip.conf" --form "output=output.json" --form "verbose=true" |jq .
+#   where @bigip.conf is the configuration file in the CURRENT DIRECTORY (keep the @ if you have a config file that is not named bigip.conf)
+#   and A.B.C.16 is the address defined in the service definition below.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: acc-lab
+  labels:
+    app: acc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: acc
+  template:
+    metadata:
+      labels:
+        app: acc
+    spec:
+      containers:
+      - name: acc
+        args: ["serve"]
+        image: f5devcentral/f5-as3-config-converter:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        volumeMounts:
+        - mountPath: /app/data
+          name: appdata
+        - mountPath: /etc/timezone
+          name: timezonefile
+        - mountPath: /etc/localtime
+          name: localtimefile
+      volumes:
+      - name: appdata
+        hostPath:
+            path: /sharedpath/storagelocation/acc
+            type: Directory
+      - name: timezonefile
+        hostPath:
+            path: /etc/timezone
+            type: File
+      - name: localtimefile
+        hostPath:
+            path: /etc/localtime
+            type: File
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: acc-vs
+  annotations:
+    metallb.universe.tf/allow-shared-ip: default
+spec:
+  ports:
+  - port: 8080
+    name: http
+    targetPort: 8080
+    protocol: TCP
+  loadBalancerIP: A.B.C.16
+  selector:
+    app: acc
+  type: LoadBalancer
