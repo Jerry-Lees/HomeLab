@@ -56,8 +56,8 @@ spec:
           name: jellyfin-christmas
         - mountPath: /data/family
           name: jellyfin-family
-#        - mountPath: /data/new
-#          name: jellyfin-new
+        - mountPath: /data/Hallmark
+          name: jellyfin-hall
         - mountPath: /etc/timezone
           name: timezonefile
         - mountPath: /etc/localtime
@@ -74,10 +74,10 @@ spec:
         hostPath:
             path: /sharedpath/storagelocation/jellyfin-server/config
             type: Directory
-#      - name: jellyfin-new
-#        hostPath:
-#            path: /Movies/New
-#            type: Directory
+      - name: jellyfin-hall
+        hostPath:
+            path: /Movies/Hallmark
+            type: Directory
       - name: jellyfin-family
         hostPath:
             path: /Movies/Family
