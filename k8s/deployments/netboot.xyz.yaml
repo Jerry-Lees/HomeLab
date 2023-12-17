@@ -1,0 +1,102 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: netbootxyz
+  labels:
+    app: netboot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: netboot
+  template:
+    metadata:
+      labels:
+        app: netboot
+    spec:
+      containers:
+      - name: netbootxyz
+        env:
+        - name: PUID
+          value: "1000"
+        - name: PGID
+          value: "1000"
+        - name: TZ
+          value: "Americas/Chicago"
+#        - name: MENU_VERSION
+#          value: "1.9.9"
+        - name: PORT_RANGE
+          value: "30000:30010"
+        - name: SUBFOLDER
+          value: "/"
+        image: linuxserver/netbootxyz
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 3000
+          name: netboot-tcp
+          protocol: TCP
+        - containerPort: 69
+          name: netboot-udp
+          protocol: UDP
+        - containerPort: 8080
+          name: netboot-altwww
+          protocol: TCP
+        - containerPort: 80
+          name: netboot-www
+          protocol: TCP
+        volumeMounts:
+        - mountPath: /config
+          name: netboot-config
+        - mountPath: /assets
+          name: netboot-assets
+
+        - mountPath: /etc/timezone
+          name: timezonefile
+        - mountPath: /etc/localtime
+          name: localtimefile
+      volumes:
+      - name: netboot-config
+        hostPath:
+            path: /sharedpath/storagelocation/netbootxyz/config
+            type: Directory
+      - name: netboot-assets
+        hostPath:
+            path: /sharedpath/storagelocation/netbootxyz/assets
+            type: Directory
+      - name: timezonefile
+        hostPath:
+            path: /etc/timezone
+            type: File
+      - name: localtimefile
+        hostPath:
+            path: /etc/localtime
+            type: File
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: netboot-vs
+  annotations:
+    metallb.universe.tf/allow-shared-ip: default
+spec:
+  ports:
+  - port: 3000
+    name: netboot-tcp
+    targetPort: 3000
+    protocol: TCP
+  - port: 69
+    name: netboot-udp
+    targetPort: 69
+    protocol: UDP
+  - port: 80
+    name: netboot-www
+    targetPort: 80
+    protocol: TCP
+  - port: 8080
+    name: netboot-altwww
+    targetPort: 8080
+    protocol: TCP
+  loadBalancerIP: A.B.C.40
+  selector:
+    app: netboot
+  type: LoadBalancer
