@@ -1,0 +1,27 @@
+
+[Linux]
+#Place your Linux Hosts Here
+#Example host
+#
+#examplehostname ansible_host=A.B.C.2 ansible_python_interpreter=/usr/bin/python3
+
+[Masters]
+#Place yoru k8s Master Nodes here
+
+[Nodes]
+#Place your k8s Nodes here
+
+
+[Containers]
+#Place any containers with ssh access here
+
+[VyOSRouters]
+#Place your vyos rouyters here
+
+[VMs]
+#Place any VMs here
+
+[Pis]
+#Place any Raspberry Pis here (they could also go in Linux, id you use a debian distro)
+
+
