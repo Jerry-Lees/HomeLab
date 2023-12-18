@@ -1,0 +1,93 @@
+---
+- name: Install basic packages
+  hosts: Linux
+
+  tasks:
+    - name: Update and upgrade installed packages
+      apt:
+        upgrade: yes
+        update_cache: yes
+        cache_valid_time: 86400 #One day
+    - name: Install aptitude
+      apt:
+        name: aptitude
+        state: present
+    - name: Install inxi
+      apt:
+        name: inxi
+        state: present
+    - name: Install screenfetch
+      apt:
+        name: screenfetch
+        state: present
+    - name: Install ansiweather
+      apt:
+        name: ansiweather
+        state: present
+    - name: Install apache2
+      apt:
+        name: ansiweather
+        state: presentThats
+        state: present
+    - name: Install nano...
+      apt:
+        name: nano
+        state: present
+    - name: Install curl...
+      apt:
+        name: curl
+        state: present
+    - name: Install tcpdump...
+      apt:
+        name: tcpdump
+        state: present
+    - name: Install wget...
+      apt:
+        name: wget
+        state: present
+    - name: Install iputils-arping...
+      apt:
+        name: iputils-arping
+        state: present
+    - name: Install p7zip-full...
+      apt:
+        name: p7zip-full
+        state: present
+    - name: Install sshpass...
+      apt:
+        name: sshpass
+        state: present
+    - name: Install unzip...
+      apt:
+        name: unzip
+        state: present
+    - name: Install iputils-ping...
+      apt:
+        name: iputils-ping
+        state: present
+    - name: Install apache2...
+      apt:
+        name: apache2
+        state: present
+    - name: Install NTP
+      apt:
+        name: ntp
+        state: present
+    - name: Install Cockpit
+      apt:
+        name: cockpit
+        state: present
+
+- name: Basic Setup
+  hosts: Linux
+
+  tasks:
+
+    - name: Allowing login as root...
+      register: AllowRoot
+      ansible.builtin.shell: sed -i 's/#PermitRootLogin/PermitRootLogin/g' /etc/ssh/sshd_config
+    - name: Set TimeZone
+      ansible.builtin.command: timedatectl set-timezone America/Chicago
+
+
+...
