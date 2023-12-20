@@ -27,7 +27,7 @@ The following sections give you some assistance in recognizing these points in t
 The below sections detail the things you will have to modify for certain.
 
 ## Fix IPs
-Obviously, Internal IPs need to be masked. I will replace the first three octets of my internal addresses with "A.B.C.", "A.B.D.", etc. A sed statement with your ranges should be all that's needed to correct this... and of course make sure you aren't generating duplicates on your network.
+Obviously, Internal IPs need to be masked. I will replace the first three octets of my internal addresses with "A.B.C.", "A.B.D.", etc. A sed statement with your ranges should be all that's needed to correct this... and of course you should make sure you aren't generating duplicates on your network by checking the 4th octet each time.
 
  sed -i "s/A.B.C./[your subnet here]/g" filename.yaml
   or
@@ -48,7 +48,7 @@ Paths should also me masked, so the following will assist you in that effort. (T
  sed -i "s/\/sharedpath\/storagelocation\//\/mount-point-here\/path-here\//g" filename.yaml
 
 ## Domain/FQDN masking
-domainnames needed to be masked as well. To undo this, run the following:
+Domain names needed to be masked as well. To undo this, run the following:
 sed -i "s/example.com/your-domain.tld/g" filename.yaml
 
  
