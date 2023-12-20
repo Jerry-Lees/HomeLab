@@ -26,6 +26,7 @@ spec:
         - name: JELLYFIN_PublishedServerUrl
           value: A.B.C.37
         image: linuxserver/jellyfin:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 22
           name: jellyfin-ssh
