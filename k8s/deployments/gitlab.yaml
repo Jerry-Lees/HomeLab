@@ -71,6 +71,8 @@ spec:
           name: gitlab-log-general
         - mountPath: /opt/gitlab/version-manifest.txt
           name: gitlab-version-manifest
+        - mountPath: /opt/gitlab/embedded/cookbooks/cache/cinc-stacktrace.out
+          name: stacktrace
 #        - mountPath: /etc/gitlab
 #          name: gitlab-config
 #        - mountPath: /etc/ssh/ssh_config
@@ -117,6 +119,10 @@ spec:
       - name: gitlab-version-manifest
         hostPath:
             path: /sharedpath/storagelocation/gitlab/version-manifest.txt
+            type: File
+      - name: stacktrace
+        hostPath:
+            path: /sharedpath/storagelocation/gitlab/cinc-stacktrace.out
             type: File
 #      - name: gitlab-config
 #        hostPath:
