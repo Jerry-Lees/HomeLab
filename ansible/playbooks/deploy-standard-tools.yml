@@ -82,7 +82,6 @@
   hosts: Linux
 
   tasks:
-
     - name: Allowing login as root...
       register: AllowRoot
       ansible.builtin.shell: sed -i 's/#PermitRootLogin/PermitRootLogin/g' /etc/ssh/sshd_config
