@@ -1,0 +1,15 @@
+#Ansible playbook to setup proxmox servers to contain standardized container lists
+---
+- name: Copy LXC Containers locally
+  hosts: ProxMox
+
+  tasks:
+    - name: Get local copy of Ubuntu 22.04
+    # free-form (string) arguments, all arguments on one line
+      ansible.builtin.command: pveam download local ubuntu-22.04-standard_22.04-1_amd64.tar.zst
+
+    - name: Get local copy of Fedora 39
+    # free-form (string) arguments, all arguments on one line
+      ansible.builtin.command: pveam download local fedora-39-default_20231118_amd64.tar.xz
+
+...
