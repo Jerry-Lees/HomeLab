@@ -1,0 +1,10 @@
+---
+- name: Install basic packages
+  hosts: Linux
+
+  tasks:
+    - name: Install aptitude
+      apt:
+        name: aptitude
+        state: present
+...
