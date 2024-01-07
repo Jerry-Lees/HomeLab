@@ -42,8 +42,8 @@ spec:
           name: https
           protocol: TCP
         volumeMounts:
-        - mountPath: /phpipam
-          name: phpipam
+#        - mountPath: /phpipam
+#          name: phpipam
         - mountPath: /etc/timezone
           name: timezonefile
         - mountPath: /etc/localtime
@@ -74,7 +74,7 @@ spec:
           value: "3306"
         - name: SCAN_INTERVAL
           value: "5m"
-        - name: IPAM_DATABASE_WEBHOST 
+        - name: IPAM_DATABASE_WEBHOST
           value: A.B.C.32
         - name: PROXY_ENABLED
           value: "false"
@@ -119,10 +119,10 @@ spec:
             memory: "512Mi"
 
       volumes:
-      - name: phpipam
-        hostPath:
-            path: /sharedpath/storagelocation/phpipam/phpipam
-            type: Directory
+#      - name: phpipam
+#        hostPath:
+#            path: /sharedpath/storagelocation/phpipam/phpipam
+#            type: Directory
       - name: database
         hostPath:
             path: /sharedpath/storagelocation/phpipam/database
