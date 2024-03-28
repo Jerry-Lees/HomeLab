@@ -1,0 +1,36 @@
+---
+#setup snmp and setup a cacti snmp community (for my cacti instance to use)
+- name: Install basic packages
+  hosts: Linux
+
+  tasks:
+    - name: Install SNMP Packages
+      package:
+        name:
+          - snmpd
+        state: present
+        lock_timeout: 180
+      become: true
+    - name: Configure SNMP v2c Community
+      lineinfile:
+        path: /etc/snmp/snmpd.conf
+        regexp: 'com2sec notConfigUser  default       public'
+        line: 'com2sec notConfigUser  default       cacti'
+        backrefs: true
+      become: true
+    - name: Copy SNMP config file to remote host 
+      copy:
+        src: /etc/snmp/snmpd.conf
+        dest: /etc/snmp/snmpd.conf
+    - name: Start SNMP Service
+      service:
+        name: snmpd
+        state: started
+        enabled: yes
+      become: true
+    - name: Restart service snmpd, in all cases
+      ansible.builtin.service:
+        name: snmpd
+        state: restarted
+
+...
