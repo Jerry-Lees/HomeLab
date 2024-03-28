@@ -1,3 +1,5 @@
+#standardized packages to install.
+#note: there's probably a lot of fluff and bad practice here. Presented as an example only.
 ---
 - name: Install basic packages
   hosts: Linux
