@@ -1,0 +1,11 @@
+#Ansible playbook to flush dns cache (Restart DNS) on pihole
+---
+- name: Restart PiHole DNS to flush cache
+  hosts: PiHole
+
+  tasks:
+    - name: Restart DNS
+    # free-form (string) arguments, all arguments on one line
+      ansible.builtin.command: pihole restartdns
+
+...
