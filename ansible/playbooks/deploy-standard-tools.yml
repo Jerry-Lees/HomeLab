@@ -88,7 +88,7 @@
         name: lshw
         state: present
 - name: Basic Setup
-  hosts: Linux
+  hosts: NewSystems
 
   tasks:
     - name: Allowing login as root...
