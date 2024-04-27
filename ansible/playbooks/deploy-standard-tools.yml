@@ -2,7 +2,7 @@
 #note: there's probably a lot of fluff and bad practice here. Presented as an example only.
 ---
 - name: Install basic packages
-  hosts: Linux
+  hosts: NewSystems
 
   tasks:
     - name: Update and upgrade installed packages
@@ -79,7 +79,14 @@
       apt:
         name: cockpit
         state: present
-
+    - name: Install Cockpit
+      apt:
+        name: nfs-common
+        state: present
+    - name: Install lshw
+      apt:
+        name: lshw
+        state: present
 - name: Basic Setup
   hosts: Linux
 

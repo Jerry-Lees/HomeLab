@@ -1,7 +1,7 @@
 ---
 #setup snmp and setup a cacti snmp community (for my cacti instance to use)
 - name: Install basic packages
-  hosts: Linux
+  hosts: SNMPLinuxSetup
 
   tasks:
     - name: Install SNMP Packages
