@@ -79,7 +79,7 @@
       apt:
         name: cockpit
         state: present
-    - name: Install Cockpit
+    - name: Install nfs-common
       apt:
         name: nfs-common
         state: present
