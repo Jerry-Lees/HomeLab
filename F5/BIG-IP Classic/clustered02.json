@@ -1,0 +1,153 @@
+{
+    "schemaVersion": "1.0.0",
+    "class": "Device",
+    "async": true,
+    "label": "Onboard BIG-IP into an HA Pair",
+    "Common": {
+        "class": "Tenant",
+        "hostname": "HOMELAB-02.lees-family.io",
+        "myLicense": {
+            "class": "License",
+            "licenseType": "regKey",
+            "regKey": "YOURSECONDREGISTRATIONKEYGOESHERE"
+        },
+        "myDns": {
+            "class": "DNS",
+            "nameServers": [
+                "192.168.1.4",
+                "192.168.1.5"
+            ],
+            "search": [
+                "lees-family.io"
+            ]
+        },
+        "myNtp": {
+            "class": "NTP",
+            "servers": [
+                "pool.ntp.org",
+                "time.nist.gov"
+            ],
+            "timezone": "UTC"
+        },
+        "root": {
+            "class": "User",
+            "userType": "root",
+            "oldPassword": "yourpasswordhere",
+            "newPassword": "yourpasswordhere"
+        },
+        "admin": {
+            "class": "User",
+            "userType": "regular",
+            "password": "yourpasswordhere",
+            "shell": "bash"
+        },
+        "myProvisioning": {
+            "class": "Provision",
+            "ltm": "nominal"
+        },
+        "DMZ": {
+            "class": "VLAN",
+            "tag": 200,
+            "mtu": 1500,
+            "interfaces": [
+                {
+                    "name": "1.1",
+                    "tagged": false
+                }
+            ]
+        },
+        "DMZ-self": {
+            "class": "SelfIp",
+            "address": "10.200.200.31/24",
+            "vlan": "DMZ",
+            "allowService": "default",
+            "trafficGroup": "traffic-group-local-only"
+        },
+        "Servers": {
+            "class": "VLAN",
+            "tag": 220,
+            "mtu": 1500,
+            "interfaces": [
+                {
+                    "name": "1.3",
+                    "tagged": false
+                }
+            ]
+        },
+        "Servers-self": {
+            "class": "SelfIp",
+            "address": "10.220.220.31/24",
+            "vlan": "Servers",
+            "allowService": "default",
+            "trafficGroup": "traffic-group-local-only"
+        },
+        "Servers-Float": {
+            "class": "SelfIp",
+            "address": "10.220.220.32/24",
+            "vlan": "Servers",
+            "allowService": "none",
+            "trafficGroup": "traffic-group-1"
+        },
+        "LAN": {
+            "class": "VLAN",
+            "tag": 4000,
+            "mtu": 1500,
+            "interfaces": [
+                {
+                    "name": "1.4",
+                    "tagged": false
+                }
+            ]
+        },
+        "LAN-self": {
+            "class": "SelfIp",
+            "address": "192.168.0.141/23",
+            "vlan": "LAN",
+            "allowService": "none",
+            "trafficGroup": "traffic-group-local-only"
+        },
+        "LAN-Float": {
+            "class": "SelfIp",
+            "address": "192.168.0.142/23",
+            "vlan": "LAN",
+            "allowService": "none",
+            "trafficGroup": "traffic-group-1"
+        },
+        "default": {
+            "class": "Route",
+            "gw": "192.168.1.1",
+            "network": "default",
+            "mtu": 1500
+        },
+        "configsync": {
+            "class": "ConfigSync",
+            "configsyncIp": "/Common/Servers-self/address"
+        },
+        "failoverAddress": {
+            "class": "FailoverUnicast",
+            "address": "/Common/Servers-self/address"
+        },
+        "failoverGroup": {
+            "class": "DeviceGroup",
+            "type": "sync-failover",
+            "members": [
+                "HOMELAB-01.lees-family.io",
+                "HOMELAB-02.lees-family.io"
+            ],
+            "owner": "/Common/failoverGroup/members/0",
+            "autoSync": false,
+            "saveOnAutoSync": false,
+            "networkFailover": true,
+            "fullLoadOnSync": false,
+            "asmSync": false
+        },
+        "trust": {
+            "class": "DeviceTrust",
+            "localUsername": "admin",
+            "localPassword": "yourpasswordhere",
+            "remoteHost": "/Common/failoverGroup/members/0",
+            "remoteUsername": "admin",
+            "remotePassword": "yourpasswordhere"
+        }
+    }
+}
