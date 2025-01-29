@@ -224,7 +224,7 @@ should you need them.:
 
 Or optionally below is a one-liner that accomplishes the same thing:
 
-`curl -k -X GET -u admin:yourpasswordhere -H "Content-Type: application/json" `[`https://$IP1/mgmt/shared/declarative-onboarding/task/$ID1`](https://$IP1/mgmt/shared/declarative-onboarding/task/$ID1)` | jq | grep -A15 result && curl -k -X GET -u admin:yourpasswordhere -H "Content-Type: application/json" `[`https://$IP2/mgmt/shared/declarative-onboarding/task/$ID2`](https://$IP2/mgmt/shared/declarative-onboarding/task/$ID2)` | jq | grep -A15 result`
+`curl -k -X GET -u admin:yourpasswordhere -H "Content-Type: application/json" `[`https://$IP1/mgmt/shared/declarative-onboarding/task/$ID1`](https://$IP1/mgmt/shared/declarative-onboarding/task/$ID1)` | jq | grep -A15 result && curl -k -X GET -u admin:yourpasswordhere -H "Content-Type: application/json"  `[`https://$IP2/mgmt/shared/declarative-onboarding/task/$ID2`](https://$IP2/mgmt/shared/declarative-onboarding/task/$ID2)` | jq | grep -A15 result`
 
 For Troubleshooting, If there are errors on one or more boxes, you can
 run the commands again-- but without the grep to get the full details:
