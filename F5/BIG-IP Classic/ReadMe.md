@@ -417,7 +417,7 @@ BIGIP02 SSH
 (repeat as needed until the status is completed)
 
 `#Check the status of the declarations, this can take a few minutes, be patient and wait for both to register "success"`  
-`curl -k -X GET -u admin:yourpasswordhere -H "Content-Type: application/json" `[`https://$IP1/mgmt/shared/declarative-onboarding/task/$ID1`](https://$IP1/mgmt/shared/declarative-onboarding/task/$ID1)` | jq | grep -A15 result && curl -k -X GET -u admin:yourpasswordhere -H "Content-Type: application/json" `[`https://$IP2/mgmt/shared/declarative-onboarding/task/$ID2`](https://$IP2/mgmt/shared/declarative-onboarding/task/$ID2)` | jq | grep -A15 result`
+`curl -k -X GET -u admin:yourpasswordhere -H "Content-Type: application/json" `[`https://$IP1/mgmt/shared/declarative-onboarding/task/$ID1`](https://$IP1/mgmt/shared/declarative-onboarding/task/$ID1)` | jq | grep -A15 result && curl -k -X GET -u admin:yourpasswordhere -H "Content-Type: application/json"  `[`https://$IP2/mgmt/shared/declarative-onboarding/task/$ID2`](https://$IP2/mgmt/shared/declarative-onboarding/task/$ID2)` | jq | grep -A15 result`
 
 (once all are finished, perform a config sync from the active device to the group)
 
