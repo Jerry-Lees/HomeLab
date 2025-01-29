@@ -19,11 +19,21 @@ following. This process can be 100% automated, but for this process we
 will work through some items that could be automated manually to
 re-enforce the steps to be completed.
 
+
+
+
 ### Prepare your system
 
 Through multiple runs, you'll need to prep the systems you are
 connecting with. Run the following after the first run, and every run
 after:
+
+on the BIG-IPs created prior:
+
+`tmsh revoke sys license`
+
+
+On your local device, remove stored ssh keys:
 
 `ssh-keygen -f '/home/yourusernamehere/.ssh/known_hosts' -R '$IP1'`  
 `ssh-keygen -f '/home/yourusernamehere/.ssh/known_hosts' -R '$IP2'`
@@ -74,8 +84,9 @@ hypervisors documentation for adapting this step to those hypervisors.
     where nessisary to tailor this to your environment.
 
 ### Build Process steps
+Note, this section walks you through the steps. FOr a complete start to finish list of commands with minimal commentary, go to the "All The Steps, no (minimal) fluff" section below.
 
-To build the VMs, Run these commands:
+To build on proxmox the VMs, Run these commands:
 
 `#BIGIP01 on the first proxmox server`  
   
@@ -117,10 +128,10 @@ To build the VMs, Run these commands:
 
 Next we have to get base connectivity created for management of the
 devices. Note that this could potentialy be completed with a cloud init,
-but that is outside of the scope of this discussion.
+but that is outside of the scope of this discussion. Use the "config" utility in the Proxmox Console for that task as you normally would, setting the root password to your desired password (yourpasswordhere in these examples)
 
-After setting the password with the config tool on the BIG-IP, run the
-following commands to set the management Address and login to change
+After setting the password with the config tool on the BIG-IP, ssh to the devices and run the
+following commands, after the management Address is set, these will change the
 admin password and set the setup wizard to not run.
 
 `tmsh modify sys global-settings gui-setup disabled`  
@@ -174,7 +185,7 @@ in that folder at the command line when you run it.**
 `curl -kvu $CREDS `[`https://$IP1/mgmt/shared/file-transfer/uploads/$FN`](https://$IP1/mgmt/shared/file-transfer/uploads/$FN)` -H 'Content-Type: application/octet-stream' -H "Content-Range: 0-$((LEN - 1))/$LEN" -H "Content-Length: $LEN" -H 'Connection: keep-alive' --data-binary @$FN`  
 `curl -kvu $CREDS `[`https://$IP2/mgmt/shared/file-transfer/uploads/$FN`](https://$IP2/mgmt/shared/file-transfer/uploads/$FN)` -H 'Content-Type: application/octet-stream' -H "Content-Range: 0-$((LEN - 1))/$LEN" -H "Content-Length: $LEN" -H 'Connection: keep-alive' --data-binary @$FN`
 
-**Note: at this point, the files**should be**be on the BIG-IPs at
+**Note: at this point, the files **should be** on the BIG-IPs at
 /var/config/rest/downloads/. On the BIG-IPs, run:**
 
 `ls -l /var/config/rest/downloads`
