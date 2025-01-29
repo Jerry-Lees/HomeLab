@@ -160,7 +160,7 @@ in that folder at the command line when you run it.**
 `FN=f5-declarative-onboarding-1.46.0-7.noarch.rpm`  
 `CREDS=admin:yourpasswordhere`  
 `IP1=10.100.100.30`  
-`IP1=10.100.100.31`  
+`IP2=10.100.100.31`  
 `LEN=$(wc -c $FN | cut -f 1 -d ' ')`  
 `curl -kvu $CREDS `[`https://$IP1/mgmt/shared/file-transfer/uploads/$FN`](https://$IP1/mgmt/shared/file-transfer/uploads/$FN)` -H 'Content-Type: application/octet-stream' -H "Content-Range: 0-$((LEN - 1))/$LEN" -H "Content-Length: $LEN" -H 'Connection: keep-alive' --data-binary @$FN`  
 `curl -kvu $CREDS `[`https://$IP2/mgmt/shared/file-transfer/uploads/$FN`](https://$IP2/mgmt/shared/file-transfer/uploads/$FN)` -H 'Content-Type: application/octet-stream' -H "Content-Range: 0-$((LEN - 1))/$LEN" -H "Content-Length: $LEN" -H 'Connection: keep-alive' --data-binary @$FN`
@@ -169,7 +169,7 @@ in that folder at the command line when you run it.**
 `FN=f5-appsvcs-3.53.0-7.noarch.rpm`  
 `CREDS=admin:yourpasswordhere`  
 `IP1=10.100.100.30`  
-`IP1=10.100.100.31`  
+`IP2=10.100.100.31`  
 `LEN=$(wc -c $FN | cut -f 1 -d ' ')`  
 `curl -kvu $CREDS `[`https://$IP1/mgmt/shared/file-transfer/uploads/$FN`](https://$IP1/mgmt/shared/file-transfer/uploads/$FN)` -H 'Content-Type: application/octet-stream' -H "Content-Range: 0-$((LEN - 1))/$LEN" -H "Content-Length: $LEN" -H 'Connection: keep-alive' --data-binary @$FN`  
 `curl -kvu $CREDS `[`https://$IP2/mgmt/shared/file-transfer/uploads/$FN`](https://$IP2/mgmt/shared/file-transfer/uploads/$FN)` -H 'Content-Type: application/octet-stream' -H "Content-Range: 0-$((LEN - 1))/$LEN" -H "Content-Length: $LEN" -H 'Connection: keep-alive' --data-binary @$FN`
@@ -244,7 +244,7 @@ we'll install the shared configuration for Virtual servers and such.
 
 `CREDS=admin:yourpasswordhere`  
 `IP1=10.100.100.30`  
-`IP1=10.100.100.31`  
+`IP2=10.100.100.31`  
 `#Note: For your reference, lab-as3.json is a derivative of this example: `[`https://github.com/F5Networks/f5-appsvcs-extension/blob/main/examples/declarations/example-http-https-one-declaration.json`](https://github.com/F5Networks/f5-appsvcs-extension/blob/main/examples/declarations/example-http-https-one-declaration.json)  
 `curl -k -X POST -u $CREDS -H "Content-Type: application/json" -d @lab-as3.json `[`https://$IP1/mgmt/shared/appsvcs/declare`](https://$IP1/mgmt/shared/appsvcs/declare)  
 `#perform a config sync`  
@@ -362,7 +362,7 @@ BIGIP02 SSH
 `#curl -o $FN `[`https://github.com/F5Networks/f5-declarative-onboarding/releases/download/v1.46.0/$FN`](https://github.com/F5Networks/f5-declarative-onboarding/releases/download/v1.46.0/$FN)  
 `CREDS=admin:yourpasswordhere`  
 `IP1=10.100.100.30`  
-`IP1=10.100.100.31`  
+`IP2=10.100.100.31`  
 `LEN=$(wc -c $FN | cut -f 1 -d ' ')`  
 `curl -kvu $CREDS `[`https://$IP1/mgmt/shared/file-transfer/uploads/$FN`](https://$IP1/mgmt/shared/file-transfer/uploads/$FN)` -H 'Content-Type: application/octet-stream' -H "Content-Range: 0-$((LEN - 1))/$LEN" -H "Content-Length: $LEN" -H 'Connection: keep-alive' --data-binary @$FN`  
 `curl -kvu $CREDS `[`https://$IP2/mgmt/shared/file-transfer/uploads/$FN`](https://$IP2/mgmt/shared/file-transfer/uploads/$FN)` -H 'Content-Type: application/octet-stream' -H "Content-Range: 0-$((LEN - 1))/$LEN" -H "Content-Length: $LEN" -H 'Connection: keep-alive' --data-binary @$FN`
@@ -373,7 +373,7 @@ BIGIP02 SSH
 `#curl -o $FN `[`https://github.com/F5Networks/f5-appsvcs-extension/releases/download/v3.53.0/$FN`](https://github.com/F5Networks/f5-appsvcs-extension/releases/download/v3.53.0/$FN)  
 `CREDS=admin:yourpasswordhere`  
 `IP1=10.100.100.30`  
-`IP1=10.100.100.31`  
+`IP2=10.100.100.31`  
 `LEN=$(wc -c $FN | cut -f 1 -d ' ')`  
 `curl -kvu $CREDS `[`https://$IP1/mgmt/shared/file-transfer/uploads/$FN`](https://$IP1/mgmt/shared/file-transfer/uploads/$FN)` -H 'Content-Type: application/octet-stream' -H "Content-Range: 0-$((LEN - 1))/$LEN" -H "Content-Length: $LEN" -H 'Connection: keep-alive' --data-binary @$FN`  
 `curl -kvu $CREDS `[`https://$IP2/mgmt/shared/file-transfer/uploads/$FN`](https://$IP2/mgmt/shared/file-transfer/uploads/$FN)` -H 'Content-Type: application/octet-stream' -H "Content-Range: 0-$((LEN - 1))/$LEN" -H "Content-Length: $LEN" -H 'Connection: keep-alive' --data-binary @$FN`
@@ -422,7 +422,7 @@ BIGIP02 SSH
 `#deploy AS3 Configuration`  
 `CREDS=admin:yourpasswordhere`  
 `IP1=10.100.100.30`  
-`IP1=10.100.100.31`  
+`IP2=10.100.100.31`  
 `#Note: lab-as3.json is a defivitive of: `[`https://github.com/F5Networks/f5-appsvcs-extension/blob/main/examples/declarations/example-http-https-one-declaration.json`](https://github.com/F5Networks/f5-appsvcs-extension/blob/main/examples/declarations/example-http-https-one-declaration.json)  
 `curl -k -X POST -u $CREDS -H "Content-Type: application/json" -d @lab-as3.json `[`https://$IP1/mgmt/shared/appsvcs/declare`](https://$IP1/mgmt/shared/appsvcs/declare)
 
