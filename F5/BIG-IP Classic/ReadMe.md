@@ -419,6 +419,11 @@ BIGIP02 SSH
 `#Check the status of the declarations, this can take a few minutes, be patient and wait for both to register "success"`  
 `curl -k -X GET -u admin:yourpasswordhere -H "Content-Type: application/json" `[`https://$IP1/mgmt/shared/declarative-onboarding/task/$ID1`](https://$IP1/mgmt/shared/declarative-onboarding/task/$ID1)` | jq | grep -A15 result && curl -k -X GET -u admin:yourpasswordhere -H "Content-Type: application/json" `[`https://$IP2/mgmt/shared/declarative-onboarding/task/$ID2`](https://$IP2/mgmt/shared/declarative-onboarding/task/$ID2)` | jq | grep -A15 result`
 
+(once all are finished, perform a config sync from the active device to the group)
+
+`#perform a config sync`  
+`curl -sk -u $CREDS -H "Content-Type: application/json" -X POST -d '{"command":"run","utilCmdArgs":"config-sync to-group failoverGroup"}' `[`https://$IP1/mgmt/tm/cm`](https://$IP1/mgmt/tm/cm)
+
 `#deploy AS3 Configuration`  
 `CREDS=admin:yourpasswordhere`  
 `IP1=10.100.100.30`  
@@ -426,6 +431,6 @@ BIGIP02 SSH
 `#Note: lab-as3.json is a defivitive of: `[`https://github.com/F5Networks/f5-appsvcs-extension/blob/main/examples/declarations/example-http-https-one-declaration.json`](https://github.com/F5Networks/f5-appsvcs-extension/blob/main/examples/declarations/example-http-https-one-declaration.json)  
 `curl -k -X POST -u $CREDS -H "Content-Type: application/json" -d @lab-as3.json `[`https://$IP1/mgmt/shared/appsvcs/declare`](https://$IP1/mgmt/shared/appsvcs/declare)
 
-`#perform a config sync`  
+`#perform a config sync again`  
 `curl -sk -u $CREDS -H "Content-Type: application/json" -X POST -d '{"command":"run","utilCmdArgs":"config-sync to-group failoverGroup"}' `[`https://$IP1/mgmt/tm/cm`](https://$IP1/mgmt/tm/cm)
 
