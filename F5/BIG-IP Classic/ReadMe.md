@@ -201,8 +201,8 @@ check the status of the installations. This shouldn't be needed and is
 only mentioned to assist in troubleshooting.**
 
 `QUERY="\{ \"operation\": \"QUERY\" \}"`  
-`curl -k --location --request GET '`[`https://$IP1/mgmt/shared/iapp/package-management-tasks/`](https://$IP1/mgmt/shared/iapp/package-management-tasks/)`' --header 'Content-Type: application/json' --header 'Authorization: Basic YWRtaW46eW91cnBhc3N3b3JkaGVyZQ==' --data '{ "operation": "QUERY" }'|jq|grep -E 'packageName|status|id|error|startTime|endTime'`  
-`curl -k --location --request GET '`[`https://$IP2/mgmt/shared/iapp/package-management-tasks/`](https://$IP2/mgmt/shared/iapp/package-management-tasks/)`' --header 'Content-Type: application/json' --header 'Authorization: Basic YWRtaW46eW91cnBhc3N3b3JkaGVyZQ==' --data '{ "operation": "QUERY" }'|jq|grep -E 'packageName|status|id|error|startTime|endTime'`
+`curl -k --location --request GET `[`https://$IP1/mgmt/shared/iapp/package-management-tasks/`](https://$IP1/mgmt/shared/iapp/package-management-tasks/)` --header 'Content-Type: application/json' --header 'Authorization: Basic YWRtaW46eW91cnBhc3N3b3JkaGVyZQ==' --data '{ "operation": "QUERY" }'|jq|grep -E 'packageName|status|id|error|startTime|endTime'`  
+`curl -k --location --request GET `[`https://$IP2/mgmt/shared/iapp/package-management-tasks/`](https://$IP2/mgmt/shared/iapp/package-management-tasks/)` --header 'Content-Type: application/json' --header 'Authorization: Basic YWRtaW46eW91cnBhc3N3b3JkaGVyZQ==' --data '{ "operation": "QUERY" }'|jq|grep -E 'packageName|status|id|error|startTime|endTime'`
 
 ## DO Base Config
 
