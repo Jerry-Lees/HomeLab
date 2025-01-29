@@ -162,8 +162,8 @@ in that folder at the command line when you run it.**
 `IP1=10.100.100.30`  
 `IP2=10.100.100.31`  
 `LEN=$(wc -c $FN | cut -f 1 -d ' ')`  
-`curl -kvu $CREDS `[`https://$IP1/mgmt/shared/file-transfer/uploads/$FN`](https://$IP1/mgmt/shared/file-transfer/uploads/$FN)` -H 'Content-Type: application/octet-stream' -H "Content-Range: 0-$((LEN - 1))/$LEN" -H "Content-Length: $LEN" -H 'Connection: keep-alive' --data-binary @$FN`  
-`curl -kvu $CREDS `[`https://$IP2/mgmt/shared/file-transfer/uploads/$FN`](https://$IP2/mgmt/shared/file-transfer/uploads/$FN)` -H 'Content-Type: application/octet-stream' -H "Content-Range: 0-$((LEN - 1))/$LEN" -H "Content-Length: $LEN" -H 'Connection: keep-alive' --data-binary @$FN`
+`curl -kvu $CREDS `[https://$IP1/mgmt/shared/file-transfer/uploads/$FN](https://$IP1/mgmt/shared/file-transfer/uploads/$FN)` -H 'Content-Type: application/octet-stream' -H "Content-Range: 0-$((LEN - 1))/$LEN" -H "Content-Length: $LEN" -H 'Connection: keep-alive' --data-binary @$FN`  
+`curl -kvu $CREDS `[https://$IP2/mgmt/shared/file-transfer/uploads/$FN](https://$IP2/mgmt/shared/file-transfer/uploads/$FN)` -H 'Content-Type: application/octet-stream' -H "Content-Range: 0-$((LEN - 1))/$LEN" -H "Content-Length: $LEN" -H 'Connection: keep-alive' --data-binary @$FN`
 
 `# Upload AS3`  
 `FN=f5-appsvcs-3.53.0-7.noarch.rpm`  
