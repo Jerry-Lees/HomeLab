@@ -97,7 +97,7 @@ class SystemCollector:
         
         # Basic system info
         commands = {
-            'os_release': 'cat /etc/os-release 2>/dev/null || echo "Unknown"',
+            'os_release_raw': 'cat /etc/os-release 2>/dev/null || echo "Unknown"',
             'kernel': 'uname -r',
             'architecture': 'uname -m',
             'uptime': 'uptime -p',
@@ -114,6 +114,12 @@ class SystemCollector:
             result = self.run_command(command)
             info[key] = result if result else "Unknown"
         
+        # Parse os-release into structured data
+        info['os_release'] = self.parse_os_release(info.get('os_release_raw', ''))
+        # Keep raw for backwards compatibility
+        if info['os_release_raw'] != "Unknown":
+            del info['os_release_raw']  # Remove raw version after parsing
+        
         # Services and processes
         info['services'] = self.get_services()
         info['docker_containers'] = self.get_docker_containers()
@@ -123,6 +129,39 @@ class SystemCollector:
         
         self.ssh_client.close()
         return info
+    
+    def parse_os_release(self, os_release_content: str) -> Dict:
+        """Parse /etc/os-release content into structured data"""
+        os_info = {}
+        
+        if not os_release_content or os_release_content == "Unknown":
+            return {"name": "Unknown", "version": "Unknown", "id": "unknown"}
+        
+        for line in os_release_content.split('\n'):
+            line = line.strip()
+            if '=' in line and not line.startswith('#'):
+                key, value = line.split('=', 1)
+                # Remove quotes if present
+                value = value.strip('"\'')
+                os_info[key.lower()] = value
+        
+        # Create a standardized structure
+        parsed = {
+            'name': os_info.get('name', os_info.get('pretty_name', 'Unknown')),
+            'version': os_info.get('version', os_info.get('version_id', 'Unknown')),
+            'version_id': os_info.get('version_id', 'Unknown'),
+            'version_codename': os_info.get('version_codename', os_info.get('ubuntu_codename', None)),
+            'id': os_info.get('id', 'unknown'),
+            'id_like': os_info.get('id_like', None),
+            'pretty_name': os_info.get('pretty_name', os_info.get('name', 'Unknown')),
+            'home_url': os_info.get('home_url', None),
+            'support_url': os_info.get('support_url', None),
+            'bug_report_url': os_info.get('bug_report_url', None)
+        }
+        
+        # Remove None values to keep JSON clean
+        return {k: v for k, v in parsed.items() if v is not None}
+
     
     def get_services(self) -> List[Dict]:
         """Get systemd services"""
@@ -541,13 +580,22 @@ class MediaWikiUpdater:
 
 def generate_wiki_content(host_data: Dict) -> str:
     """Generate MediaWiki/Markdown content for a host"""
+    os_info = host_data.get('os_release', {})
+    
     content = f"""# {host_data['hostname']}
 
 **Last Updated:** {host_data['timestamp']}
 
 ## System Information
-- **OS:** {host_data.get('os_release', 'Unknown')}
-- **Kernel:** {host_data.get('kernel', 'Unknown')}
+- **OS:** {os_info.get('pretty_name', os_info.get('name', 'Unknown'))}
+- **Version:** {os_info.get('version', 'Unknown')} ({os_info.get('version_codename', 'Unknown').title() if os_info.get('version_codename') else 'Unknown'}))
+- **Distribution:** {os_info.get('id', 'unknown').title()}"""
+    
+    if os_info.get('id_like'):
+        content += f" (based on {os_info.get('id_like', '').title()})"
+    content += "\n"
+    
+    content += f"""- **Kernel:** {host_data.get('kernel', 'Unknown')}
 - **Architecture:** {host_data.get('architecture', 'Unknown')}
 - **Uptime:** {host_data.get('uptime', 'Unknown')}
 - **CPU:** {host_data.get('cpu_info', 'Unknown')} ({host_data.get('cpu_cores', 'Unknown')} cores)
@@ -679,6 +727,16 @@ def generate_wiki_content(host_data: Dict) -> str:
             for container in pve['containers'][:10]:  # Limit to 10
                 content += f"  - {container}\n"
     
+    # Add OS links if available
+    if os_info.get('home_url') or os_info.get('support_url'):
+        content += "\n## OS Information\n"
+        if os_info.get('home_url'):
+            content += f"- **Home Page:** {os_info['home_url']}\n"
+        if os_info.get('support_url'):
+            content += f"- **Support:** {os_info['support_url']}\n"
+        if os_info.get('bug_report_url'):
+            content += f"- **Bug Reports:** {os_info['bug_report_url']}\n"
+    
     return content
 
 def generate_mediawiki_content(host_data: Dict) -> str:
@@ -795,12 +853,20 @@ class DocumentationManager:
         # Sanitize hostname for filename
         safe_hostname = self.sanitize_filename(hostname)
         doc_path = os.path.join(self.docs_dir, f"{safe_hostname}.md")
+        json_path = os.path.join(self.docs_dir, f"{safe_hostname}.json")
         
         try:
+            # Save Markdown documentation
             content = generate_wiki_content(host_data)
             with open(doc_path, 'w', encoding='utf-8') as f:
                 f.write(content)
             logger.info(f"Documentation saved: {doc_path}")
+            
+            # Save individual JSON file
+            with open(json_path, 'w', encoding='utf-8') as f:
+                json.dump({hostname: host_data}, f, indent=2)
+            logger.info(f"Individual JSON saved: {json_path}")
+            
             return True
         except PermissionError as e:
             logger.error(f"Permission denied writing documentation for {hostname} to {doc_path}: {e}")
@@ -866,9 +932,24 @@ Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
                 content += "### Active Servers\n\n"
                 for hostname, data in sorted(reachable_hosts):
                     safe_hostname = self.sanitize_filename(hostname)
-                    os_info = data.get('os_release', 'Unknown OS')
+                    os_info = data.get('os_release', {})
+                    os_display = os_info.get('pretty_name', os_info.get('name', 'Unknown OS'))
                     uptime = data.get('uptime', 'Unknown uptime')
-                    content += f"- **[{hostname}]({safe_hostname}.md)** - {os_info} - {uptime}\n"
+                    
+                    # Add additional info if available
+                    extra_info = []
+                    if data.get('kubernetes_info'):
+                        k8s_pods = len(data['kubernetes_info'].get('pods', []))
+                        if k8s_pods > 0:
+                            extra_info.append(f"K8s: {k8s_pods} pods")
+                    if data.get('docker_containers'):
+                        docker_count = len(data['docker_containers'])
+                        extra_info.append(f"Docker: {docker_count} containers")
+                    if data.get('proxmox_info'):
+                        extra_info.append("Proxmox")
+                    
+                    extra_text = f" | {' | '.join(extra_info)}" if extra_info else ""
+                    content += f"- **[{hostname}]({safe_hostname}.md)** - {os_display} - {uptime}{extra_text}\n"
             
             if unreachable_hosts:
                 content += "\n### Unreachable Servers\n\n"
