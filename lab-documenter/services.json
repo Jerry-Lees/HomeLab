@@ -1,0 +1,751 @@
+{
+  "UNIT": {
+    "_auto_generated": true,
+    "access": "Unknown - please update this entry",
+    "category": "unknown",
+    "description": "Unknown service - discovered on 2025-08-26",
+    "discovered_date": "2025-08-26",
+    "display_name": "Unit",
+    "documentation_url": null,
+    "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
+    "ports": [],
+    "related_services": [],
+    "support_url": null
+  },
+  "apache-htcacheclean": {
+    "access": "N/A - maintenance utility",
+    "category": "web",
+    "description": "Apache HTTP Server disk cache maintenance utility",
+    "display_name": "Apache Cache Cleaner",
+    "documentation_url": "https://httpd.apache.org/docs/current/programs/htcacheclean.html",
+    "notes": "Keeps Apache disk cache within size limits",
+    "related_services": [
+      "apache2"
+    ],
+    "support_url": "https://httpd.apache.org/"
+  },
+  "apache2": {
+    "access": "HTTP on port 80, HTTPS on port 443",
+    "category": "web",
+    "description": "Popular open-source web server",
+    "display_name": "Apache HTTP Server",
+    "documentation_url": "https://httpd.apache.org/docs/",
+    "notes": "Web server and reverse proxy",
+    "ports": [
+      "80",
+      "443"
+    ],
+    "related_services": [
+      "apache-htcacheclean"
+    ],
+    "support_url": "https://httpd.apache.org/"
+  },
+  "apparmor.service": {
+    "_auto_generated": true,
+    "access": "Unknown - please update this entry",
+    "category": "unknown",
+    "description": "Unknown service - discovered on 2025-08-26",
+    "discovered_date": "2025-08-26",
+    "display_name": "Apparmor",
+    "documentation_url": null,
+    "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
+    "ports": [],
+    "related_services": [],
+    "support_url": null
+  },
+  "apport.service": {
+    "_auto_generated": true,
+    "access": "Unknown - please update this entry",
+    "category": "unknown",
+    "description": "Unknown service - discovered on 2025-08-26",
+    "discovered_date": "2025-08-26",
+    "display_name": "Apport",
+    "documentation_url": null,
+    "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
+    "ports": [],
+    "related_services": [],
+    "support_url": null
+  },
+  "autofs.service": {
+    "_auto_generated": true,
+    "access": "Unknown - please update this entry",
+    "category": "unknown",
+    "description": "Unknown service - discovered on 2025-08-26",
+    "discovered_date": "2025-08-26",
+    "display_name": "Autofs",
+    "documentation_url": null,
+    "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
+    "ports": [],
+    "related_services": [],
+    "support_url": null
+  },
+  "blk-availability.service": {
+    "_auto_generated": true,
+    "access": "Unknown - please update this entry",
+    "category": "unknown",
+    "description": "Unknown service - discovered on 2025-08-26",
+    "discovered_date": "2025-08-26",
+    "display_name": "Blk-Availability",
+    "documentation_url": null,
+    "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
+    "ports": [],
+    "related_services": [],
+    "support_url": null
+  },
+  "cloud-config.service": {
+    "_auto_generated": true,
+    "access": "Unknown - please update this entry",
+    "category": "unknown",
+    "description": "Unknown service - discovered on 2025-08-26",
+    "discovered_date": "2025-08-26",
+    "display_name": "Cloud-Config",
+    "documentation_url": null,
+    "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
+    "ports": [],
+    "related_services": [],
+    "support_url": null
+  },
+  "cloud-final.service": {
+    "_auto_generated": true,
+    "access": "Unknown - please update this entry",
+    "category": "unknown",
+    "description": "Unknown service - discovered on 2025-08-26",
+    "discovered_date": "2025-08-26",
+    "display_name": "Cloud-Final",
+    "documentation_url": null,
+    "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
+    "ports": [],
+    "related_services": [],
+    "support_url": null
+  },
+  "cloud-init-local.service": {
+    "_auto_generated": true,
+    "access": "Unknown - please update this entry",
+    "category": "unknown",
+    "description": "Unknown service - discovered on 2025-08-26",
+    "discovered_date": "2025-08-26",
+    "display_name": "Cloud-Init-Local",
+    "documentation_url": null,
+    "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
+    "ports": [],
+    "related_services": [],
+    "support_url": null
+  },
+  "cloud-init.service": {
+    "_auto_generated": true,
+    "access": "Unknown - please update this entry",
+    "category": "unknown",
+    "description": "Unknown service - discovered on 2025-08-26",
+    "discovered_date": "2025-08-26",
+    "display_name": "Cloud-Init",
+    "documentation_url": null,
+    "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
+    "ports": [],
+    "related_services": [],
+    "support_url": null
+  },
+  "console-setup.service": {
+    "_auto_generated": true,
+    "access": "Unknown - please update this entry",
+    "category": "unknown",
+    "description": "Unknown service - discovered on 2025-08-26",
+    "discovered_date": "2025-08-26",
+    "display_name": "Console-Setup",
+    "documentation_url": null,
+    "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
+    "ports": [],
+    "related_services": [],
+    "support_url": null
+  },
+  "containerd": {
+    "access": "gRPC API on Unix socket and port 44191",
+    "category": "containers",
+    "description": "Industry-standard container runtime",
+    "display_name": "containerd",
+    "documentation_url": "https://containerd.io/docs/",
+    "notes": "Container runtime used by Kubernetes and Docker",
+    "ports": [
+      "44191"
+    ],
+    "related_services": [
+      "kubelet"
+    ],
+    "support_url": "https://github.com/containerd/containerd"
+  },
+  "corosync.service": {
+    "_auto_generated": true,
+    "access": "Unknown - please update this entry",
+    "category": "unknown",
+    "description": "Unknown service - discovered on 2025-08-26",
+    "discovered_date": "2025-08-26",
+    "display_name": "Corosync",
+    "documentation_url": null,
+    "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
+    "ports": [],
+    "related_services": [],
+    "support_url": null
+  },
+  "cron.service": {
+    "_auto_generated": true,
+    "access": "Unknown - please update this entry",
+    "category": "unknown",
+    "description": "Unknown service - discovered on 2025-08-26",
+    "discovered_date": "2025-08-26",
+    "display_name": "Cron",
+    "documentation_url": null,
+    "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
+    "ports": [],
+    "related_services": [],
+    "support_url": null
+  },
+  "dbus.service": {
+    "_auto_generated": true,
+    "access": "Unknown - please update this entry",
+    "category": "unknown",
+    "description": "Unknown service - discovered on 2025-08-26",
+    "discovered_date": "2025-08-26",
+    "display_name": "Dbus",
+    "documentation_url": null,
+    "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
+    "ports": [],
+    "related_services": [],
+    "support_url": null
+  },
+  "dm-event.service": {
+    "_auto_generated": true,
+    "access": "Unknown - please update this entry",
+    "category": "unknown",
+    "description": "Unknown service - discovered on 2025-08-26",
+    "discovered_date": "2025-08-26",
+    "display_name": "Dm-Event",
+    "documentation_url": null,
+    "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
+    "ports": [],
+    "related_services": [],
+    "support_url": null
+  },
+  "docker": {
+    "access": "Docker daemon socket or TCP port 2376",
+    "category": "containers",
+    "description": "Container runtime and management platform",
+    "display_name": "Docker Engine",
+    "documentation_url": "https://docs.docker.com/",
+    "notes": "Container platform for building and running applications",
+    "ports": [
+      "2376"
+    ],
+    "related_services": [
+      "containerd"
+    ],
+    "support_url": "https://docs.docker.com/get-help/"
+  },
+  "etcd": {
+    "access": "Client API on port 2379",
+    "category": "kubernetes",
+    "description": "Distributed key-value store for Kubernetes cluster data",
+    "display_name": "etcd",
+    "documentation_url": "https://etcd.io/docs/",
+    "notes": "Critical Kubernetes component - stores all cluster data",
+    "ports": [
+      "2379",
+      "2380"
+    ],
+    "related_services": [
+      "kube-apiserver"
+    ],
+    "support_url": "https://github.com/etcd-io/etcd"
+  },
+  "finalrd.service": {
+    "_auto_generated": true,
+    "access": "Unknown - please update this entry",
+    "category": "unknown",
+    "description": "Unknown service - discovered on 2025-08-26",
+    "discovered_date": "2025-08-26",
+    "display_name": "Finalrd",
+    "documentation_url": null,
+    "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
+    "ports": [],
+    "related_services": [],
+    "support_url": null
+  },
+  "getty@tty1.service": {
+    "_auto_generated": true,
+    "access": "Unknown - please update this entry",
+    "category": "unknown",
+    "description": "Unknown service - discovered on 2025-08-26",
+    "discovered_date": "2025-08-26",
+    "display_name": "Getty@Tty1",
+    "documentation_url": null,
+    "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
+    "ports": [],
+    "related_services": [],
+    "support_url": null
+  },
+  "grafana": {
+    "access": "Web UI on port 3000",
+    "category": "monitoring",
+    "description": "Open-source analytics and monitoring platform",
+    "display_name": "Grafana",
+    "documentation_url": "https://grafana.com/docs/",
+    "notes": "Visualization platform for metrics and logs",
+    "ports": [
+      "3000"
+    ],
+    "related_services": [
+      "prometheus"
+    ],
+    "support_url": "https://grafana.com/support/"
+  },
+  "ifupdown2-pre.service": {
+    "_auto_generated": true,
+    "access": "Unknown - please update this entry",
+    "category": "unknown",
+    "description": "Unknown service - discovered on 2025-08-26",
+    "discovered_date": "2025-08-26",
+    "display_name": "Ifupdown2-Pre",
+    "documentation_url": null,
+    "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
+    "ports": [],
+    "related_services": [],
+    "support_url": null
+  },
+  "iscsid.service": {
+    "_auto_generated": true,
+    "access": "Unknown - please update this entry",
+    "category": "unknown",
+    "description": "Unknown service - discovered on 2025-08-26",
+    "discovered_date": "2025-08-26",
+    "display_name": "Iscsid",
+    "documentation_url": null,
+    "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
+    "ports": [],
+    "related_services": [],
+    "support_url": null
+  },
+  "keyboard-setup.service": {
+    "_auto_generated": true,
+    "access": "Unknown - please update this entry",
+    "category": "unknown",
+    "description": "Unknown service - discovered on 2025-08-26",
+    "discovered_date": "2025-08-26",
+    "display_name": "Keyboard-Setup",
+    "documentation_url": null,
+    "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
+    "ports": [],
+    "related_services": [],
+    "support_url": null
+  },
+  "kmod-static-nodes.service": {
+    "_auto_generated": true,
+    "access": "Unknown - please update this entry",
+    "category": "unknown",
+    "description": "Unknown service - discovered on 2025-08-26",
+    "discovered_date": "2025-08-26",
+    "display_name": "Kmod-Static-Nodes",
+    "documentation_url": null,
+    "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
+    "ports": [],
+    "related_services": [],
+    "support_url": null
+  },
+  "ksmtuned.service": {
+    "_auto_generated": true,
+    "access": "Unknown - please update this entry",
+    "category": "unknown",
+    "description": "Unknown service - discovered on 2025-08-26",
+    "discovered_date": "2025-08-26",
+    "display_name": "Ksmtuned",
+    "documentation_url": null,
+    "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
+    "ports": [],
+    "related_services": [],
+    "support_url": null
+  },
+  "kube-apiserver": {
+    "_auto_generated": true,
+    "access": "Unknown - please update this entry",
+    "category": "unknown",
+    "description": "Unknown service - discovered on 2025-08-26",
+    "discovered_date": "2025-08-26",
+    "display_name": "Kube-Apiserver",
+    "documentation_url": null,
+    "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
+    "ports": [],
+    "related_services": [],
+    "support_url": null
+  },
+  "kube-controller": {
+    "access": "Health check on port 10257",
+    "category": "kubernetes",
+    "description": "Kubernetes controller manager that runs core control loops",
+    "display_name": "Kube Controller Manager",
+    "documentation_url": "https://kubernetes.io/docs/reference/command-line-tools-reference/kube-controller-manager/",
+    "notes": "Manages replication, endpoints, service accounts, and tokens",
+    "ports": [
+      "10257"
+    ],
+    "related_services": [
+      "kube-apiserver",
+      "etcd"
+    ],
+    "support_url": "https://kubernetes.io/docs/concepts/overview/components/#kube-controller-manager"
+  },
+  "kube-proxy": {
+    "access": "Metrics on port 10249",
+    "category": "kubernetes",
+    "description": "Kubernetes network proxy that maintains network rules on nodes",
+    "display_name": "Kube Proxy",
+    "documentation_url": "https://kubernetes.io/docs/reference/command-line-tools-reference/kube-proxy/",
+    "notes": "Handles service discovery and load balancing",
+    "ports": [
+      "10249"
+    ],
+    "related_services": [
+      "kubelet"
+    ],
+    "support_url": "https://kubernetes.io/docs/concepts/overview/components/#kube-proxy"
+  },
+  "kube-rbac-proxy": {
+    "_auto_generated": true,
+    "access": "Unknown - please update this entry",
+    "category": "unknown",
+    "description": "Unknown service - discovered on 2025-08-26",
+    "discovered_date": "2025-08-26",
+    "display_name": "Kube-Rbac-Proxy",
+    "documentation_url": null,
+    "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
+    "ports": [],
+    "related_services": [],
+    "support_url": null
+  },
+  "kube-scheduler": {
+    "access": "Health check on port 10259",
+    "category": "kubernetes",
+    "description": "Kubernetes scheduler that assigns pods to nodes",
+    "display_name": "Kube Scheduler",
+    "documentation_url": "https://kubernetes.io/docs/reference/command-line-tools-reference/kube-scheduler/",
+    "notes": "Watches for unscheduled pods and binds them to nodes",
+    "ports": [
+      "10259"
+    ],
+    "related_services": [
+      "kube-apiserver",
+      "etcd"
+    ],
+    "support_url": "https://kubernetes.io/docs/concepts/overview/components/#kube-scheduler"
+  },
+  "kubelet": {
+    "access": "API on port 10250, health check on 10248",
+    "category": "kubernetes",
+    "description": "Kubernetes node agent that manages pods and containers",
+    "display_name": "Kubelet",
+    "documentation_url": "https://kubernetes.io/docs/reference/command-line-tools-reference/kubelet/",
+    "notes": "Primary node agent in Kubernetes",
+    "ports": [
+      "10248",
+      "10250"
+    ],
+    "related_services": [
+      "kube-proxy",
+      "containerd"
+    ],
+    "support_url": "https://kubernetes.io/docs/concepts/overview/components/#kubelet"
+  },
+  "lm-sensors.service": {
+    "_auto_generated": true,
+    "access": "Unknown - please update this entry",
+    "category": "unknown",
+    "description": "Unknown service - discovered on 2025-08-26",
+    "discovered_date": "2025-08-26",
+    "display_name": "Lm-Sensors",
+    "documentation_url": null,
+    "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
+    "ports": [],
+    "related_services": [],
+    "support_url": null
+  },
+  "lvm2-monitor.service": {
+    "_auto_generated": true,
+    "access": "Unknown - please update this entry",
+    "category": "unknown",
+    "description": "Unknown service - discovered on 2025-08-26",
+    "discovered_date": "2025-08-26",
+    "display_name": "Lvm2-Monitor",
+    "documentation_url": null,
+    "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
+    "ports": [],
+    "related_services": [],
+    "support_url": null
+  },
+  "lxc-monitord.service": {
+    "_auto_generated": true,
+    "access": "Unknown - please update this entry",
+    "category": "unknown",
+    "description": "Unknown service - discovered on 2025-08-26",
+    "discovered_date": "2025-08-26",
+    "display_name": "Lxc-Monitord",
+    "documentation_url": null,
+    "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
+    "ports": [],
+    "related_services": [],
+    "support_url": null
+  },
+  "lxc-net.service": {
+    "_auto_generated": true,
+    "access": "Unknown - please update this entry",
+    "category": "unknown",
+    "description": "Unknown service - discovered on 2025-08-26",
+    "discovered_date": "2025-08-26",
+    "display_name": "Lxc-Net",
+    "documentation_url": null,
+    "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
+    "ports": [],
+    "related_services": [],
+    "support_url": null
+  },
+  "lxc.service": {
+    "_auto_generated": true,
+    "access": "Unknown - please update this entry",
+    "category": "unknown",
+    "description": "Unknown service - discovered on 2025-08-26",
+    "discovered_date": "2025-08-26",
+    "display_name": "Lxc",
+    "documentation_url": null,
+    "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
+    "ports": [],
+    "related_services": [],
+    "support_url": null
+  },
+  "lxcfs.service": {
+    "_auto_generated": true,
+    "access": "Unknown - please update this entry",
+    "category": "unknown",
+    "description": "Unknown service - discovered on 2025-08-26",
+    "discovered_date": "2025-08-26",
+    "display_name": "Lxcfs",
+    "documentation_url": null,
+    "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
+    "ports": [],
+    "related_services": [],
+    "support_url": null
+  },
+  "master": {
+    "_auto_generated": true,
+    "access": "Unknown - please update this entry",
+    "category": "unknown",
+    "description": "Unknown service - discovered on 2025-08-26",
+    "discovered_date": "2025-08-26",
+    "display_name": "Master",
+    "documentation_url": null,
+    "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
+    "ports": [],
+    "related_services": [],
+    "support_url": null
+  },
+  "mysql": {
+    "access": "MySQL protocol on port 3306",
+    "category": "database",
+    "description": "Popular open-source relational database",
+    "display_name": "MySQL Server",
+    "documentation_url": "https://dev.mysql.com/doc/",
+    "notes": "Relational database management system",
+    "ports": [
+      "3306"
+    ],
+    "related_services": [],
+    "support_url": "https://www.mysql.com/support/"
+  },
+  "nginx": {
+    "access": "HTTP on port 80, HTTPS on port 443",
+    "category": "web",
+    "description": "High-performance web server and reverse proxy",
+    "display_name": "Nginx",
+    "documentation_url": "https://nginx.org/en/docs/",
+    "notes": "Web server, reverse proxy, and load balancer",
+    "ports": [
+      "80",
+      "443"
+    ],
+    "related_services": [],
+    "support_url": "https://nginx.org/en/support.html"
+  },
+  "node_exporter": {
+    "access": "HTTP metrics on port 9100 at /metrics",
+    "category": "monitoring",
+    "description": "Prometheus exporter for hardware and OS metrics",
+    "display_name": "Prometheus Node Exporter",
+    "documentation_url": "https://prometheus.io/docs/guides/node-exporter/",
+    "notes": "Exposes system metrics for Prometheus monitoring",
+    "ports": [
+      "9100"
+    ],
+    "related_services": [
+      "prometheus"
+    ],
+    "support_url": "https://github.com/prometheus/node_exporter"
+  },
+  "postgresql": {
+    "access": "PostgreSQL protocol on port 5432",
+    "category": "database",
+    "description": "Advanced open-source relational database",
+    "display_name": "PostgreSQL",
+    "documentation_url": "https://www.postgresql.org/docs/",
+    "notes": "Object-relational database system",
+    "ports": [
+      "5432"
+    ],
+    "related_services": [],
+    "support_url": "https://www.postgresql.org/support/"
+  },
+  "prometheus": {
+    "access": "Web UI on port 9090",
+    "category": "monitoring",
+    "description": "Open-source monitoring and alerting system",
+    "display_name": "Prometheus",
+    "documentation_url": "https://prometheus.io/docs/",
+    "notes": "Time series database and monitoring system",
+    "ports": [
+      "9090"
+    ],
+    "related_services": [
+      "node_exporter",
+      "grafana"
+    ],
+    "support_url": "https://prometheus.io/community/"
+  },
+  "redis": {
+    "access": "Redis protocol on port 6379",
+    "category": "database",
+    "description": "In-memory data structure store and cache",
+    "display_name": "Redis",
+    "documentation_url": "https://redis.io/documentation",
+    "notes": "In-memory database used for caching and message brokering",
+    "ports": [
+      "6379"
+    ],
+    "related_services": [],
+    "support_url": "https://redis.io/support"
+  },
+  "rpc.statd": {
+    "_auto_generated": true,
+    "access": "Unknown - please update this entry",
+    "category": "unknown",
+    "description": "Unknown service - discovered on 2025-08-26",
+    "discovered_date": "2025-08-26",
+    "display_name": "Rpc.Statd",
+    "documentation_url": null,
+    "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
+    "ports": [],
+    "related_services": [],
+    "support_url": null
+  },
+  "rpcbind": {
+    "_auto_generated": true,
+    "access": "Unknown - please update this entry",
+    "category": "unknown",
+    "description": "Unknown service - discovered on 2025-08-26",
+    "discovered_date": "2025-08-26",
+    "display_name": "Rpcbind",
+    "documentation_url": null,
+    "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
+    "ports": [],
+    "related_services": [],
+    "support_url": null
+  },
+  "speaker": {
+    "access": "BGP on port 7946, control on 7472",
+    "category": "networking",
+    "description": "MetalLB load balancer speaker component",
+    "display_name": "MetalLB Speaker",
+    "documentation_url": "https://metallb.universe.tf/",
+    "notes": "Bare metal load balancer for Kubernetes",
+    "ports": [
+      "7946",
+      "7472"
+    ],
+    "related_services": [
+      "metallb-controller"
+    ],
+    "support_url": "https://github.com/metallb/metallb"
+  },
+  "ssh": {
+    "access": "SSH on port 22",
+    "category": "system",
+    "description": "Secure shell server for remote access",
+    "display_name": "OpenSSH Server",
+    "documentation_url": "https://www.openssh.com/manual.html",
+    "notes": "Secure remote access and file transfer",
+    "ports": [
+      "22"
+    ],
+    "related_services": [],
+    "support_url": "https://www.openssh.com/"
+  },
+  "sshd": {
+    "access": "SSH on port 22",
+    "category": "system",
+    "description": "Secure shell server for remote access",
+    "display_name": "OpenSSH Server",
+    "documentation_url": "https://www.openssh.com/manual.html",
+    "notes": "Secure remote access and file transfer",
+    "ports": [
+      "22"
+    ],
+    "related_services": [],
+    "support_url": "https://www.openssh.com/"
+  },
+  "systemd": {
+    "_auto_generated": true,
+    "access": "Unknown - please update this entry",
+    "category": "unknown",
+    "description": "Unknown service - discovered on 2025-08-26",
+    "discovered_date": "2025-08-26",
+    "display_name": "Systemd",
+    "documentation_url": null,
+    "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
+    "ports": [],
+    "related_services": [],
+    "support_url": null
+  },
+  "systemd-resolve": {
+    "_auto_generated": true,
+    "access": "Unknown - please update this entry",
+    "category": "unknown",
+    "description": "Unknown service - discovered on 2025-08-26",
+    "discovered_date": "2025-08-26",
+    "display_name": "Systemd-Resolve",
+    "documentation_url": null,
+    "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
+    "ports": [],
+    "related_services": [],
+    "support_url": null
+  },
+  "systemd-resolved": {
+    "access": "DNS on port 53",
+    "category": "system",
+    "description": "System DNS resolver service",
+    "display_name": "systemd DNS Resolver",
+    "documentation_url": "https://www.freedesktop.org/software/systemd/man/systemd-resolved.service.html",
+    "notes": "Provides DNS resolution for the system",
+    "ports": [
+      "53"
+    ],
+    "related_services": [
+      "systemd-networkd"
+    ],
+    "support_url": "https://systemd.io/"
+  },
+  "unknown": {
+    "_auto_generated": true,
+    "access": "Unknown - please update this entry",
+    "category": "unknown",
+    "description": "Unknown service - discovered on 2025-08-26",
+    "discovered_date": "2025-08-26",
+    "display_name": "Unknown",
+    "documentation_url": null,
+    "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
+    "ports": [],
+    "related_services": [],
+    "support_url": null
+  }
+}
