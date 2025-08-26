@@ -193,16 +193,22 @@ class SystemCollector:
     def collect_system_info(self) -> Dict:
         """Collect comprehensive system information"""
         info = {
-            'hostname': self.hostname,
+            'hostname': self.hostname,  # This is the IP initially
             'timestamp': datetime.now().isoformat(),
             'reachable': False
         }
-        
+    
         if not self.connect():
             return info
-            
-        info['reachable'] = True
         
+        info['reachable'] = True
+    
+        # Get the actual hostname/FQDN from the system
+        actual_hostname = self.run_command('hostname -f 2>/dev/null || hostname')
+        if actual_hostname and actual_hostname != "Unknown":
+            info['actual_hostname'] = actual_hostname.strip()
+            logger.debug(f"Discovered hostname: {actual_hostname} for IP: {self.hostname}")
+    
         commands = {
             'os_release_raw': 'cat /etc/os-release 2>/dev/null || echo "Unknown"',
             'kernel': 'uname -r',
@@ -216,7 +222,6 @@ class SystemCollector:
             'cpu_cores': 'nproc',
             'ip_addresses': 'ip -4 addr show | grep inet | awk \'{print $2}\' | grep -v 127.0.0.1',
         }
-        
         for key, command in commands.items():
             result = self.run_command(command)
             info[key] = result if result else "Unknown"
@@ -503,21 +508,32 @@ class InventoryManager:
     def collect_all_data(self, hosts: List[str]):
         """Collect data from all hosts"""
         logger.info(f"Collecting data from {len(hosts)} hosts")
-        
+    
         with concurrent.futures.ThreadPoolExecutor(max_workers=CONFIG['max_workers']) as executor:
             futures = {
                 executor.submit(self.collect_host_data, host): host 
                 for host in hosts
             }
-            
+        
             for future in concurrent.futures.as_completed(futures):
-                host = futures[future]
+                original_host = futures[future]
                 try:
                     data = future.result()
-                    self.inventory[host] = data
-                    logger.info(f"Collected data for {host}")
+                
+                    # Determine the best key to use for this host
+                    if data.get('reachable') and data.get('actual_hostname'):
+                        # Use the actual hostname from the system
+                        best_key = data['actual_hostname']
+                        logger.info(f"Using hostname '{best_key}' instead of IP '{original_host}'")
+                    else:
+                        # Fall back to the original (IP or hostname from CSV)
+                        best_key = original_host
+                
+                    self.inventory[best_key] = data
+                    logger.info(f"Collected data for {best_key}")
+                
                 except Exception as e:
-                    logger.error(f"Failed to collect data for {host}: {e}")
+                    logger.error(f"Failed to collect data for {original_host}: {e}")
     
     def collect_host_data(self, host: str) -> Dict:
         """Collect data from a single host"""
