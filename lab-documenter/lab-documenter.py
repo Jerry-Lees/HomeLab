@@ -173,12 +173,12 @@ class SystemCollector:
         """Get Kubernetes information if kubectl is available"""
         k8s_info = {}
         
-        # Check if kubectl is available
-        kubectl_version = self.run_command('kubectl version --client --short 2>/dev/null')
+        # Check if kubectl is available - use newer syntax
+        kubectl_version = self.run_command('kubectl version --client -o json 2>/dev/null | grep gitVersion || kubectl version --client 2>/dev/null | head -1')
         if not kubectl_version:
             return k8s_info
             
-        k8s_info['kubectl_version'] = kubectl_version
+        k8s_info['kubectl_version'] = kubectl_version.strip()
         
         # Get cluster info
         cluster_info = self.run_command('kubectl cluster-info 2>/dev/null | head -3')
@@ -226,9 +226,14 @@ class SystemCollector:
                         k8s_info['pods'].append(pod_info)
                         
                         # Check for problematic pods
+                        try:
+                            restarts = int(parts[4])
+                        except (ValueError, IndexError):
+                            restarts = 0
+                            
                         if (parts[3] not in ['Running', 'Completed'] or 
                             '/' in parts[2] and parts[2].split('/')[0] != parts[2].split('/')[1] or
-                            int(parts[4]) > 5):  # More than 5 restarts
+                            restarts > 5):  # More than 5 restarts
                             problematic_pods.append(pod_info)
             
             if problematic_pods:
@@ -344,10 +349,12 @@ class SystemCollector:
         if secrets and secrets.strip().isdigit():
             k8s_info['total_secrets'] = int(secrets.strip())
         
-        # Get events (recent issues)
-        events = self.run_command('kubectl get events --all-namespaces --sort-by=.metadata.creationTimestamp --field-selector type!=Normal 2>/dev/null | tail -10')
+        # Get events (recent issues) - simplified to avoid field-selector issues
+        events = self.run_command('kubectl get events --all-namespaces --sort-by=.metadata.creationTimestamp 2>/dev/null | grep -v Normal | tail -10')
         if events and 'LAST SEEN' not in events:  # Has actual events, not just header
-            k8s_info['recent_warnings'] = events.split('\n')[1:] if '\n' in events else [events]
+            event_lines = [line for line in events.split('\n') if line.strip()]
+            if event_lines:
+                k8s_info['recent_warnings'] = event_lines
         
         return k8s_info
     
