@@ -73,12 +73,12 @@ Modify the repository's `config.json` file to fit your environment:
 ```json
 {
     "ssh_user": "your_admin_user",
-    "ssh_key_path": "~/.ssh/id_rsa",
+    "ssh_key_path": "./.ssh/homelab_key",
     "network_range": "192.168.1.0/24",
     "ssh_timeout": 10,
     "max_workers": 5,
-    "output_file": "homelab_inventory.json",
-    "csv_file": "servers.csv",
+    "output_file": "./documentation/inventory.json",
+    "csv_file": "./servers.csv",
     "mediawiki_api": "http://wiki.homelab.local/api.php",
     "mediawiki_user": "documentation_bot",
     "mediawiki_password": "your_bot_password"
@@ -235,6 +235,24 @@ The script automatically creates a `documentation/` folder with:
 ```markdown
 # server1.homelab.local
 
+### **3. Enhanced OS Information**
+Should mention that OS information is now parsed and structured:
+```markdown
+### Structured OS Data
+The script now parses `/etc/os-release` into structured data:
+- **OS:** Ubuntu 24.04.3 LTS
+- **Version:** 24.04.3 LTS (Noble)
+- **Distribution:** Ubuntu (based on Debian)
+
+### 4. Individual JSON Files
+
+Each server also gets its own JSON file:
+- `documentation/server1.homelab.local.json`
+- Perfect for visualization tools or individual analysis
+- Same data structure as the main inventory
+- **Smart Hostname Detection**: Uses FQDN/hostname instead of IP addresses when possible
+- Files named by hostname: `server1.example.com.md` instead of `192.168.1.100.md`
+
 **Last Updated:** 2025-08-25T10:30:00
 
 ## System Information
@@ -344,6 +362,26 @@ MediaWiki pages include:
 4. Use `--update-wiki` flag when running the script
 
 **Note:** Local documentation files are always created regardless of MediaWiki settings.
+
+## Services Database
+
+The script includes an intelligent services database that:
+- **Automatically discovers** unknown services and adds them to `services.json`
+- **Enhances documentation** with service descriptions, categories, and access information
+- **Self-updating** - grows as you scan different systems
+- **Customizable** - edit `services.json` to add your own service information
+
+### Auto-Discovery
+When unknown services are found, they're automatically added:
+```json
+{
+  "new-service": {
+    "display_name": "New Service",
+    "description": "Unknown service - discovered on 2025-08-26",
+    "category": "unknown",
+    "_auto_generated": true
+  }
+}
 
 ## Automation
 
