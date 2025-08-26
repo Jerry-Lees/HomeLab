@@ -1,0 +1,12 @@
+{
+    "ssh_user": "yoursshuser",
+    "ssh_key_path": "/examplepath/lab-documenter/.ssh/homelab_key",
+    "network_range": "192.168.1.0/24",
+    "ssh_timeout": 10,
+    "max_workers": 5,
+    "output_file": "/examplepath/lab-documenter/inventory.json",
+    "csv_file": "/examplepath/lab-documenter/servers.csv",
+    "mediawiki_api": "http://wiki.homelab.local/api.php",
+    "mediawiki_user": "documentation_bot",
+    "mediawiki_password": "change_me"
+}

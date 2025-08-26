@@ -1,0 +1,6 @@
+hostname,description,role,location
+# Add your servers here
+# server1.homelab.local,Main file server,NAS,Rack 1
+# k8s-master.homelab.local,Kubernetes master node,K8s Master,Rack 1
+# proxmox1.homelab.local,Proxmox hypervisor,Virtualization,Rack 2
+# 192.168.1.100,Docker host,Container Host,Rack 1
