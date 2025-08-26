@@ -68,7 +68,7 @@ lab-documenter --help
 
 ### Configuration File (`config.json`)
 
-Create a `config.json` file in the same directory as the script:
+Modify the repository's `config.json` file to fit your environment:
 
 ```json
 {
@@ -87,7 +87,7 @@ Create a `config.json` file in the same directory as the script:
 
 ### Server List (`servers.csv`)
 
-Create a `servers.csv` file to specify servers manually:
+Modify the repository's `servers.csv` file to specify your servers manually: (required only if not using the --scan option mentioned below.)
 
 ```csv
 hostname,description,role,location
