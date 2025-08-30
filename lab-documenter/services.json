@@ -207,17 +207,23 @@
     "support_url": null
   },
   "big3d": {
-    "display_name": "F5 BIG-IP 3DNS Agent",
-    "description": "F5 BIG-IP agent that answers 3DNS Controller queries and collects network path performance data",
-    "category": "network",
-    "documentation_url": "https://support.f5.com/",
-    "support_url": "https://support.f5.com/",
     "access": "iQuery protocol on ports 245 (legacy) and 4353",
+    "category": "network",
+    "description": "F5 BIG-IP agent that answers 3DNS Controller queries and collects network path performance data",
+    "display_name": "F5 BIG-IP 3DNS Agent",
+    "documentation_url": "https://support.f5.com/",
     "notes": "Part of F5's Global Server Load Balancing (GSLB) system. Calculates network performance data and returns it to 3DNS Controllers for dynamic load balancing decisions.",
-    "ports": ["245", "4353"],
-    "related_services": ["gtmd", "f5-module-sysinit.service"]
+    "ports": [
+      "245",
+      "4353"
+    ],
+    "related_services": [
+      "gtmd",
+      "f5-module-sysinit.service"
+    ],
+    "support_url": "https://support.f5.com/"
   },
-    "blk-availability.service": {
+  "blk-availability.service": {
     "access": "N/A - boot-time service",
     "category": "storage",
     "description": "Ensures block devices are available before dependent services start",
@@ -905,15 +911,18 @@
     "support_url": "https://grafana.com/support/"
   },
   "gtmd": {
-    "display_name": "F5 Global Traffic Manager Daemon",
-    "description": "F5 BIG-IP DNS daemon that manages global server load balancing and intelligent DNS responses",
-    "category": "network",
-    "documentation_url": "https://support.f5.com/",
-    "support_url": "https://support.f5.com/",
     "access": "iQuery protocol communication with big3d agents",
+    "category": "network",
+    "description": "F5 BIG-IP DNS daemon that manages global server load balancing and intelligent DNS responses",
+    "display_name": "F5 Global Traffic Manager Daemon",
+    "documentation_url": "https://support.f5.com/",
     "notes": "Core component of F5's BIG-IP DNS (formerly 3DNS/GTM). Monitors BIG-IP system availability and network path integrity, makes intelligent DNS routing decisions based on performance data from big3d agents.",
     "ports": [],
-    "related_services": ["big3d", "f5-module-sysinit.service"]
+    "related_services": [
+      "big3d",
+      "f5-module-sysinit.service"
+    ],
+    "support_url": "https://support.f5.com/"
   },
   "hddtemp.service": {
     "access": "TCP daemon on port 7634",
@@ -947,17 +956,21 @@
     "support_url": "https://httpd.apache.org/"
   },
   "icrd_child": {
-    "display_name": "F5 iControl REST Daemon Child Process",
-    "description": "Child process of F5 BIG-IP iControl REST API daemon",
-    "category": "network",
-    "documentation_url": "https://support.f5.com/",
-    "support_url": "https://support.f5.com/",
     "access": "REST API endpoints (child process)",
+    "category": "network",
+    "description": "Child process of F5 BIG-IP iControl REST API daemon",
+    "display_name": "F5 iControl REST Daemon Child Process",
+    "documentation_url": "https://support.f5.com/",
     "notes": "Child process of icrd (iControl REST Daemon). Handles F5 BIG-IP REST API requests for device management and configuration.",
     "ports": [],
-    "related_services": ["icrd", "restjavad", "mcpd"]
+    "related_services": [
+      "icrd",
+      "restjavad",
+      "mcpd"
+    ],
+    "support_url": "https://support.f5.com/"
   },
-    "ifup@eth0.service": {
+  "ifup@eth0.service": {
     "access": "Network interface eth0",
     "category": "network",
     "description": "Brings up network interface eth0 using ifupdown",
@@ -1008,6 +1021,19 @@
       "keepalived.service"
     ],
     "support_url": "https://github.com/alibaba/LVS"
+  },
+  "irqbalance.service": {
+    "_auto_generated": true,
+    "access": "Unknown - please update this entry",
+    "category": "unknown",
+    "description": "Unknown service - discovered on 2025-08-29",
+    "discovered_date": "2025-08-29",
+    "display_name": "Irqbalance",
+    "documentation_url": null,
+    "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
+    "ports": [],
+    "related_services": [],
+    "support_url": null
   },
   "iscsid.service": {
     "access": "iSCSI protocol on port 3260",
@@ -1259,26 +1285,47 @@
     "support_url": "https://github.com/lxc/lxcfs"
   },
   "mariadb.service": {
-    "display_name": "MariaDB Database Server",
-    "description": "Open-source relational database management system, MySQL-compatible fork",
-    "category": "database",
-    "documentation_url": "https://mariadb.org/documentation/",
-    "support_url": "https://mariadb.org/support/",
     "access": "MySQL protocol on port 3306",
+    "category": "database",
+    "description": "Open-source relational database management system, MySQL-compatible fork",
+    "display_name": "MariaDB Database Server",
+    "documentation_url": "https://mariadb.org/documentation/",
     "notes": "Drop-in replacement for MySQL. Provides SQL database services with enhanced performance and features.",
-    "ports": ["3306"],
-    "related_services": ["mariadbd"]
+    "ports": [
+      "3306"
+    ],
+    "related_services": [
+      "mariadbd"
+    ],
+    "support_url": "https://mariadb.org/support/"
   },
   "mariadbd": {
-    "display_name": "MariaDB Daemon Process",
-    "description": "MariaDB database server daemon process (mysqld equivalent)",
-    "category": "database",
-    "documentation_url": "https://mariadb.org/documentation/",
-    "support_url": "https://mariadb.org/support/",
     "access": "MySQL protocol on port 3306",
+    "category": "database",
+    "description": "MariaDB database server daemon process (mysqld equivalent)",
+    "display_name": "MariaDB Daemon Process",
+    "documentation_url": "https://mariadb.org/documentation/",
     "notes": "The actual MariaDB server daemon process. Handles database connections, queries, and storage operations.",
-    "ports": ["3306"],
-    "related_services": ["mariadb.service"]
+    "ports": [
+      "3306"
+    ],
+    "related_services": [
+      "mariadb.service"
+    ],
+    "support_url": "https://mariadb.org/support/"
+  },
+  "master": {
+    "_auto_generated": true,
+    "access": "Unknown - please update this entry",
+    "category": "unknown",
+    "description": "Unknown service - discovered on 2025-08-29",
+    "discovered_date": "2025-08-29",
+    "display_name": "Master",
+    "documentation_url": null,
+    "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
+    "ports": [],
+    "related_services": [],
+    "support_url": null
   },
   "mcpd": {
     "access": "F5 system management",
@@ -1490,6 +1537,19 @@
       "systemd-timesyncd.service"
     ],
     "support_url": "https://github.com/ntp-project/ntp"
+  },
+  "perl": {
+    "_auto_generated": true,
+    "access": "Unknown - please update this entry",
+    "category": "unknown",
+    "description": "Unknown service - discovered on 2025-08-29",
+    "discovered_date": "2025-08-29",
+    "display_name": "Perl",
+    "documentation_url": null,
+    "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
+    "ports": [],
+    "related_services": [],
+    "support_url": null
   },
   "pihole-FTL": {
     "access": "DNS on port 53, Web admin on port 80/443",
@@ -1785,15 +1845,19 @@
     "support_url": "https://github.com/net-snmp/net-snmp"
   },
   "sod": {
-    "display_name": "F5 Switch-Over Daemon",
-    "description": "F5 BIG-IP daemon that controls failover functions and high availability operations",
-    "category": "network",
-    "documentation_url": "https://support.f5.com/",
-    "support_url": "https://support.f5.com/",
     "access": "Command line interface and hardware failover cables",
+    "category": "network",
+    "description": "F5 BIG-IP daemon that controls failover functions and high availability operations",
+    "display_name": "F5 Switch-Over Daemon",
+    "documentation_url": "https://support.f5.com/",
     "notes": "Controls BIG-IP Controller fail-over functions. Manages high availability between paired BIG-IP systems using serial ports or network connections. Critical for HA operations.",
     "ports": [],
-    "related_services": ["mcpd", "f5-module-sysinit.service", "bigd"]
+    "related_services": [
+      "mcpd",
+      "f5-module-sysinit.service",
+      "bigd"
+    ],
+    "support_url": "https://support.f5.com/"
   },
   "speaker": {
     "access": "BGP on port 7946, control on 7472",
@@ -1903,6 +1967,19 @@
     ],
     "support_url": "https://systemd.io/"
   },
+  "tailscaled": {
+    "_auto_generated": true,
+    "access": "Unknown - please update this entry",
+    "category": "unknown",
+    "description": "Unknown service - discovered on 2025-08-29",
+    "discovered_date": "2025-08-29",
+    "display_name": "Tailscaled",
+    "documentation_url": null,
+    "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
+    "ports": [],
+    "related_services": [],
+    "support_url": null
+  },
   "tmrouted": {
     "access": "Traffic management interfaces",
     "category": "network",
@@ -1926,6 +2003,19 @@
     ],
     "related_services": [],
     "support_url": "https://github.com/tvheadend/tvheadend"
+  },
+  "unknown": {
+    "_auto_generated": true,
+    "access": "Unknown - please update this entry",
+    "category": "unknown",
+    "description": "Unknown service - discovered on 2025-08-29",
+    "discovered_date": "2025-08-29",
+    "display_name": "Unknown",
+    "documentation_url": null,
+    "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
+    "ports": [],
+    "related_services": [],
+    "support_url": null
   },
   "vncserver-x11-c": {
     "access": "VNC on port 5900+",
