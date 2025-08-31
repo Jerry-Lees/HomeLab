@@ -128,6 +128,14 @@ class SystemCollector:
         if info['os_release_raw'] != "Unknown":
             del info['os_release_raw']
         
+        # Collect detailed memory module information
+        memory_data = self.get_memory_modules()
+        info['memory_modules'] = memory_data
+        
+        # Extract BIOS info for system information section
+        if memory_data.get('bios_info'):
+            info['bios_info'] = memory_data['bios_info']
+        
         info['services'] = self.get_services()
         info['docker_containers'] = self.get_docker_containers()
         info['listening_ports'] = self.get_listening_ports()
@@ -136,6 +144,173 @@ class SystemCollector:
         
         self.ssh_client.close()
         return info
+    
+    def parse_lshw_memory_output(self, lshw_output: str) -> dict:
+        """Parse lshw memory output into structured data"""
+        memory_data = {
+            'bios_info': {},
+            'memory_banks': [],
+            'cache_info': [],
+            'system_memory': {}
+        }
+        
+        if not lshw_output or len(lshw_output.strip()) < 10:
+            return memory_data
+            
+        # Split into sections based on *-entries
+        sections = []
+        current_section = []
+        
+        for line in lshw_output.split('\n'):
+            if line.strip().startswith('*-'):
+                if current_section:
+                    sections.append('\n'.join(current_section))
+                current_section = [line]
+            else:
+                current_section.append(line)
+        
+        if current_section:
+            sections.append('\n'.join(current_section))
+        
+        # Process each section
+        for section in sections:
+            section_header = section.split('\n')[0].strip() if section.strip() else ''
+            
+            if '*-firmware' in section_header:
+                # Parse BIOS information
+                bios_info = {}
+                for line in section.split('\n')[1:]:  # Skip the header line
+                    line = line.strip()
+                    if ':' in line and not line.startswith('*-'):
+                        key, value = line.split(':', 1)
+                        bios_info[key.strip()] = value.strip()
+                
+                if bios_info:  # Only add if we found some BIOS info
+                    memory_data['bios_info'] = bios_info
+                    logger.debug(f"Found BIOS info on {self.hostname}: {bios_info}")
+                
+            elif '*-memory' in section_header and '*-bank:' not in section_header:
+                # Parse system memory info
+                sys_mem = {}
+                for line in section.split('\n')[1:]:  # Skip the header line
+                    line = line.strip()
+                    if ':' in line and not line.startswith('*-'):
+                        key, value = line.split(':', 1)
+                        sys_mem[key.strip()] = value.strip()
+                
+                if sys_mem:
+                    memory_data['system_memory'] = sys_mem
+                
+            elif '*-bank:' in section_header:
+                # Parse memory bank information
+                bank_info = {}
+                for line in section.split('\n')[1:]:  # Skip the header line
+                    line = line.strip()
+                    if ':' in line and not line.startswith('*-'):
+                        key, value = line.split(':', 1)
+                        bank_info[key.strip()] = value.strip()
+                        
+                # Only include banks that have useful information
+                if bank_info.get('size') or '[empty]' not in bank_info.get('description', ''):
+                    memory_data['memory_banks'].append(bank_info)
+                elif '[empty]' in bank_info.get('description', ''):
+                    # Mark as empty but keep slot info
+                    bank_info['empty'] = True
+                    memory_data['memory_banks'].append(bank_info)
+                    
+            elif '*-cache:' in section_header:
+                # Parse cache information
+                cache_info = {}
+                for line in section.split('\n')[1:]:  # Skip the header line
+                    line = line.strip()
+                    if ':' in line and not line.startswith('*-'):
+                        key, value = line.split(':', 1)
+                        cache_info[key.strip()] = value.strip()
+                
+                if cache_info:
+                    memory_data['cache_info'].append(cache_info)
+        
+        logger.debug(f"Parsed memory data for {self.hostname}: BIOS={bool(memory_data.get('bios_info'))}, Banks={len(memory_data.get('memory_banks', []))}")
+        return memory_data
+
+    def get_memory_modules(self) -> dict:
+        """Get detailed memory module information as structured data"""
+        # Try multiple methods to get memory information
+        
+        # Method 1: lshw (preferred for detailed info)
+        logger.debug(f"Trying lshw command on {self.hostname}")
+        memory_info = self.run_command('lshw -c memory 2>/dev/null')
+        if memory_info and 'command not found' not in memory_info.lower() and len(memory_info.strip()) > 10:
+            logger.debug(f"lshw successful on {self.hostname}")
+            return self.parse_lshw_memory_output(memory_info)
+        else:
+            logger.debug(f"lshw failed on {self.hostname}: {memory_info}")
+        
+        # Method 2: dmidecode fallback (return as structured data too)
+        logger.debug(f"Trying dmidecode command on {self.hostname}")
+        memory_info = self.run_command('dmidecode -t memory 2>/dev/null | grep -A 15 "Memory Device" | head -80')
+        if memory_info and 'command not found' not in memory_info.lower() and len(memory_info.strip()) > 10:
+            logger.debug(f"dmidecode successful on {self.hostname}")
+            return {
+                'bios_info': {},
+                'memory_banks': [],
+                'cache_info': [],
+                'system_memory': {},
+                'raw_dmidecode': memory_info,
+                'source': 'dmidecode'
+            }
+        else:
+            logger.debug(f"dmidecode failed on {self.hostname}: {memory_info}")
+        
+        # Method 3: Try with sudo (in case user has sudo without password)
+        logger.debug(f"Trying sudo lshw command on {self.hostname}")
+        memory_info = self.run_command('sudo lshw -c memory 2>/dev/null')
+        if memory_info and 'command not found' not in memory_info.lower() and 'sudo:' not in memory_info and len(memory_info.strip()) > 10:
+            logger.debug(f"sudo lshw successful on {self.hostname}")
+            return self.parse_lshw_memory_output(memory_info)
+        else:
+            logger.debug(f"sudo lshw failed on {self.hostname}: {memory_info}")
+            
+        # Method 4: /proc/meminfo (basic fallback)
+        logger.debug(f"Trying /proc/meminfo on {self.hostname}")
+        memory_info = self.run_command('cat /proc/meminfo | head -15')
+        if memory_info and len(memory_info.strip()) > 10:
+            logger.debug(f"/proc/meminfo successful on {self.hostname}")
+            return {
+                'bios_info': {},
+                'memory_banks': [],
+                'cache_info': [],
+                'system_memory': {},
+                'basic_meminfo': memory_info,
+                'source': 'meminfo'
+            }
+        else:
+            logger.debug(f"/proc/meminfo failed on {self.hostname}: {memory_info}")
+            
+        # Method 5: Return error information
+        available_commands = []
+        for cmd in ['lshw', 'dmidecode', 'cat']:
+            check_result = self.run_command(f'which {cmd} 2>/dev/null')
+            if check_result:
+                available_commands.append(f"{cmd}: {check_result}")
+        
+        error_info = {
+            'bios_info': {},
+            'memory_banks': [],
+            'cache_info': [],
+            'system_memory': {},
+            'error': 'Memory module information not available',
+            'available_commands': available_commands,
+            'source': 'error'
+        }
+        
+        # Try to get OS info to help debug
+        os_info = self.run_command('cat /etc/os-release | head -3 2>/dev/null')
+        if os_info:
+            error_info['os_info'] = os_info
+        
+        logger.warning(f"Could not get memory info for {self.hostname}")
+        return error_info
     
     def parse_os_release(self, os_release_content: str) -> Dict:
         """Parse /etc/os-release content into structured data"""
@@ -171,7 +346,7 @@ class SystemCollector:
         services = []
         result = self.run_command(
             "systemctl list-units --type=service --state=active --no-pager --plain | "
-            "awk '{print $1}' | grep -v '^â—' | head -20"
+            "awk '{print $1}' | grep -v '^UNIT' | head -20"
         )
         if result:
             for service in result.split('\n'):
