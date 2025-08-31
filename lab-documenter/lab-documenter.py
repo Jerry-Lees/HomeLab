@@ -15,22 +15,31 @@ from modules.config import CONFIG, load_config_file, update_config_from_args
 from modules.network import NetworkScanner
 from modules.inventory import InventoryManager
 from modules.wiki import MediaWikiUpdater
+
 from modules.documentation import DocumentationManager, generate_wiki_content, generate_mediawiki_content
 from modules.utils import clean_directories, print_connection_summary, load_ignore_list, filter_ignored_hosts
 
-# Set up logging
-log_dir = 'logs'
-os.makedirs(log_dir, exist_ok=True)
+def setup_logging(verbose=False, quiet=False):
+    """Set up logging after potential clean operations"""
+    log_dir = 'logs'
+    os.makedirs(log_dir, exist_ok=True)
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(os.path.join(log_dir, 'lab-documenter.log')),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
+    if quiet:
+        level = logging.ERROR
+    elif verbose:
+        level = logging.DEBUG
+    else:
+        level = logging.INFO
+
+    logging.basicConfig(
+        level=level,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(os.path.join(log_dir, 'lab-documenter.log')),
+            logging.StreamHandler()
+        ]
+    )
+    return logging.getLogger(__name__)
 
 def main():
     parser = argparse.ArgumentParser(
@@ -125,12 +134,6 @@ Configuration:
     
     args = parser.parse_args()
     
-    # Set logging level based on verbosity
-    if args.quiet:
-        logging.getLogger().setLevel(logging.ERROR)
-    elif args.verbose:
-        logging.getLogger().setLevel(logging.DEBUG)
-    
     # Load configuration file
     config = load_config_file(args.config)
     
@@ -140,20 +143,24 @@ Configuration:
     # Update global CONFIG for modules
     CONFIG.update(config)
     
+    # Handle clean operation FIRST (before logging setup)
+    if args.clean:
+        print(f"Cleaning documentation and logs directories...")
+        clean_directories(dry_run=args.dry_run)
+        
+        # If only cleaning (no other operations), exit after cleaning
+        if not (args.scan or args.csv_only or args.update_wiki):
+            print("Clean operation completed")
+            return
+    
+    # NOW set up logging (after potential clean operation)
+    logger = setup_logging(verbose=args.verbose, quiet=args.quiet)
+    
     if args.dry_run:
         logger.info("DRY RUN MODE - No changes will be made")
         networks_display = ', '.join(config['network_ranges'])
         logger.info(f"Would use config: SSH user={config['ssh_user']}, Networks={networks_display}, Workers={config['max_workers']}")
     
-    # Handle clean operation
-    if args.clean:
-        logger.info("Cleaning documentation and logs directories")
-        clean_directories(dry_run=args.dry_run)
-        
-        # If only cleaning (no other operations), exit after cleaning
-        if not (args.scan or args.csv_only or args.update_wiki):
-            logger.info("Clean operation completed")
-            return
     # Validate required settings
     if not config.get('ssh_user'):
         logger.error("SSH user not configured. Set it in config file or use --ssh-user")
