@@ -4,7 +4,7 @@ Documentation generation for Lab Documenter
 Handles Markdown and MediaWiki content generation with collapsible sections.
 
 CONTENT SYNCHRONIZATION REQUIREMENT:
-Both generate_wiki_content() and generate_mediawiki_content() must maintain 
+Both generate_markdown_content() and generate_mediawiki_content() must maintain 
 feature parity and similar information depth. When adding new sections or 
 features to one function, always update the other function as well.
 
@@ -32,7 +32,7 @@ from typing import Dict
 
 logger = logging.getLogger(__name__)
 
-def generate_wiki_content(host_data: Dict) -> str:
+def generate_markdown_content(host_data: Dict) -> str:
     """Generate Markdown content for a host"""
     os_info = host_data.get('os_release', {})
     
@@ -966,7 +966,7 @@ class DocumentationManager:
         
         try:
             # Save Markdown documentation
-            content = generate_wiki_content(host_data)
+            content = generate_markdown_content(host_data)
             with open(doc_path, 'w', encoding='utf-8') as f:
                 f.write(content)
             logger.info(f"Documentation saved: {doc_path}")

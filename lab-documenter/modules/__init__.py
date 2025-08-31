@@ -10,7 +10,7 @@ from modules.system import SystemCollector
 from modules.network import NetworkScanner
 from modules.inventory import InventoryManager
 from modules.wiki import MediaWikiUpdater
-from modules.documentation import DocumentationManager, generate_wiki_content, generate_mediawiki_content
+from modules.documentation import DocumentationManager, generate_mediawiki_content
 from modules.utils import setup_logging, clean_directories, validate_ssh_configuration, validate_mediawiki_configuration, get_unique_hosts, print_connection_summary, load_ignore_list, filter_ignored_hosts
 
 __all__ = [
@@ -23,7 +23,6 @@ __all__ = [
     'InventoryManager',
     'MediaWikiUpdater',
     'DocumentationManager',
-    'generate_wiki_content',
     'generate_mediawiki_content'
 ]
 
