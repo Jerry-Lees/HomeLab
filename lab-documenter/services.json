@@ -1508,6 +1508,20 @@
     "related_services": [],
     "support_url": "https://nginx.org/en/support.html"
   },
+  "nmbd.service": {
+    "_auto_generated": true,
+    "access": "Unknown - please update this entry",
+    "category": "system",
+    "description": "the systemd service that starts and stops the nmbd daemon, which is the NetBIOS name server and browsing daemon within the Samba suite.",
+    "display_name": "Nmbd",
+    "documentation_url": "https://www.samba.org/samba/docs/current/man-html/nmbd.8.html",
+    "notes": "",
+    "ports": [],
+    "related_services": [
+      "smbd.service"
+    ],
+    "support_url": "https://www.samba.org/samba/support/"
+  },
   "node_exporter": {
     "access": "HTTP metrics on port 9100 at /metrics",
     "category": "monitoring",
