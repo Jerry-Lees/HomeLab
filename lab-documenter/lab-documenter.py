@@ -16,7 +16,7 @@ from modules.network import NetworkScanner
 from modules.inventory import InventoryManager
 from modules.wiki import MediaWikiUpdater
 
-from modules.documentation import DocumentationManager, generate_wiki_content, generate_mediawiki_content
+from modules.documentation import DocumentationManager, generate_mediawiki_content
 from modules.utils import clean_directories, print_connection_summary, load_ignore_list, filter_ignored_hosts
 
 def setup_logging(verbose=False, quiet=False):
