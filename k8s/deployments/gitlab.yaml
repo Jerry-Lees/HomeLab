@@ -18,7 +18,11 @@ spec:
       - name: gitlab
         env:
         - name: GITLAB_HOME
-          value: /sharedpath/storagelocation/gitlab 
+          value: /nfspath/storagelocation/gitlab 
+        - name: GITLAB_ROOT_PASSWORD
+          value: "P@ssw0rdP@ssw0rd"
+        - name: EXTERNAL_URL
+          value: "https://gitlab.example.com"
         - name: GITLAB_SKIP_UNMIGRATED_DATA_CHECK
           value: "true"
 #NOTE!!! In the below entries, you will need to generate your own certs/keys/etc.
@@ -34,8 +38,6 @@ spec:
             nginx['ssl_dhparam'] = "/etc/gitlab/ssl/dhparams.pem"
             prometheus['monitor_kubernetes'] = false
 #for upgrading
-        image: gitlab/gitlab-ce:latest
-        imagePullPolicy: Always
         resources:
           requests:
             memory: "1G"
@@ -43,8 +45,8 @@ spec:
           limits:
             memory: "1500G"
             cpu: "2"
-#        image: gitlab/gitlab-ce:latest
-#        imagePullPolicy: Always
+        image: gitlab/gitlab-ce:latest
+        imagePullPolicy: Always
 #for normal, versions from: https://hub.docker.com/r/gitlab/gitlab-ce/tags
 #        image: gitlab/gitlab-ce:16.2.3-ce.0
 #        imagePullPolicy: IfNotPresent
@@ -59,87 +61,95 @@ spec:
           name: gitlab-ssh
           protocol: TCP
         volumeMounts:
-        - mountPath: /var/opt/gitlab
-          name: gitlab-data
+#        - mountPath: /var/opt/gitlab
+#          name: gitlab-data
+
+#        - mountPath: /opt/gitlab/embedded/cookbooks/cache
+#          name: gitlab-chefcache
+#        - mountPath: /var/opt/gitlab/postgresql/data/postgresql.conf
+#          name: gitlab-pgconf
+#        - mountPath: /var/opt/gitlab/postgresql
+#          name: gitlab-postgres
+        - mountPath: /etc/gitlab
+          name: gitlab-config
+        - mountPath: /opt/gitlab/embedded/cookbooks/cache/cinc-stacktrace.out
+          name: stacktrace
+        - mountPath: /var/log/gitlab
+          name: gitlab-log-general
+        - mountPath: /opt/gitlab/version-manifest.txt
+          name: gitlab-version-manifest
         - mountPath: /etc/gitlab/ssl/dhparams.pem
           name: gitlab-dhparms
         - mountPath: /etc/gitlab/ssl/gitlab.example.com.crt
           name: gitlab-crt
         - mountPath: /etc/gitlab/ssl/gitlab.example.com.key
           name: gitlab-key
-        - mountPath: /var/log/gitlab
-          name: gitlab-log-general
-        - mountPath: /opt/gitlab/version-manifest.txt
-          name: gitlab-version-manifest
-        - mountPath: /opt/gitlab/embedded/cookbooks/cache/cinc-stacktrace.out
-          name: stacktrace
-#        - mountPath: /etc/gitlab
-#          name: gitlab-config
-#        - mountPath: /etc/ssh/ssh_config
-#          name: gitlab-sshconfig
-#        - mountPath: /etc/ssh/sshd_config
-#          name: gitlab-sshdconfig
+        - mountPath: /etc/ssh/ssh_config
+          name: gitlab-sshconfig
+        - mountPath: /etc/ssh/sshd_config
+          name: gitlab-sshdconfig
         - mountPath: /etc/timezone
           name: gitlab-timezone
         - mountPath: /etc/localtime
           name: gitlab-localtime
-#        - mountPath: /opt/gitlab/embedded/cookbooks/cache
-#          name: gitlab-chefcache
-#        - mountPath: /var/opt/gitlab/postgresql/data/postgresql.conf
-#          name: gitlab-pgconf
       volumes:
+#      - name: gitlab-data
+#        hostPath:
+#            path: /nfspath/storagelocation/gitlab/data
+#            type: Directory
+
 #      - name: gitlab-chefcache
 #        hostPath:
-#            path: /sharedpath/storagelocation/gitlab/chefcache
+#            path: /nfspath/storagelocation/gitlab/chefcache
 #            type: Directory
+##      - name: gitlab-log-gitlab-rails
+##        hostPath:
+##            path: /nfspath/storagelocation/gitlab/logs/log-gitlab-rails
+##            type: Directory
+#      - name: gitlab-pgconf
+#        hostPath:
+#            path: /nfspath/storagelocation/gitlab/postgresql.conf
+#            type: File
+#      - name: gitlab-postgres
+#        hostPath:
+#            path: /nfspath/storagelocation/gitlab/config
+#            type: Directory
+      - name: gitlab-config
+        hostPath:
+            path: /nfspath/storagelocation/gitlab/config
+            type: Directory
+      - name: stacktrace
+        hostPath:
+            path: /nfspath/storagelocation/gitlab/cinc-stacktrace.out
+            type: File
+      - name: gitlab-log-general
+        hostPath:
+            path: /nfspath/storagelocation/gitlab/logs
+            type: Directory
+      - name: gitlab-version-manifest
+        hostPath:
+            path: /nfspath/storagelocation/gitlab/version-manifest.txt
+            type: File
       - name: gitlab-dhparms
         hostPath:
-            path: /sharedpath/storagelocation/gitlab/dhparms.pem
+            path: /nfspath/storagelocation/gitlab/dhparms.pem
             type: File
       - name: gitlab-crt
         hostPath:
-            path: /sharedpath/storagelocation/gitlab/gitlab.example.com.crt
+            path: /nfspath/storagelocation/gitlab/gitlab.example.com.crt
             type: File
       - name: gitlab-key
         hostPath:
-            path: /sharedpath/storagelocation/gitlab/gitlab.example.com.key
+            path: /nfspath/storagelocation/gitlab/gitlab.example.com.key
             type: File
-      - name: gitlab-data
+      - name: gitlab-sshconfig
         hostPath:
-            path: /sharedpath/storagelocation/gitlab/data
-            type: Directory
-      - name: gitlab-log-general
-        hostPath:
-            path: /sharedpath/storagelocation/gitlab/logs
-            type: Directory
-##      - name: gitlab-log-gitlab-rails
-##        hostPath:
-##            path: /sharedpath/storagelocation/gitlab/logs/log-gitlab-rails
-##            type: Directory
-      - name: gitlab-version-manifest
-        hostPath:
-            path: /sharedpath/storagelocation/gitlab/version-manifest.txt
+            path: /nfspath/storagelocation/gitlab/ssh_config
             type: File
-      - name: stacktrace
+      - name: gitlab-sshdconfig
         hostPath:
-            path: /sharedpath/storagelocation/gitlab/cinc-stacktrace.out
+            path: /nfspath/storagelocation/gitlab/sshd_config
             type: File
-#      - name: gitlab-config
-#        hostPath:
-#            path: /sharedpath/storagelocation/gitlab/config
-#            type: Directory
-#      - name: gitlab-sshconfig
-#        hostPath:
-#            path: /sharedpath/storagelocation/gitlab/ssh_config
-#            type: File
-#      - name: gitlab-sshdconfig
-#        hostPath:
-#            path: /sharedpath/storagelocation/gitlab/sshd_config
-#            type: File
-#      - name: gitlab-pgconf
-#        hostPath:
-#            path: /sharedpath/storagelocation/gitlab/postgresql.conf
-#            type: File
       - name: gitlab-timezone
         hostPath:
             path: /etc/timezone
@@ -148,7 +158,6 @@ spec:
         hostPath:
             path: /etc/localtime
             type: File
-
 ---
 apiVersion: v1
 kind: Service

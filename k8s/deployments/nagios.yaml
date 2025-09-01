@@ -53,15 +53,15 @@ spec:
       volumes:
       - name: nagios-core-docker-plugins
         hostPath:
-            path: /sharedpath/storagelocation/nagios-core-docker/libexec
+            path: /nfspath/storagelocation/nagios-core-docker/libexec
             type: Directory
       - name: nagios-core-docker-config
         hostPath:
-            path: /sharedpath/storagelocation/nagios-core-docker/etc
+            path: /nfspath/storagelocation/nagios-core-docker/etc
             type: Directory
       - name: nagios-core-docker-log
         hostPath:
-            path: /sharedpath/storagelocation/nagios-core-docker/logs/nagios.log
+            path: /nfspath/storagelocation/nagios-core-docker/logs/nagios.log
             type: File
       - name: timezonefile
         hostPath:
@@ -73,7 +73,7 @@ spec:
             type: File
       - name: nagios-core-docker-mibs
         hostPath:
-            path: /sharedpath/storagelocation/nagios-core-docker/mibs
+            path: /nfspath/storagelocation/nagios-core-docker/mibs
             type: Directory
 
 ---

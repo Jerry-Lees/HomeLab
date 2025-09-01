@@ -58,8 +58,8 @@ spec:
             - configMapRef:
                 name: minecraft-bedrock
           volumeMounts:
-            - mountPath: /data
-              name: data
+            - mountPath: /data/worlds
+              name: worlds
             - mountPath: /etc/timezone
               name: timezonefile
             - mountPath: /etc/localtime
@@ -78,9 +78,9 @@ spec:
             initialDelaySeconds: 30
           livenessProbe: *probe
       volumes:
-      - name: data
+      - name: worlds
         hostPath:
-            path: /sharedpath/storagelocation/minecraft/data
+            path: /nfspath/storagelocation/minecraft/data/worlds
             type: Directory
       - name: timezonefile
         hostPath:

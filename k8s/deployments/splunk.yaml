@@ -48,15 +48,15 @@ spec:
       volumes:
       - name: splunk-local
         hostPath:
-            path: /sharedpath/storagelocation/splunk/etc/system/local/
+            path: /nfspath/storagelocation/splunk/etc/system/local/
             type: Directory
       - name: splunk-apps
         hostPath:
-            path: /sharedpath/storagelocation/splunk/etc/apps/
+            path: /nfspath/storagelocation/splunk/etc/apps/
             type: Directory
       - name: splunk-tmp
         hostPath:
-            path: /sharedpath/storagelocation/splunk/var/lib/splunk/
+            path: /nfspath/storagelocation/splunk/var/lib/splunk/
             type: Directory
       - name: timezonefile
         hostPath:

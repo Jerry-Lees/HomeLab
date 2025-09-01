@@ -43,7 +43,7 @@ spec:
       volumes:
       - name: dosbox-config
         hostPath:
-            path: /sharedpath/storagelocation/dosbox
+            path: /nfspath/storagelocation/dosbox
             type: Directory
       - name: timezonefile
         hostPath:

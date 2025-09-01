@@ -29,7 +29,7 @@ spec:
           value: "30000:30010"
         - name: SUBFOLDER
           value: "/"
-        image: linuxserver/netbootxyz
+        image: linuxserver/docker-netbootxyz
         imagePullPolicy: Always
         ports:
         - containerPort: 3000
@@ -57,11 +57,11 @@ spec:
       volumes:
       - name: netboot-config
         hostPath:
-            path: /sharedpath/storagelocation/netbootxyz/config
+            path: /nfspath/storagelocation/netbootxyz/config
             type: Directory
       - name: netboot-assets
         hostPath:
-            path: /sharedpath/storagelocation/netbootxyz/assets
+            path: /nfspath/storagelocation/netbootxyz/assets
             type: Directory
       - name: timezonefile
         hostPath:

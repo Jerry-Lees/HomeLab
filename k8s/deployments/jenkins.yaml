@@ -18,7 +18,7 @@ spec:
       - name: jenkins
 #        env:
 #        - name: jenkins_HOME
-#          value: /sharedpath/storagelocation/jenkins 
+#          value: /nfspath/storagelocation/jenkins 
         image: A.B.C.30:5000/jenkins:latest
         imagePullPolicy: Always
         ports:
@@ -52,15 +52,15 @@ spec:
       volumes:
       - name: jenkins-data
         hostPath:
-            path: /sharedpath/storagelocation/jenkins/jenkins_home
+            path: /nfspath/storagelocation/jenkins/jenkins_home
             type: Directory
       - name: jenkins-automation
         hostPath:
-            path: /sharedpath/storagelocation/jenkins/automation
+            path: /nfspath/storagelocation/jenkins/automation
             type: Directory
       - name: jenkins-orchestration
         hostPath:
-            path: /sharedpath/storagelocation/orchestration
+            path: /nfspath/storagelocation/orchestration
             type: Directory
       - name: timezonefile
         hostPath:

@@ -66,14 +66,14 @@ spec:
         resources:
           limits:
             cpu: "2"
-            memory: "5Gi"
+            memory: "8Gi"
           requests:
             cpu: "2"
-            memory: "2Gi"
+            memory: "6Gi"
       volumes:
       - name: jellyfin-config
         hostPath:
-            path: /sharedpath/storagelocation/jellyfin-server/config
+            path: /nfspath/storagelocation/jellyfin-server/config
             type: Directory
       - name: jellyfin-hall
         hostPath:

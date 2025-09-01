@@ -41,21 +41,21 @@ spec:
         - mountPath: /ansible # ansible files
           name: ansiblefiles
           
-# I "cheat" a bit with file storage. I use an iSCSI mount to a NAS rather than deal with storage classes. This is a folder mounted as /sharedpath/storagelocation/semaphorehost/semaphore
+# I "cheat" a bit with file storage. I use an iSCSI mount to a NAS rather than deal with storage classes. This is a folder mounted as /nfspath/storagelocation/semaphorehost/semaphore
 # Yeah, it's several hundreds of dollars for that...
 # but my time is worth something, and in the long run it's way cheaper than continuing to patch the holes in the drywall. ;-)
       volumes:
       - name: semaphore-config
         hostPath:
-            path: /sharedpath/storagelocation/semaphorehost/home
+            path: /nfspath/storagelocation/semaphorehost/home
             type: Directory
       - name: semaphore-db
         hostPath:
-            path: /sharedpath/storagelocation/semaphorehost/lib
+            path: /nfspath/storagelocation/semaphorehost/lib
             type: Directory
       - name: ansiblefiles
         hostPath:
-            path: /sharedpath/storagelocation/ansiblehost/ansible
+            path: /nfspath/storagelocation/ansiblehost/ansible
             type: Directory
 
 ---

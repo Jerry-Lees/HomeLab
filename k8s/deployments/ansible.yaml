@@ -46,54 +46,56 @@ spec:
           name: ansible-passwd1
         - mountPath: /etc/passwd-
           name: ansible-passwd2
-# I "cheat" a bit with file storage. I use an iSCSI mount to a NAS rather than deal with storage classes. This is a foolder mounted as /sharedpath/storagelocation/ansiblehost/ansible
+
+# I "cheat" a bit with file storage. I use an iSCSI mount to a NAS rather than deal with storage classes. This is a foolder mounted as /nfspath/storagelocation/ansiblehost/ansible
 # Yeah, it's several hundreds of dollars for that...
 # but my time is worth something, and in the long run it's way cheaper than continuing to patch the holes in the drywall. ;-)
       volumes:
       - name: ansible-crontab
         hostPath:
-            path: /sharedpath/storagelocation/ansiblehost/crontab
+            path: /nfspath/storagelocation/ansiblehost/crontab
             type: File
       - name: ansible-crontabs
         hostPath:
-            path: /sharedpath/storagelocation/ansiblehost/crontabs
+            path: /nfspath/storagelocation/ansiblehost/crontabs
             type: Directory
       - name: ansible-config
         hostPath:
-            path: /sharedpath/storagelocation/ansiblehost/ansible
+            path: /nfspath/storagelocation/ansiblehost/ansible
             type: Directory
       - name: ansible-cron
         hostPath:
-            path: /sharedpath/storagelocation/ansiblehost/cron.d
+            path: /nfspath/storagelocation/ansiblehost/cron.d
             type: Directory
       - name: ansible-crondaily
         hostPath:
-            path: /sharedpath/storagelocation/ansiblehost/cron.daily
+            path: /nfspath/storagelocation/ansiblehost/cron.daily
             type: Directory
       - name: ansible-cronhourly
         hostPath:
-            path: /sharedpath/storagelocation/ansiblehost/cron.hourly
+            path: /nfspath/storagelocation/ansiblehost/cron.hourly
             type: Directory
       - name: ansible-cronmonthly
         hostPath:
-            path: /sharedpath/storagelocation/ansiblehost/cron.monthly
+            path: /nfspath/storagelocation/ansiblehost/cron.monthly
             type: Directory
       - name: ansible-cronweekly
         hostPath:
-            path: /sharedpath/storagelocation/ansiblehost/cron.weekly
+            path: /nfspath/storagelocation/ansiblehost/cron.weekly
             type: Directory
       - name: ansible-sshd
         hostPath:
-            path: /sharedpath/storagelocation/ansiblehost/sshd_config
+            path: /nfspath/storagelocation/ansiblehost/sshd_config
             type: File
       - name: ansible-passwd1
         hostPath:
-            path: /sharedpath/storagelocation/ansiblehost/passwd1
+            path: /nfspath/storagelocation/ansiblehost/passwd1
             type: File
       - name: ansible-passwd2
         hostPath:
-            path: /sharedpath/storagelocation/ansiblehost/passwd2
+            path: /nfspath/storagelocation/ansiblehost/passwd2
             type: File
+
 ---
 #I use metallb to simplify ingress in a L2 configuration. https://metallb.universe.tf/
 apiVersion: v1

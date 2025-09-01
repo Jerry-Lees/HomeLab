@@ -38,13 +38,13 @@ spec:
           name: timezonefile
         - mountPath: /etc/localtime
           name: localtimefile
-# I "cheat" a bit with file storage. I use an iSCSI mount to a NAS rather than deal with storage classes. This is a foolder mounted as /sharedpath/storagelocation/ansiblehost/ansible
+# I "cheat" a bit with file storage. I use an iSCSI mount to a NAS rather than deal with storage classes. This is a foolder mounted as /nfspath/storagelocation/ansiblehost/ansible
 # Yeah, it's several hundreds of dollars for that...
 # but my time is worth something, and in the long run it's way cheaper than continuing to patch the holes in the drywall. ;-)
       volumes:
       - name: dns-config
         hostPath:
-            path: /sharedpath/storagelocation/DNS/bind02/config
+            path: /nfspath/storagelocation/DNS/bind02/config
             type: Directory
       - name: timezonefile
         hostPath:

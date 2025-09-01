@@ -19,7 +19,8 @@ spec:
         env:
         - name: ROOT_PASSWORD
           value: P@ssw0rd 
-        image: mediawiki:1.35.1
+#        image: mediawiki:1.35.4
+        image: mediawiki:1.39.1
         imagePullPolicy: Always
         ports:
         - containerPort: 8080
@@ -30,12 +31,14 @@ spec:
 #          name: wiki-config
         - mountPath: /var/www/data
           name: wiki-database
-        - mountPath: /var/www/html/includes/Setup.php
-          name: wiki-setupphp
+#        - mountPath: /var/www/html/includes/Setup.php
+#          name: wiki-setupphp
         - mountPath: /var/www/html/LocalSettings.php
           name: localsettings
         - mountPath: /uploads
           name: wiki-uploads
+        - mountPath: /backups
+          name: wiki-backups
         - mountPath: /var/www/html/extensions
           name: wiki-extensions
         - mountPath: /var/log
@@ -47,27 +50,31 @@ spec:
       volumes:
       - name: wiki-database
         hostPath:
-            path: /sharedpath/storagelocation/mediawiki/wikifiles/data
+            path: /nfspath/storagelocation/mediawiki/wikifiles/data
             type: Directory
-      - name: wiki-setupphp
-        hostPath:
-            path: /sharedpath/storagelocation/mediawiki/configfiles/Setup.php
-            type: File
+#      - name: wiki-setupphp
+#        hostPath:
+#            path: /nfspath/storagelocation/mediawiki/configfiles/Setup.php
+#            type: File
       - name: localsettings
         hostPath:
-            path: /sharedpath/storagelocation/mediawiki/configfiles/LocalSettings.php
+            path: /nfspath/storagelocation/mediawiki/configfiles/LocalSettings.php
             type: File
       - name: wiki-uploads
         hostPath:
-            path: /sharedpath/storagelocation/mediawiki/uploads
+            path: /nfspath/storagelocation/mediawiki/uploads
+            type: Directory
+      - name: wiki-backups
+        hostPath:
+            path: /nfspath/storagelocation/mediawiki/backups
             type: Directory
       - name: wiki-extensions
         hostPath:
-            path: /sharedpath/storagelocation/mediawiki/extensions
+            path: /nfspath/storagelocation/mediawiki/extensions
             type: Directory
       - name: wiki-oslogs
         hostPath:
-            path: /sharedpath/storagelocation/mediawiki/oslogs
+            path: /nfspath/storagelocation/mediawiki/oslogs
             type: Directory
       - name: timezonefile
         hostPath:

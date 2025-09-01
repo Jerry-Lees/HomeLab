@@ -42,12 +42,12 @@ spec:
           name: https
           protocol: TCP
         volumeMounts:
-#        - mountPath: /phpipam
-#          name: phpipam
-        - mountPath: /etc/timezone
-          name: timezonefile
-        - mountPath: /etc/localtime
-          name: localtimefile
+##        - mountPath: /phpipam
+##          name: phpipam
+#        - mountPath: /etc/timezone
+#          name: timezonefile
+#        - mountPath: /etc/localtime
+#          name: localtimefile
         resources:
           limits:
             cpu: ".5"
@@ -80,11 +80,11 @@ spec:
           value: "false"
         - name: IPAM_DEBUG
           value: "false"
-        volumeMounts:
-        - mountPath: /etc/timezone
-          name: timezonefile
-        - mountPath: /etc/localtime
-          name: localtimefile
+ #       volumeMounts:
+ #       - mountPath: /etc/timezone
+ #         name: timezonefile
+ #       - mountPath: /etc/localtime
+ #         name: localtimefile
         resources:
           limits:
             cpu: ".5"
@@ -121,11 +121,11 @@ spec:
       volumes:
 #      - name: phpipam
 #        hostPath:
-#            path: /sharedpath/storagelocation/phpipam/phpipam
+#            path: /nfspath/storagelocation/phpipam/phpipam
 #            type: Directory
       - name: database
         hostPath:
-            path: /sharedpath/storagelocation/phpipam/database
+            path: /nfspath/storagelocation/phpipam/database
             type: Directory
       - name: timezonefile
         hostPath:

@@ -48,11 +48,11 @@ spec:
       volumes:
       - name: nessus-optapp
         hostPath:
-            path: /sharedpath/storagelocation/nessus/opt/nessus
+            path: /nfspath/storagelocation/nessus/opt/nessus
             type: Directory
       - name: nessus-var
         hostPath:
-            path: /sharedpath/storagelocation/nessus/var/nessus
+            path: /nfspath/storagelocation/nessus/var/nessus
             type: Directory
       - name: timezonefile
         hostPath:

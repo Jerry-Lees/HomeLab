@@ -44,7 +44,7 @@ spec:
       volumes:
       - name: dns-config
         hostPath:
-            path: /sharedpath/storagelocation/DNS/bind01/config
+            path: /nfspath/storagelocation/DNS/bind01/config
             type: Directory
       - name: timezonefile
         hostPath:

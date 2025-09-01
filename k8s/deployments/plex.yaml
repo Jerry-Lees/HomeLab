@@ -71,7 +71,7 @@ spec:
       volumes:
       - name: plex-config
         hostPath:
-            path: /sharedpath/storagelocation/plex-server/config
+            path: /nfspath/storagelocation/plex-server/config
             type: Directory
       - name: plex-movies
         hostPath:

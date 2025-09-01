@@ -38,7 +38,7 @@ spec:
       volumes:
       - name: appdata
         hostPath:
-            path: /sharedpath/storagelocation/acc
+            path: /nfspath/storagelocation/acc
             type: Directory
       - name: timezonefile
         hostPath:

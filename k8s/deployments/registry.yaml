@@ -66,19 +66,19 @@ spec:
       volumes:
       - name: registry-repository
         hostPath:
-            path: /sharedpath/storagelocation/registry
+            path: /nfspath/storagelocation/registry
             type: Directory
       - name: registry-auth
         hostPath:
-            path: /sharedpath/storagelocation/registry/auth
+            path: /nfspath/storagelocation/registry/auth
             type: Directory
       - name: registry-certs
         hostPath:
-            path: /sharedpath/storagelocation/registry/certs
+            path: /nfspath/storagelocation/registry/certs
             type: Directory
       - name: registry-config
         hostPath:
-            path: /sharedpath/storagelocation/registry/config.yml
+            path: /nfspath/storagelocation/registry/config.yml
             type: File
       - name: timezonefile
         hostPath:

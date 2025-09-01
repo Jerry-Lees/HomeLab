@@ -52,11 +52,11 @@ spec:
       volumes:
       - name: rsyslog-config
         hostPath:
-            path: /sharedpath/storagelocation/rsyslog/log
+            path: /nfspath/storagelocation/rsyslog/log
             type: Directory
       - name: rsyslog-spool
         hostPath:
-            path: /sharedpath/storagelocation/rsyslog/rsyslog
+            path: /nfspath/storagelocation/rsyslog/rsyslog
             type: Directory
       - name: timezonefile
         hostPath:

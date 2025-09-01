@@ -42,11 +42,11 @@ spec:
       volumes:
       - name: tmp
         hostPath:
-            path: /sharedpath/storagelocation/prometheus/
+            path: /nfspath/storagelocation/prometheus/
             type: Directory
       - name: prometheus-yml
         hostPath:
-            path: /sharedpath/storagelocation/prometheus/config/prometheus.yml
+            path: /nfspath/storagelocation/prometheus/config/prometheus.yml
             type: File
       - name: timezonefile
         hostPath:

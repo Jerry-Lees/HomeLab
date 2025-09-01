@@ -57,11 +57,11 @@ spec:
       volumes:
       - name: pihole-config
         hostPath:
-            path: /sharedpath/storagelocation/pihole/config
+            path: /nfspath/storagelocation/pihole/config
             type: Directory
       - name: dnsmasq-d
         hostPath:
-            path: /sharedpath/storagelocation/pihole/dnsmasq.d
+            path: /nfspath/storagelocation/pihole/dnsmasq.d
             type: Directory
 ---
 apiVersion: v1

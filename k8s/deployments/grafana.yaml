@@ -13,8 +13,8 @@ spec:
       labels:
         app: grafana
     spec:
-      imagePullSecrets:
-      - name: regcred
+#      imagePullSecrets:
+#      - name: regcred
       containers:
       - name: grafana
         env:
@@ -52,23 +52,23 @@ spec:
       volumes:
       - name: tmp
         hostPath:
-            path: /sharedpath/storagelocation/grafana/
+            path: /nfspath/storagelocation/grafana/
             type: Directory
       - name: grafana-storage
         hostPath:
-            path: /sharedpath/storagelocation/grafana/storage/
+            path: /nfspath/storagelocation/grafana/storage/
             type: Directory
       - name: grafana-config
         hostPath:
-            path: /sharedpath/storagelocation/grafana/config/
+            path: /nfspath/storagelocation/grafana/config/
             type: Directory
       - name: grafana-home
         hostPath:
-            path: /sharedpath/storagelocation/grafana/home/
+            path: /nfspath/storagelocation/grafana/home/
             type: Directory
       - name: grafana-logs
         hostPath:
-            path: /sharedpath/storagelocation/grafana/logs/
+            path: /nfspath/storagelocation/grafana/logs/
             type: Directory
       - name: timezonefile
         hostPath:

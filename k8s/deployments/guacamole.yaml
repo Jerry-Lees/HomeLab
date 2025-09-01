@@ -35,7 +35,7 @@ spec:
       volumes:
       - name: guac-config
         hostPath:
-            path: /sharedpath/storagelocation/guacamole/config
+            path: /nfspath/storagelocation/guacamole/config
             type: Directory
       - name: timezonefile
         hostPath:

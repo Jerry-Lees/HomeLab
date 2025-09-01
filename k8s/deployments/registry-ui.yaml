@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: registry-ui
+  labels:
+    app: registry-ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: registry-ui
+  template:
+    metadata:
+      labels:
+        app: registry-ui
+    spec:
+      containers:
+      - name: registry-ui
+        env:
+        - name: REGISTRY_URL
+          value: http://A.B.C.30:5000
+        - name: REGISTRY_TITLE
+          value: Home Registry
+        - name: DELETE_IMAGES
+          value: "true"
+        - name: NGINX_PROXY_PASS_URL
+          value: "http://A.B.C.30:5000"
+        - name: SHOW_CONTENT_DIGEST
+          value: "true"
+        - name: SINGLE_REGISTRY
+          value: "true"
+#        - name: NGINX_PROXY_PASS_URL
+#          value: https://A.B.C.30:5000
+        - name: DEFAULT_REGISTRIES
+          value: https://A.B.C.30:5000
+#        image: joxit/docker-registry-ui
+        image: joxit/docker-registry-ui:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 80
+          name: ui-http
+          protocol: TCP
+        volumeMounts:
+        - mountPath: /kubefs
+          name: registry-ui-blank
+        - mountPath: /etc/timezone
+          name: timezonefile
+        - mountPath: /etc/localtime
+          name: localtimefile
+        resources:
+          limits:
+            cpu: ".5"
+            memory: "1Gi"
+          requests:
+            cpu: "0.25"
+            memory: "512Mi"
+      volumes:
+      - name: registry-ui-blank
+        hostPath:
+            path: /nfspath/storagelocation/registry-ui
+            type: Directory
+      - name: timezonefile
+        hostPath:
+            path: /etc/timezone
+            type: File
+      - name: localtimefile
+        hostPath:
+            path: /etc/localtime
+            type: File
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: registry-ui-vs
+  annotations:
+    metallb.universe.tf/allow-shared-ip: default
+spec:
+  ports:
+  - port: 80
+    name: ui-http
+    targetPort: 80
+    protocol: TCP
+  loadBalancerIP: A.B.C.30
+  selector:
+    app: registry-ui
+  type: LoadBalancer
