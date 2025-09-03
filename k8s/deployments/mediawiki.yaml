@@ -19,8 +19,8 @@ spec:
         env:
         - name: ROOT_PASSWORD
           value: P@ssw0rd 
-#        image: mediawiki:1.35.4
-        image: mediawiki:1.39.1
+#        image: mediawiki:1.44 (last working)
+        image: mediawiki:1.44.0
         imagePullPolicy: Always
         ports:
         - containerPort: 8080
