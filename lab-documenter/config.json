@@ -6,7 +6,9 @@
     "max_workers": 5,
     "output_file": "/examplepath/lab-documenter/inventory.json",
     "csv_file": "/examplepath/lab-documenter/servers.csv",
-    "mediawiki_api": "http://wiki.homelab.local/api.php",
+    "mediawiki_api": "https://wiki.lees-family.io/api.php",
     "mediawiki_user": "documentation_bot",
-    "mediawiki_password": "change_me"
+    "mediawiki_password": "your_bot_password_here",
+    "mediawiki_index_page": "Server Documentation"
 }
+
