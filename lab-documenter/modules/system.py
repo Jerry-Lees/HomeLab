@@ -7,6 +7,7 @@ Handles SSH connections and system information gathering.
 import paramiko
 import logging
 import os
+import json
 from datetime import datetime
 from typing import Dict, List, Optional
 from modules.services import ServiceDatabase
@@ -506,20 +507,606 @@ class SystemCollector:
         return k8s_info
     
     def get_proxmox_info(self) -> Dict:
-        """Get Proxmox information if available"""
+        """Get comprehensive Proxmox information if available"""
         proxmox_info = {}
         
+        # Check if Proxmox is installed
         pve_version = self.run_command('pveversion 2>/dev/null')
-        if pve_version:
-            proxmox_info['version'] = pve_version
+        if not pve_version:
+            return proxmox_info
+        
+        proxmox_info['pve_version'] = pve_version.strip()
+        
+        # Try JSON API first for more reliable parsing
+        cluster_json = self.run_command('pvesh get /cluster/status --output-format=json 2>/dev/null')
+        if cluster_json:
+            try:
+                cluster_data = json.loads(cluster_json)
+                proxmox_info['cluster_status'] = self.parse_cluster_json(cluster_data)
+                proxmox_info['nodes'] = self.parse_nodes_json(cluster_data)
+                
+                # JSON doesn't include transport info, so get it from text output
+                cluster_status = self.run_command('pvecm status 2>/dev/null')
+                if cluster_status and 'Transport:' in cluster_status:
+                    for line in cluster_status.split('\n'):
+                        if 'Transport:' in line:
+                            proxmox_info['cluster_status']['transport'] = line.split(':', 1)[1].strip()
+                            break
+                            
+            except (json.JSONDecodeError, KeyError) as e:
+                logger.warning(f"Failed to parse JSON cluster status on {self.hostname}: {e}")
+                # Fall back to text parsing
+                cluster_status = self.run_command('pvecm status 2>/dev/null')
+                if cluster_status and 'Cluster information' in cluster_status:
+                    proxmox_info['cluster_status'] = self.parse_cluster_status(cluster_status)
+                else:
+                    proxmox_info['cluster_status'] = {'clustered': False, 'nodes': 1}
+                
+                # Get node information for non-JSON fallback
+                if proxmox_info['cluster_status']['clustered']:
+                    nodes_output = self.run_command('pvecm nodes 2>/dev/null')
+                    if nodes_output:
+                        proxmox_info['nodes'] = self.parse_cluster_nodes(nodes_output)
+                else:
+                    # Single node setup
+                    hostname = self.run_command('hostname')
+                    proxmox_info['nodes'] = [{'name': hostname or 'localhost', 'status': 'online', 'online': True}]
+        else:
+            # Fallback to text parsing if JSON not available
+            cluster_status = self.run_command('pvecm status 2>/dev/null')
+            if cluster_status and 'Cluster information' in cluster_status:
+                proxmox_info['cluster_status'] = self.parse_cluster_status(cluster_status)
+            else:
+                proxmox_info['cluster_status'] = {'clustered': False, 'nodes': 1}
             
-            vms = self.run_command('qm list 2>/dev/null')
-            if vms:
-                proxmox_info['vms'] = vms.split('\n')[1:]
-            
-            containers = self.run_command('pct list 2>/dev/null')
-            if containers:
-                proxmox_info['containers'] = containers.split('\n')[1:]
+            # Get node information
+            if proxmox_info['cluster_status']['clustered']:
+                nodes_output = self.run_command('pvecm nodes 2>/dev/null')
+                if nodes_output:
+                    proxmox_info['nodes'] = self.parse_cluster_nodes(nodes_output)
+            else:
+                # Single node setup
+                hostname = self.run_command('hostname')
+                node_status = self.run_command('pvesh get /nodes/$(hostname)/status --output-format=json 2>/dev/null')
+                if node_status:
+                    try:
+                        node_data = json.loads(node_status)
+                        proxmox_info['nodes'] = [{
+                            'name': hostname or 'localhost',
+                            'status': 'online',
+                            'online': True,
+                            'cpu_usage': f"{node_data.get('cpu', 0)*100:.1f}%",
+                            'memory_usage': f"{node_data.get('memory', {}).get('used', 0) / (1024*1024*1024):.1f}G / {node_data.get('memory', {}).get('total', 0) / (1024*1024*1024):.1f}G",
+                            'uptime': node_data.get('uptime', 'Unknown')
+                        }]
+                    except:
+                        proxmox_info['nodes'] = [{'name': hostname or 'localhost', 'status': 'online', 'online': True}]
+        
+        # Get cluster resource usage summaries
+        cluster_resources = self.run_command('pvesh get /cluster/resources --output-format=json 2>/dev/null')
+        if cluster_resources:
+            try:
+                resources_data = json.loads(cluster_resources)
+                proxmox_info['cluster_resources'] = self.parse_cluster_resources(resources_data)
+            except (json.JSONDecodeError, KeyError) as e:
+                logger.warning(f"Failed to parse cluster resources on {self.hostname}: {e}")
+        
+        # Get VM information with detailed status
+        vms_output = self.run_command('qm list 2>/dev/null')
+        if vms_output:
+            proxmox_info['vms'] = self.parse_vm_list(vms_output)
+        
+        # Get container information with detailed status  
+        containers_output = self.run_command('pct list 2>/dev/null')
+        if containers_output:
+            proxmox_info['containers'] = self.parse_container_list(containers_output)
+        
+        # Get storage information
+        storage_output = self.run_command('pvesm status 2>/dev/null')
+        if storage_output:
+            proxmox_info['storage'] = self.parse_storage_status(storage_output)
+        
+        # Identify problematic VMs/containers
+        problematic_resources = []
+        if proxmox_info.get('vms'):
+            for vm in proxmox_info['vms']:
+                # Only consider truly problematic states, not stopped VMs
+                if (vm.get('status') not in ['running', 'stopped'] or vm.get('lock')):
+                    # Don't include stopped VMs unless they have other issues
+                    if vm.get('status') != 'stopped' or vm.get('lock'):
+                        problematic_resources.append(vm)
+        
+        if proxmox_info.get('containers'):
+            for ct in proxmox_info['containers']:
+                # Only consider truly problematic states, not stopped containers
+                if (ct.get('status') not in ['running', 'stopped'] or ct.get('lock')):
+                    # Don't include stopped containers unless they have other issues
+                    if ct.get('status') != 'stopped' or ct.get('lock'):
+                        problematic_resources.append(ct)
+        
+        if problematic_resources:
+            proxmox_info['problematic_resources'] = problematic_resources
         
         return proxmox_info
+
+    def bytes_to_gb(self, bytes_str: str) -> str:
+        """Convert bytes string to GB with appropriate formatting"""
+        try:
+            bytes_value = int(bytes_str)
+            gb_value = bytes_value / (1024 ** 3)
+            
+            if gb_value >= 1000:
+                return f"{gb_value/1024:.1f}TB"
+            elif gb_value >= 1:
+                return f"{gb_value:.1f}GB"
+            else:
+                return f"{gb_value*1024:.0f}MB"
+        except (ValueError, TypeError):
+            return bytes_str  # Return original if conversion fails
+
+    def parse_cluster_json(self, cluster_data: list) -> Dict:
+        """Parse JSON cluster status from pvesh API"""
+        cluster_info = {'clustered': True}
+        
+        for item in cluster_data:
+            if item.get('type') == 'cluster':
+                cluster_info['name'] = item.get('name', 'Unknown')
+                cluster_info['node_count'] = item.get('nodes', 0)
+                cluster_info['config_version'] = item.get('version', 'Unknown')
+                cluster_info['quorate'] = bool(item.get('quorate', 0))
+                break
+        
+        return cluster_info
+
+    def parse_nodes_json(self, cluster_data: list) -> List[Dict]:
+        """Parse JSON node information from pvesh API"""
+        nodes = []
+        
+        for item in cluster_data:
+            if item.get('type') == 'node':
+                node = {
+                    'name': item.get('name', 'Unknown'),
+                    'id': item.get('nodeid', 'Unknown'),
+                    'status': 'online' if item.get('online') else 'offline',
+                    'online': bool(item.get('online', 0)),
+                    'ip': item.get('ip', 'Unknown'),
+                    'local': bool(item.get('local', 0)),
+                    'type': item.get('type', 'node'),
+                    'level': item.get('level', '')
+                }
+                
+                # Get detailed node status if online
+                if node['online']:
+                    detailed_status = self.get_node_detailed_status(node['name'])
+                    if detailed_status:
+                        node.update(detailed_status)
+                
+                nodes.append(node)
+        
+        return nodes
+
+    def parse_cluster_status(self, cluster_status: str) -> Dict:
+        """Parse pvecm status output"""
+        cluster_info = {'clustered': True}
+        
+        lines = cluster_status.split('\n')
+        for line in lines:
+            line = line.strip()
+            if 'Name:' in line:
+                cluster_info['name'] = line.split(':', 1)[1].strip()
+            elif 'Config Version:' in line:
+                cluster_info['config_version'] = line.split(':', 1)[1].strip()
+            elif 'Transport:' in line:
+                cluster_info['transport'] = line.split(':', 1)[1].strip()
+            elif 'Nodes:' in line:
+                try:
+                    cluster_info['node_count'] = int(line.split(':')[1].strip())
+                except:
+                    pass
+            elif 'Quorate:' in line:
+                cluster_info['quorate'] = 'Yes' in line
+        
+        return cluster_info
+
+    def parse_cluster_nodes(self, nodes_output: str) -> List[Dict]:
+        """Parse pvecm nodes output"""
+        nodes = []
+        lines = nodes_output.split('\n')
+        
+        # Find the membership information section
+        in_membership = False
+        for line in lines:
+            line = line.strip()
+            
+            if 'Membership information' in line:
+                in_membership = True
+                continue
+            
+            if in_membership and line and not line.startswith('Nodeid') and not line.startswith('---'):
+                parts = line.split()
+                if len(parts) >= 3:
+                    # Format: Nodeid Votes Name
+                    node = {
+                        'name': parts[2],
+                        'id': parts[0],
+                        'votes': parts[1],
+                        'status': 'online',  # Assume online if in membership list
+                        'online': True
+                    }
+                    # Remove (local) from name if present
+                    if '(local)' in node['name']:
+                        node['name'] = node['name'].replace('(local)', '').strip()
+                        node['local'] = True
+                    else:
+                        node['local'] = False
+                    
+                    nodes.append(node)
+        
+        return nodes
+
+    def parse_vm_list(self, vms_output: str) -> List[Dict]:
+        """Parse qm list output into structured data"""
+        vms = []
+        lines = vms_output.split('\n')
+        
+        # Get current node name for detailed queries
+        current_node = self.run_command('hostname') or 'localhost'
+        
+        # Skip header line and limit detailed queries for performance (first 20 VMs)
+        detail_count = 0
+        max_detailed = 20
+        
+        for line in lines[1:]:
+            if line.strip():
+                parts = line.split()
+                if len(parts) >= 3:
+                    vm = {
+                        'vmid': parts[0],
+                        'name': parts[1],
+                        'status': parts[2],
+                        'type': 'vm'
+                    }
+                    
+                    # Additional fields if available - clarify what they represent
+                    if len(parts) > 3:
+                        # This is memory allocation in MB
+                        memory_mb = parts[3] if len(parts) > 3 else 'Unknown'
+                        if memory_mb != 'Unknown' and memory_mb.isdigit():
+                            vm['memory_allocated'] = f"{memory_mb}MB"
+                        else:
+                            vm['memory_allocated'] = memory_mb
+                    
+                    if len(parts) > 4:
+                        # This appears to be disk size in GB, not boot disk name
+                        disk_size = parts[4] if len(parts) > 4 else 'Unknown'
+                        if disk_size != 'Unknown':
+                            try:
+                                disk_gb = float(disk_size)
+                                vm['disk_size'] = f"{disk_gb:.1f}GB"
+                            except ValueError:
+                                vm['disk_size'] = disk_size
+                        else:
+                            vm['disk_size'] = 'Unknown'
+                    
+                    if len(parts) > 5:
+                        vm['pid'] = parts[5] if len(parts) > 5 else 'Unknown'
+                    
+                    # Get detailed info for running VMs (limited for performance)
+                    if vm['status'] in ['running', 'stopped'] and detail_count < max_detailed:
+                        detailed_info = self.get_vm_detailed_info(current_node, vm['vmid'])
+                        if detailed_info:
+                            vm['detailed_info'] = detailed_info
+                            detail_count += 1
+                    
+                    vms.append(vm)
+        
+        logger.debug(f"Got detailed info for {detail_count} VMs out of {len(vms)} total VMs")
+        return vms
+
+    def parse_container_list(self, containers_output: str) -> List[Dict]:
+        """Parse pct list output into structured data"""
+        containers = []
+        lines = containers_output.split('\n')
+        
+        # Get current node name for detailed queries
+        current_node = self.run_command('hostname') or 'localhost'
+        
+        # Skip header line and limit detailed queries for performance (first 20 containers)
+        detail_count = 0
+        max_detailed = 20
+        
+        for line in lines[1:]:
+            if line.strip():
+                parts = line.split()
+                if len(parts) >= 3:
+                    container = {
+                        'vmid': parts[0],
+                        'status': parts[1],
+                        'lock': parts[2] if parts[2] != '-' else None,
+                        'type': 'container'
+                    }
+                    
+                    # Container name might be in position 3 or later, or we need to get it from config
+                    if len(parts) > 3:
+                        container['name'] = parts[3]
+                    else:
+                        # If name not in list output, we'll get it from detailed info
+                        container['name'] = f"Container-{parts[0]}"  # Fallback name
+                    
+                    # Get detailed info for containers (limited for performance)
+                    if container['status'] in ['running', 'stopped'] and detail_count < max_detailed:
+                        detailed_info = self.get_container_detailed_info(current_node, container['vmid'])
+                        if detailed_info:
+                            container['detailed_info'] = detailed_info
+                            # Update name from config if we got a better one
+                            if detailed_info.get('hostname') and detailed_info['hostname'] != 'Unknown':
+                                container['name'] = detailed_info['hostname']
+                            detail_count += 1
+                    
+                    containers.append(container)
+        
+        logger.debug(f"Got detailed info for {detail_count} containers out of {len(containers)} total containers")
+        return containers
+
+    def parse_storage_status(self, storage_output: str) -> List[Dict]:
+        """Parse pvesm status output"""
+        storage = []
+        lines = storage_output.split('\n')
+        
+        # Skip header
+        for line in lines[1:]:
+            if line.strip():
+                parts = line.split()
+                if len(parts) >= 6:
+                    storage_info = {
+                        'name': parts[0],
+                        'type': parts[1],
+                        'status': parts[2],
+                        'total': self.bytes_to_gb(parts[3]),
+                        'used': self.bytes_to_gb(parts[4]),
+                        'available': self.bytes_to_gb(parts[5]),
+                        'usage_percent': parts[6] if len(parts) > 6 else 'Unknown'
+                    }
+                    storage.append(storage_info)
+        
+        return storage
+
+    def convert_uptime_seconds(self, uptime_seconds) -> str:
+        """Convert uptime in seconds to human readable format"""
+        try:
+            seconds = int(float(str(uptime_seconds)))
+            
+            days = seconds // 86400
+            hours = (seconds % 86400) // 3600
+            minutes = (seconds % 3600) // 60
+            remaining_seconds = seconds % 60
+            
+            parts = []
+            if days > 0:
+                parts.append(f"{days} day{'s' if days != 1 else ''}")
+            if hours > 0:
+                parts.append(f"{hours} hour{'s' if hours != 1 else ''}")
+            if minutes > 0:
+                parts.append(f"{minutes} minute{'s' if minutes != 1 else ''}")
+            if remaining_seconds > 0 or not parts:  # Show seconds if no other parts or if only seconds
+                parts.append(f"{remaining_seconds} second{'s' if remaining_seconds != 1 else ''}")
+            
+            # Return first 2-3 most significant parts
+            return ", ".join(parts[:3])
+            
+        except (ValueError, TypeError):
+            return str(uptime_seconds)  # Return original if conversion fails
+
+    def get_node_detailed_status(self, node_name: str) -> Dict:
+        """Get detailed status for a specific node"""
+        try:
+            node_status = self.run_command(f'pvesh get /nodes/{node_name}/status --output-format=json 2>/dev/null')
+            if node_status:
+                status_data = json.loads(node_status)
+                
+                # Handle CPU percentage - API might return decimal or percentage
+                cpu_raw = status_data.get('cpu', 0)
+                if cpu_raw < 1.0:  # Likely decimal format (0.15 = 15%)
+                    cpu_percentage = f"{cpu_raw * 100:.1f}%"
+                else:  # Already percentage
+                    cpu_percentage = f"{cpu_raw:.1f}%"
+                
+                # Convert uptime from seconds to readable format
+                uptime_seconds = status_data.get('uptime', 0)
+                uptime_readable = self.convert_uptime_seconds(uptime_seconds)
+                
+                return {
+                    'cpu_usage': cpu_percentage,
+                    'memory_total': self.bytes_to_gb(str(status_data.get('memory', {}).get('total', 0))),
+                    'memory_used': self.bytes_to_gb(str(status_data.get('memory', {}).get('used', 0))),
+                    'memory_usage_percent': f"{(status_data.get('memory', {}).get('used', 0) / max(status_data.get('memory', {}).get('total', 1), 1))*100:.1f}%",
+                    'uptime': uptime_readable,
+                    'uptime_seconds': uptime_seconds,  # Keep raw for other uses
+                    'load_average': status_data.get('loadavg', 'Unknown'),
+                    'kernel_version': status_data.get('kversion', 'Unknown'),
+                    'pve_version': status_data.get('pveversion', 'Unknown')
+                }
+        except (json.JSONDecodeError, KeyError, TypeError) as e:
+            logger.debug(f"Failed to get detailed status for node {node_name}: {e}")
+        return {}
+
+    def parse_cluster_resources(self, resources_data: list) -> Dict:
+        """Parse cluster resources summary"""
+        summary = {
+            'total_nodes': 0,
+            'online_nodes': 0,
+            'total_vms': 0,
+            'running_vms': 0,
+            'total_containers': 0,
+            'running_containers': 0,
+            'storage_pools': 0,
+            'cpu_usage': {'total': 0, 'used': 0},
+            'memory_usage': {'total': 0, 'used': 0}
+        }
+        
+        for resource in resources_data:
+            res_type = resource.get('type', '')
+            
+            if res_type == 'node':
+                summary['total_nodes'] += 1
+                if resource.get('status') == 'online':
+                    summary['online_nodes'] += 1
+                    # Aggregate CPU and memory across all nodes
+                    if resource.get('maxcpu'):
+                        summary['cpu_usage']['total'] += resource.get('maxcpu', 0)
+                        summary['cpu_usage']['used'] += resource.get('cpu', 0) * resource.get('maxcpu', 0)
+                    if resource.get('maxmem'):
+                        summary['memory_usage']['total'] += resource.get('maxmem', 0)
+                        summary['memory_usage']['used'] += resource.get('mem', 0)
+                        
+            elif res_type == 'qemu':
+                summary['total_vms'] += 1
+                if resource.get('status') == 'running':
+                    summary['running_vms'] += 1
+                    
+            elif res_type == 'lxc':
+                summary['total_containers'] += 1
+                if resource.get('status') == 'running':
+                    summary['running_containers'] += 1
+                    
+            elif res_type == 'storage':
+                summary['storage_pools'] += 1
+        
+        # Calculate percentages
+        if summary['cpu_usage']['total'] > 0:
+            summary['cpu_usage']['percentage'] = f"{(summary['cpu_usage']['used'] / summary['cpu_usage']['total']) * 100:.1f}%"
+        
+        if summary['memory_usage']['total'] > 0:
+            summary['memory_usage']['total_gb'] = self.bytes_to_gb(str(int(summary['memory_usage']['total'])))
+            summary['memory_usage']['used_gb'] = self.bytes_to_gb(str(int(summary['memory_usage']['used'])))
+            summary['memory_usage']['percentage'] = f"{(summary['memory_usage']['used'] / summary['memory_usage']['total']) * 100:.1f}%"
+        
+        return summary
+
+    def get_vm_detailed_info(self, node_name: str, vmid: str) -> Dict:
+        """Get detailed information for a specific VM"""
+        detailed_info = {}
+        
+        # Limit detailed queries to avoid performance issues
+        try:
+            # Get VM configuration
+            config = self.run_command(f'pvesh get /nodes/{node_name}/qemu/{vmid}/config --output-format=json 2>/dev/null')
+            if config:
+                config_data = json.loads(config)
+                detailed_info.update({
+                    'cores': config_data.get('cores', 'Unknown'),
+                    'sockets': config_data.get('sockets', 'Unknown'), 
+                    'memory_mb': config_data.get('memory', 'Unknown'),
+                    'bootdisk': config_data.get('bootdisk', 'Unknown'),
+                    'description': config_data.get('description', ''),
+                    'tags': config_data.get('tags', ''),
+                    'ha_priority': config_data.get('startup', '')
+                })
+                
+                # Parse network interfaces
+                networks = []
+                for key, value in config_data.items():
+                    if key.startswith('net'):
+                        networks.append(f"{key}: {value}")
+                detailed_info['networks'] = networks
+            
+            # Get VM current status
+            status = self.run_command(f'pvesh get /nodes/{node_name}/qemu/{vmid}/status/current --output-format=json 2>/dev/null')
+            if status:
+                status_data = json.loads(status)
+                
+                # Handle CPU percentage properly
+                cpu_raw = status_data.get('cpu', 0)
+                if cpu_raw < 1.0:  # Likely decimal format (0.015 = 1.5%)
+                    cpu_percentage = f"{cpu_raw * 100:.1f}%"
+                else:  # Already percentage or very high usage
+                    cpu_percentage = f"{cpu_raw:.1f}%"
+                
+                # Convert uptime from seconds to readable format
+                uptime_seconds = status_data.get('uptime', 0)
+                uptime_readable = self.convert_uptime_seconds(uptime_seconds)
+                
+                detailed_info.update({
+                    'uptime': uptime_readable,
+                    'uptime_seconds': uptime_seconds,
+                    'cpu_usage': cpu_percentage,
+                    'memory_current': self.bytes_to_gb(str(status_data.get('mem', 0))),
+                    'pid': status_data.get('pid', 'Unknown'),
+                    'ha_state': status_data.get('ha', {}),
+                })
+                
+                # Get network I/O if available
+                if 'netin' in status_data and 'netout' in status_data:
+                    detailed_info['network_io'] = {
+                        'bytes_in': self.bytes_to_gb(str(status_data.get('netin', 0))),
+                        'bytes_out': self.bytes_to_gb(str(status_data.get('netout', 0)))
+                    }
+                    
+        except (json.JSONDecodeError, KeyError, TypeError) as e:
+            logger.debug(f"Failed to get detailed VM info for {vmid} on {node_name}: {e}")
+            
+        return detailed_info
+
+    def get_container_detailed_info(self, node_name: str, vmid: str) -> Dict:
+        """Get detailed information for a specific container"""
+        detailed_info = {}
+        
+        try:
+            # Get container configuration
+            config = self.run_command(f'pvesh get /nodes/{node_name}/lxc/{vmid}/config --output-format=json 2>/dev/null')
+            if config:
+                config_data = json.loads(config)
+                detailed_info.update({
+                    'cores': config_data.get('cores', 'Unknown'),
+                    'memory_mb': config_data.get('memory', 'Unknown'),
+                    'swap_mb': config_data.get('swap', 'Unknown'),
+                    'description': config_data.get('description', ''),
+                    'tags': config_data.get('tags', ''),
+                    'rootfs': config_data.get('rootfs', 'Unknown')
+                })
+                
+                # Parse network interfaces
+                networks = []
+                for key, value in config_data.items():
+                    if key.startswith('net'):
+                        networks.append(f"{key}: {value}")
+                detailed_info['networks'] = networks
+                
+                # Parse mount points
+                mounts = []
+                for key, value in config_data.items():
+                    if key.startswith('mp'):
+                        mounts.append(f"{key}: {value}")
+                detailed_info['mount_points'] = mounts
+            
+            # Get container current status
+            status = self.run_command(f'pvesh get /nodes/{node_name}/lxc/{vmid}/status/current --output-format=json 2>/dev/null')
+            if status:
+                status_data = json.loads(status)
+                
+                # Handle CPU percentage properly
+                cpu_raw = status_data.get('cpu', 0)
+                if cpu_raw < 1.0:  # Likely decimal format (0.015 = 1.5%)
+                    cpu_percentage = f"{cpu_raw * 100:.1f}%"
+                else:  # Already percentage or very high usage
+                    cpu_percentage = f"{cpu_raw:.1f}%"
+                
+                # Convert uptime from seconds to readable format
+                uptime_seconds = status_data.get('uptime', 0)
+                uptime_readable = self.convert_uptime_seconds(uptime_seconds)
+                
+                detailed_info.update({
+                    'uptime': uptime_readable,
+                    'uptime_seconds': uptime_seconds,
+                    'cpu_usage': cpu_percentage,
+                    'memory_current': self.bytes_to_gb(str(status_data.get('mem', 0))),
+                    'swap_current': self.bytes_to_gb(str(status_data.get('swap', 0))),
+                    'disk_usage': self.bytes_to_gb(str(status_data.get('disk', 0))),
+                    'pid': status_data.get('pid', 'Unknown')
+                })
+                    
+        except (json.JSONDecodeError, KeyError, TypeError) as e:
+            logger.debug(f"Failed to get detailed container info for {vmid} on {node_name}: {e}")
+            
+        return detailed_info
 

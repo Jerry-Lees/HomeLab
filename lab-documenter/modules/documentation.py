@@ -16,7 +16,7 @@ Required sections in both outputs:
 - Listening Ports (with service information)
 - Docker Containers (when present)
 - Kubernetes (comprehensive: namespaces, nodes, pods by namespace, services, deployments)
-- Proxmox (when present)
+- Proxmox (comprehensive: cluster info, nodes, storage, VMs, containers with problem detection)
 
 The only differences should be syntax formatting:
 - Markdown uses HTML <details> tags for collapsible sections
@@ -411,67 +411,284 @@ def generate_markdown_content(host_data: Dict) -> str:
         
         content += "\n"
     
-    # Proxmox with truncation
+    # Enhanced Proxmox with detailed VM/container information
     if host_data.get('proxmox_info'):
         proxmox = host_data['proxmox_info']
         content += "## Proxmox\n"
         
-        if 'version' in proxmox:
-            content += f"- **Version:** {proxmox['version']}\n"
+        if proxmox.get('pve_version'):
+            content += f"- **Version:** {proxmox['pve_version']}\n"
         
-        # VMs with collapsible section for large lists
-        if 'vms' in proxmox:
-            vm_count = len(proxmox['vms'])
-            
-            content += f"\n### Virtual Machines ({vm_count})\n"
-            
-            if vm_count <= 8:
-                # Show VMs directly for small lists
-                for vm in proxmox['vms']:
-                    content += f"- {vm}\n"
+        # Cluster information with enhanced details
+        if proxmox.get('cluster_status'):
+            cluster = proxmox['cluster_status']
+            if cluster.get('clustered'):
+                content += f"\n### Cluster Information\n"
+                content += f"- **Cluster Name:** {cluster.get('name', 'Unknown')}\n"
+                content += f"- **Nodes:** {cluster.get('node_count', len(proxmox.get('nodes', [])))}\n"
+                content += f"- **Transport:** {cluster.get('transport', 'Unknown')}\n"
+                content += f"- **Config Version:** {cluster.get('config_version', 'Unknown')}\n"
+                if 'quorate' in cluster:
+                    content += f"- **Quorate:** {'Yes' if cluster['quorate'] else 'No'}\n"
             else:
-                # Show first few VMs, then use collapsible section
-                vms_to_show_first = proxmox['vms'][:4]
-                vms_remaining = proxmox['vms'][4:]
+                content += f"\n### Standalone Node\n"
+                content += f"- **Clustered:** No\n"
+        
+        # Enhanced nodes with detailed status
+        if proxmox.get('nodes'):
+            content += f"\n### Nodes ({len(proxmox['nodes'])})\n"
+            for node in proxmox['nodes']:
+                status_indicator = "Online" if node.get('online', False) else "Offline"
+                node_line = f"- **{node.get('name', 'Unknown')}** - {status_indicator}"
                 
-                # Show first few VMs
-                for vm in vms_to_show_first:
-                    content += f"- {vm}\n"
+                # Add node type and level if available
+                if node.get('type'):
+                    node_line += f" ({node['type']}"
+                    if node.get('level'):
+                        node_line += f", level: {node['level']}"
+                    node_line += ")"
                 
-                # Add collapsible section for remaining VMs
-                content += f"\n<details>\n<summary><strong>Show {len(vms_remaining)} more VMs</strong></summary>\n\n"
+                if node.get('ip'):
+                    node_line += f" - IP: {node['ip']}"
+                if node.get('cpu_usage'):
+                    node_line += f" - CPU: {node['cpu_usage']}"
+                if node.get('memory_usage_percent'):
+                    node_line += f" - Memory: {node['memory_usage_percent']}"
+                if node.get('uptime'):
+                    node_line += f" - Uptime: {node['uptime']}"
                 
-                for vm in vms_remaining:
-                    content += f"- {vm}\n"
+                content += node_line + "\n"
+        
+        # Cluster resource summary
+        if proxmox.get('cluster_resources'):
+            resources = proxmox['cluster_resources']
+            content += f"\n### Cluster Resource Summary\n"
+            content += f"- **Nodes:** {resources.get('online_nodes', 0)}/{resources.get('total_nodes', 0)} online\n"
+            content += f"- **VMs:** {resources.get('running_vms', 0)}/{resources.get('total_vms', 0)} running\n"
+            content += f"- **Containers:** {resources.get('running_containers', 0)}/{resources.get('total_containers', 0)} running\n"
+            content += f"- **Storage Pools:** {resources.get('storage_pools', 0)}\n"
+            
+            if resources.get('cpu_usage', {}).get('percentage'):
+                content += f"- **Cluster CPU Usage:** {resources['cpu_usage']['percentage']}\n"
+            if resources.get('memory_usage', {}).get('percentage'):
+                content += f"- **Cluster Memory Usage:** {resources['memory_usage']['used_gb']}/{resources['memory_usage']['total_gb']} ({resources['memory_usage']['percentage']})\n"
+        
+        # Storage with improved formatting
+        if proxmox.get('storage'):
+            storage_count = len(proxmox['storage'])
+            content += f"\n### Storage ({storage_count})\n"
+            
+            if storage_count <= 5:
+                for storage in proxmox['storage']:
+                    usage_info = f"({storage.get('usage_percent', 'Unknown')})" if storage.get('usage_percent') != 'Unknown' else ""
+                    content += f"- **{storage.get('name', 'Unknown')}** ({storage.get('type', 'Unknown')}) - {storage.get('used', 'Unknown')} / {storage.get('total', 'Unknown')} {usage_info}\n"
+            else:
+                # Show first few storage entries, then collapsible
+                for storage in proxmox['storage'][:3]:
+                    usage_info = f"({storage.get('usage_percent', 'Unknown')})" if storage.get('usage_percent') != 'Unknown' else ""
+                    content += f"- **{storage.get('name', 'Unknown')}** ({storage.get('type', 'Unknown')}) - {storage.get('used', 'Unknown')} / {storage.get('total', 'Unknown')} {usage_info}\n"
+                
+                remaining_storage = proxmox['storage'][3:]
+                content += f"\n<details>\n<summary><strong>Show {len(remaining_storage)} more storage entries</strong></summary>\n\n"
+                
+                for storage in remaining_storage:
+                    usage_info = f"({storage.get('usage_percent', 'Unknown')})" if storage.get('usage_percent') != 'Unknown' else ""
+                    content += f"- **{storage.get('name', 'Unknown')}** ({storage.get('type', 'Unknown')}) - {storage.get('used', 'Unknown')} / {storage.get('total', 'Unknown')} {usage_info}\n"
                 
                 content += "\n</details>\n"
         
-        # Containers with collapsible section for large lists
-        if 'containers' in proxmox:
-            container_count = len(proxmox['containers'])
+        # Enhanced VMs Summary with detailed information
+        if proxmox.get('vms'):
+            running_vms = len([vm for vm in proxmox['vms'] if vm.get('status') == 'running'])
+            total_vms = len(proxmox['vms'])
+            content += f"\n### Virtual Machines Summary\n"
+            content += f"- **Total VMs:** {total_vms}\n"
+            content += f"- **Running:** {running_vms}\n"
+            content += f"- **Stopped:** {total_vms - running_vms}\n\n"
             
-            content += f"\n### Containers ({container_count})\n"
+            # Detailed VMs list with enhanced information
+            content += f"<details>\n<summary><strong>All Virtual Machines ({total_vms} total)</strong></summary>\n\n"
             
-            if container_count <= 8:
-                # Show containers directly for small lists
-                for container in proxmox['containers']:
-                    content += f"- {container}\n"
-            else:
-                # Show first few containers, then use collapsible section
-                containers_to_show_first = proxmox['containers'][:4]
-                containers_remaining = proxmox['containers'][4:]
+            for vm in proxmox['vms']:
+                status_icon = "✅" if vm.get('status') == 'running' else "ℹ️" if vm.get('status') == 'stopped' else "⚠️"
+                vm_line = f"- {status_icon} **{vm.get('name', vm.get('vmid', 'Unknown'))}** (ID: {vm.get('vmid', 'Unknown')}) - {vm.get('status', 'Unknown')}"
                 
-                # Show first few containers
-                for container in containers_to_show_first:
-                    content += f"- {container}\n"
+                if vm.get('memory_allocated'):
+                    vm_line += f" - Memory: {vm['memory_allocated']}"
+                if vm.get('disk_size'):
+                    vm_line += f" - Disk: {vm['disk_size']}"
                 
-                # Add collapsible section for remaining containers
-                content += f"\n<details>\n<summary><strong>Show {len(containers_remaining)} more containers</strong></summary>\n\n"
+                content += vm_line + "\n"
                 
-                for container in containers_remaining:
-                    content += f"- {container}\n"
+                # Add detailed information if available
+                if vm.get('detailed_info'):
+                    detail = vm['detailed_info']
+                    content += f"\n<details>\n<summary><strong>Detailed Information for {vm.get('name', vm.get('vmid', 'Unknown'))}</strong></summary>\n\n"
+                    
+                    # CPU allocation
+                    if detail.get('cores') or detail.get('sockets'):
+                        content += f"**CPU Configuration:**\n"
+                        if detail.get('cores'):
+                            content += f"- Cores: {detail['cores']}\n"
+                        if detail.get('sockets'):
+                            content += f"- Sockets: {detail['sockets']}\n"
+                        if detail.get('cpu_usage'):
+                            content += f"- Current Usage: {detail['cpu_usage']}\n"
+                        content += "\n"
+                    
+                    # Memory information
+                    if detail.get('memory_mb') or detail.get('memory_current'):
+                        content += f"**Memory Configuration:**\n"
+                        if detail.get('memory_mb'):
+                            content += f"- Allocated: {detail['memory_mb']}MB\n"
+                        if detail.get('memory_current'):
+                            content += f"- Current Usage: {detail['memory_current']}\n"
+                        content += "\n"
+                    
+                    # Network interfaces
+                    if detail.get('networks'):
+                        content += f"**Network Interfaces:**\n"
+                        for network in detail['networks']:
+                            content += f"- {network}\n"
+                        content += "\n"
+                    
+                    # Runtime information
+                    if detail.get('uptime'):
+                        content += f"**Runtime Information:**\n"
+                        content += f"- Uptime: {detail['uptime']}\n"
+                        if detail.get('pid'):
+                            content += f"- PID: {detail['pid']}\n"
+                        content += "\n"
+                    
+                    # HA and metadata
+                    if detail.get('ha_priority') or detail.get('tags') or detail.get('description'):
+                        content += f"**Configuration:**\n"
+                        if detail.get('ha_priority'):
+                            content += f"- HA Priority: {detail['ha_priority']}\n"
+                        if detail.get('tags'):
+                            content += f"- Tags: {detail['tags']}\n"
+                        if detail.get('description'):
+                            content += f"- Description: {detail['description']}\n"
+                        content += "\n"
+                    
+                    # Network I/O statistics
+                    if detail.get('network_io'):
+                        content += f"**Network I/O Statistics:**\n"
+                        content += f"- Bytes In: {detail['network_io']['bytes_in']}\n"
+                        content += f"- Bytes Out: {detail['network_io']['bytes_out']}\n"
+                        content += "\n"
+                    
+                    content += "</details>\n\n"
+            
+            content += "</details>\n\n"
+        
+        # Enhanced Containers Summary with detailed information
+        if proxmox.get('containers'):
+            running_containers = len([ct for ct in proxmox['containers'] if ct.get('status') == 'running'])
+            total_containers = len(proxmox['containers'])
+            content += f"### Containers Summary\n"
+            content += f"- **Total Containers:** {total_containers}\n"
+            content += f"- **Running:** {running_containers}\n"
+            content += f"- **Stopped:** {total_containers - running_containers}\n\n"
+            
+            # Detailed containers list with enhanced information
+            content += f"<details>\n<summary><strong>All Containers ({total_containers} total)</strong></summary>\n\n"
+            
+            for ct in proxmox['containers']:
+                status_icon = "✅" if ct.get('status') == 'running' else "ℹ️" if ct.get('status') == 'stopped' else "⚠️"
                 
-                content += "\n</details>\n"
+                # Format container display as "name (ID)" instead of just ID
+                container_name = ct.get('name', f"Container-{ct.get('vmid', 'Unknown')}")
+                display_name = f"{container_name} ({ct.get('vmid', 'Unknown')})"
+                
+                ct_line = f"- {status_icon} **{display_name}** - {ct.get('status', 'Unknown')}"
+                
+                if ct.get('lock'):
+                    ct_line += f" - Locked: {ct['lock']}"
+                
+                content += ct_line + "\n"
+                
+                # Add detailed information if available
+                if ct.get('detailed_info'):
+                    detail = ct['detailed_info']
+                    content += f"\n<details>\n<summary><strong>Detailed Information for {container_name}</strong></summary>\n\n"
+                    
+                    # Memory and CPU allocation
+                    if detail.get('memory_mb') or detail.get('cores'):
+                        content += f"**Resource Allocation:**\n"
+                        if detail.get('memory_mb'):
+                            content += f"- Memory Limit: {detail['memory_mb']}MB\n"
+                        if detail.get('memory_current'):
+                            content += f"- Memory Usage: {detail['memory_current']}\n"
+                        if detail.get('cores'):
+                            content += f"- CPU Cores: {detail['cores']}\n"
+                        if detail.get('cpu_usage'):
+                            content += f"- CPU Usage: {detail['cpu_usage']}\n"
+                        content += "\n"
+                    
+                    # Swap usage
+                    if detail.get('swap_mb') or detail.get('swap_current'):
+                        content += f"**Swap Configuration:**\n"
+                        if detail.get('swap_mb'):
+                            content += f"- Swap Limit: {detail['swap_mb']}MB\n"
+                        if detail.get('swap_current'):
+                            content += f"- Swap Usage: {detail['swap_current']}\n"
+                        content += "\n"
+                    
+                    # Network interfaces
+                    if detail.get('networks'):
+                        content += f"**Network Interfaces:**\n"
+                        for network in detail['networks']:
+                            content += f"- {network}\n"
+                        content += "\n"
+                    
+                    # Storage and mount points
+                    if detail.get('rootfs') or detail.get('mount_points') or detail.get('disk_usage'):
+                        content += f"**Storage Configuration:**\n"
+                        if detail.get('rootfs'):
+                            content += f"- Root Filesystem: {detail['rootfs']}\n"
+                        if detail.get('disk_usage'):
+                            content += f"- Disk Usage: {detail['disk_usage']}\n"
+                        if detail.get('mount_points'):
+                            content += f"- Mount Points:\n"
+                            for mount in detail['mount_points']:
+                                content += f"  - {mount}\n"
+                        content += "\n"
+                    
+                    # Runtime information
+                    if detail.get('uptime'):
+                        content += f"**Runtime Information:**\n"
+                        content += f"- Uptime: {detail['uptime']}\n"
+                        if detail.get('pid'):
+                            content += f"- PID: {detail['pid']}\n"
+                        content += "\n"
+                    
+                    # Tags and description
+                    if detail.get('tags') or detail.get('description'):
+                        content += f"**Metadata:**\n"
+                        if detail.get('tags'):
+                            content += f"- Tags: {detail['tags']}\n"
+                        if detail.get('description'):
+                            content += f"- Description: {detail['description']}\n"
+                        content += "\n"
+                    
+                    content += "</details>\n\n"
+            
+            content += "</details>\n\n"
+        
+        # Problematic Resources (excluding stopped)
+        if proxmox.get('problematic_resources'):
+            problem_count = len(proxmox['problematic_resources'])
+            content += f"- **Problematic Resources:** {problem_count}\n"
+            content += f"\n#### Issues Found\n"
+            for resource in proxmox['problematic_resources'][:8]:  # Show up to 8 problem resources
+                resource_type = "VM" if resource.get('type') == 'vm' else "Container"
+                content += f"- **{resource_type} {resource.get('name', resource.get('vmid', 'Unknown'))}** (ID: {resource.get('vmid', 'Unknown')}) - Status: {resource.get('status', 'Unknown')}"
+                if resource.get('lock'):
+                    content += f" - Locked: {resource['lock']}"
+                content += "\n"
+            if problem_count > 8:
+                content += f"\n*... and {problem_count - 8} more problematic resources*\n"
         
         content += "\n"
     
@@ -864,73 +1081,279 @@ def generate_mediawiki_content(host_data: Dict) -> str:
         
         content += "\n"
     
-    # Proxmox
+    # Enhanced Proxmox with detailed VM/container information (MediaWiki version)
     if host_data.get('proxmox_info'):
         proxmox = host_data['proxmox_info']
         content += "== Proxmox ==\n"
         
-        if 'version' in proxmox:
-            content += f"* '''Version:''' {proxmox['version']}\n\n"
+        if proxmox.get('pve_version'):
+            content += f"* '''Version:''' {proxmox['pve_version']}\n\n"
         
-        # VMs
-        if 'vms' in proxmox:
-            vm_count = len(proxmox['vms'])
-            
-            content += f"=== Virtual Machines ({vm_count}) ===\n"
-            
-            if vm_count <= 8:
-                # Show VMs directly for small lists
-                for vm in proxmox['vms']:
-                    content += f"* {vm}\n"
+        # Cluster information with enhanced details
+        if proxmox.get('cluster_status'):
+            cluster = proxmox['cluster_status']
+            if cluster.get('clustered'):
+                content += f"=== Cluster Information ===\n"
+                content += f"* '''Cluster Name:''' {cluster.get('name', 'Unknown')}\n"
+                content += f"* '''Nodes:''' {cluster.get('node_count', len(proxmox.get('nodes', [])))}\n"
+                content += f"* '''Transport:''' {cluster.get('transport', 'Unknown')}\n"
+                content += f"* '''Config Version:''' {cluster.get('config_version', 'Unknown')}\n"
+                if 'quorate' in cluster:
+                    content += f"* '''Quorate:''' {'Yes' if cluster['quorate'] else 'No'}\n"
+                content += "\n"
             else:
-                # Show first few VMs, then use collapsible section
-                vms_to_show_first = proxmox['vms'][:4]
-                vms_remaining = proxmox['vms'][4:]
+                content += f"=== Standalone Node ===\n"
+                content += f"* '''Clustered:''' No\n\n"
+        
+        # Enhanced nodes with detailed status
+        if proxmox.get('nodes'):
+            content += f"=== Nodes ({len(proxmox['nodes'])}) ===\n"
+            for node in proxmox['nodes']:
+                status_indicator = "Online" if node.get('online', False) else "Offline"
+                node_line = f"* '''{node.get('name', 'Unknown')}''' - {status_indicator}"
                 
-                # Show first few VMs
-                for vm in vms_to_show_first:
-                    content += f"* {vm}\n"
+                # Add node type and level if available
+                if node.get('type'):
+                    node_line += f" ({node['type']}"
+                    if node.get('level'):
+                        node_line += f", level: {node['level']}"
+                    node_line += ")"
                 
-                # Add collapsible table for remaining VMs
+                if node.get('ip'):
+                    node_line += f" - IP: {node['ip']}"
+                if node.get('cpu_usage'):
+                    node_line += f" - CPU: {node['cpu_usage']}"
+                if node.get('memory_usage_percent'):
+                    node_line += f" - Memory: {node['memory_usage_percent']}"
+                if node.get('uptime'):
+                    node_line += f" - Uptime: {node['uptime']}"
+                
+                content += node_line + "\n"
+            content += "\n"
+        
+        # Cluster resource summary
+        if proxmox.get('cluster_resources'):
+            resources = proxmox['cluster_resources']
+            content += f"=== Cluster Resource Summary ===\n"
+            content += f"* '''Nodes:''' {resources.get('online_nodes', 0)}/{resources.get('total_nodes', 0)} online\n"
+            content += f"* '''VMs:''' {resources.get('running_vms', 0)}/{resources.get('total_vms', 0)} running\n"
+            content += f"* '''Containers:''' {resources.get('running_containers', 0)}/{resources.get('total_containers', 0)} running\n"
+            content += f"* '''Storage Pools:''' {resources.get('storage_pools', 0)}\n"
+            
+            if resources.get('cpu_usage', {}).get('percentage'):
+                content += f"* '''Cluster CPU Usage:''' {resources['cpu_usage']['percentage']}\n"
+            if resources.get('memory_usage', {}).get('percentage'):
+                content += f"* '''Cluster Memory Usage:''' {resources['memory_usage']['used_gb']}/{resources['memory_usage']['total_gb']} ({resources['memory_usage']['percentage']})\n"
+            content += "\n"
+        
+        # Storage with improved formatting
+        if proxmox.get('storage'):
+            storage_count = len(proxmox['storage'])
+            content += f"=== Storage ({storage_count}) ===\n"
+            
+            if storage_count <= 5:
+                for storage in proxmox['storage']:
+                    usage_info = f"({storage.get('usage_percent', 'Unknown')})" if storage.get('usage_percent') != 'Unknown' else ""
+                    content += f"* '''{storage.get('name', 'Unknown')}''' ({storage.get('type', 'Unknown')}) - {storage.get('used', 'Unknown')} / {storage.get('total', 'Unknown')} {usage_info}\n"
+            else:
+                # Show first few storage entries
+                for storage in proxmox['storage'][:3]:
+                    usage_info = f"({storage.get('usage_percent', 'Unknown')})" if storage.get('usage_percent') != 'Unknown' else ""
+                    content += f"* '''{storage.get('name', 'Unknown')}''' ({storage.get('type', 'Unknown')}) - {storage.get('used', 'Unknown')} / {storage.get('total', 'Unknown')} {usage_info}\n"
+                
+                # Collapsible table for remaining storage
+                remaining_storage = proxmox['storage'][3:]
                 content += f"\n{{| class='wikitable mw-collapsible mw-collapsed'\n"
-                content += f"|+ Additional VMs ({len(vms_remaining)} more)\n"
+                content += f"|+ Additional Storage ({len(remaining_storage)} more)\n"
                 content += "|-\n"
-                content += "! VM Information\n"
+                content += "! Name !! Type !! Used !! Total !! Usage\n"
                 
-                for vm in vms_remaining:
+                for storage in remaining_storage:
                     content += "|-\n"
-                    content += f"| {vm}\n"
+                    content += f"| {storage.get('name', 'Unknown')} || {storage.get('type', 'Unknown')} || {storage.get('used', 'Unknown')} || {storage.get('total', 'Unknown')} || {storage.get('usage_percent', 'Unknown')}\n"
+                content += "|}\n\n"
+            content += "\n"
+        
+        # Enhanced VMs Summary with detailed information
+        if proxmox.get('vms'):
+            running_vms = len([vm for vm in proxmox['vms'] if vm.get('status') == 'running'])
+            total_vms = len(proxmox['vms'])
+            content += f"=== Virtual Machines Summary ===\n"
+            content += f"* '''Total VMs:''' {total_vms}\n"
+            content += f"* '''Running:''' {running_vms}\n"
+            content += f"* '''Stopped:''' {total_vms - running_vms}\n\n"
+            
+            # Detailed VMs list with enhanced information
+            content += f"{{| class='wikitable mw-collapsible mw-collapsed'\n"
+            content += f"|+ All Virtual Machines ({total_vms} total)\n"
+            content += "|-\n"
+            content += "! Status !! Name !! ID !! Status !! Details\n"
+            
+            for vm in proxmox['vms']:
+                status_icon = "✅" if vm.get('status') == 'running' else "ℹ️" if vm.get('status') == 'stopped' else "⚠️"
+                
+                # Create details string with improved labels
+                details = []
+                if vm.get('memory_allocated'):
+                    details.append(f"Memory: {vm['memory_allocated']}")
+                if vm.get('disk_size'):
+                    details.append(f"Disk: {vm['disk_size']}")
+                details_str = " | ".join(details) if details else "No details"
+                
+                content += "|-\n"
+                content += f"| {status_icon} || {vm.get('name', 'Unknown')} || {vm.get('vmid', 'Unknown')} || {vm.get('status', 'Unknown')} || {details_str}\n"
+            
+            content += "|}\n\n"
+            
+            # Add detailed VM information in separate collapsible tables
+            vms_with_details = [vm for vm in proxmox['vms'] if vm.get('detailed_info')]
+            if vms_with_details:
+                content += f"{{| class='wikitable mw-collapsible mw-collapsed'\n"
+                content += f"|+ Detailed VM Information ({len(vms_with_details)} VMs with details)\n"
+                content += "|-\n"
+                content += "| \n"
+                
+                for vm in vms_with_details:
+                    detail = vm['detailed_info']
+                    content += f"'''VM {vm.get('name', vm.get('vmid', 'Unknown'))} (ID: {vm.get('vmid', 'Unknown')})'''<br/>\n"
+                    
+                    # CPU and memory configuration
+                    if detail.get('cores') or detail.get('sockets') or detail.get('cpu_usage'):
+                        content += f"''CPU:'' "
+                        cpu_details = []
+                        if detail.get('cores'):
+                            cpu_details.append(f"{detail['cores']} cores")
+                        if detail.get('sockets'):
+                            cpu_details.append(f"{detail['sockets']} sockets")
+                        if detail.get('cpu_usage'):
+                            cpu_details.append(f"Usage: {detail['cpu_usage']}")
+                        content += " | ".join(cpu_details) + "<br/>\n"
+                    
+                    if detail.get('memory_mb') or detail.get('memory_current'):
+                        content += f"''Memory:'' "
+                        mem_details = []
+                        if detail.get('memory_mb'):
+                            mem_details.append(f"Allocated: {detail['memory_mb']}MB")
+                        if detail.get('memory_current'):
+                            mem_details.append(f"Current: {detail['memory_current']}")
+                        content += " | ".join(mem_details) + "<br/>\n"
+                    
+                    # Runtime and network info
+                    if detail.get('uptime'):
+                        content += f"''Uptime:'' {detail['uptime']}<br/>\n"
+                    
+                    if detail.get('networks'):
+                        content += f"''Networks:'' {len(detail['networks'])} interfaces<br/>\n"
+                    
+                    if detail.get('network_io'):
+                        content += f"''Network I/O:'' In: {detail['network_io']['bytes_in']}, Out: {detail['network_io']['bytes_out']}<br/>\n"
+                    
+                    if detail.get('tags') or detail.get('description'):
+                        if detail.get('tags'):
+                            content += f"''Tags:'' {detail['tags']}<br/>\n"
+                        if detail.get('description'):
+                            content += f"''Description:'' {detail['description']}<br/>\n"
+                    
+                    content += "<br/>\n"
+                
                 content += "|}\n\n"
         
-        # Containers
-        if 'containers' in proxmox:
-            container_count = len(proxmox['containers'])
+        # Enhanced Containers Summary with detailed information
+        if proxmox.get('containers'):
+            running_containers = len([ct for ct in proxmox['containers'] if ct.get('status') == 'running'])
+            total_containers = len(proxmox['containers'])
+            content += f"=== Containers Summary ===\n"
+            content += f"* '''Total Containers:''' {total_containers}\n"
+            content += f"* '''Running:''' {running_containers}\n"
+            content += f"* '''Stopped:''' {total_containers - running_containers}\n\n"
             
-            content += f"=== Containers ({container_count}) ===\n"
+            # Detailed containers list with enhanced information
+            content += f"{{| class='wikitable mw-collapsible mw-collapsed'\n"
+            content += f"|+ All Containers ({total_containers} total)\n"
+            content += "|-\n"
+            content += "! Status !! Name !! ID !! Status !! Lock\n"
             
-            if container_count <= 8:
-                # Show containers directly for small lists
-                for container in proxmox['containers']:
-                    content += f"* {container}\n"
-            else:
-                # Show first few containers, then use collapsible section
-                containers_to_show_first = proxmox['containers'][:4]
-                containers_remaining = proxmox['containers'][4:]
+            for ct in proxmox['containers']:
+                status_icon = "✅" if ct.get('status') == 'running' else "ℹ️" if ct.get('status') == 'stopped' else "⚠️"
                 
-                # Show first few containers
-                for container in containers_to_show_first:
-                    content += f"* {container}\n"
+                # Format container display as "name (ID)" instead of just ID
+                container_name = ct.get('name', f"Container-{ct.get('vmid', 'Unknown')}")
+                display_name = f"{container_name} ({ct.get('vmid', 'Unknown')})"
                 
-                # Add collapsible table for remaining containers
-                content += f"\n{{| class='wikitable mw-collapsible mw-collapsed'\n"
-                content += f"|+ Additional Containers ({len(containers_remaining)} more)\n"
                 content += "|-\n"
-                content += "! Container Information\n"
+                content += f"| {status_icon} || {display_name} || {ct.get('vmid', 'Unknown')} || {ct.get('status', 'Unknown')} || {ct.get('lock', 'None')}\n"
+            
+            content += "|}\n\n"
+            
+            # Add detailed container information in separate collapsible tables
+            containers_with_details = [ct for ct in proxmox['containers'] if ct.get('detailed_info')]
+            if containers_with_details:
+                content += f"{{| class='wikitable mw-collapsible mw-collapsed'\n"
+                content += f"|+ Detailed Container Information ({len(containers_with_details)} containers with details)\n"
+                content += "|-\n"
+                content += "| \n"
                 
-                for container in containers_remaining:
-                    content += "|-\n"
-                    content += f"| {container}\n"
+                for ct in containers_with_details:
+                    detail = ct['detailed_info']
+                    content += f"'''Container {ct.get('name', ct.get('vmid', 'Unknown'))} (ID: {ct.get('vmid', 'Unknown')})'''<br/>\n"
+                    
+                    # Resource allocation
+                    if detail.get('memory_mb') or detail.get('cores') or detail.get('cpu_usage'):
+                        resource_details = []
+                        if detail.get('memory_mb'):
+                            resource_details.append(f"Memory: {detail['memory_mb']}MB")
+                        if detail.get('memory_current'):
+                            resource_details.append(f"Used: {detail['memory_current']}")
+                        if detail.get('cores'):
+                            resource_details.append(f"CPU: {detail['cores']} cores")
+                        if detail.get('cpu_usage'):
+                            resource_details.append(f"Usage: {detail['cpu_usage']}")
+                        content += f"''Resources:'' {' | '.join(resource_details)}<br/>\n"
+                    
+                    # Swap and storage
+                    if detail.get('swap_mb') or detail.get('swap_current') or detail.get('disk_usage'):
+                        storage_details = []
+                        if detail.get('swap_mb'):
+                            storage_details.append(f"Swap: {detail['swap_mb']}MB")
+                        if detail.get('swap_current'):
+                            storage_details.append(f"Used: {detail['swap_current']}")
+                        if detail.get('disk_usage'):
+                            storage_details.append(f"Disk: {detail['disk_usage']}")
+                        content += f"''Storage:'' {' | '.join(storage_details)}<br/>\n"
+                    
+                    # Network and mounts
+                    if detail.get('networks'):
+                        content += f"''Networks:'' {len(detail['networks'])} interfaces<br/>\n"
+                    
+                    if detail.get('mount_points'):
+                        content += f"''Mount Points:'' {len(detail['mount_points'])} mounts<br/>\n"
+                    
+                    if detail.get('uptime'):
+                        content += f"''Uptime:'' {detail['uptime']}<br/>\n"
+                    
+                    if detail.get('tags') or detail.get('description'):
+                        if detail.get('tags'):
+                            content += f"''Tags:'' {detail['tags']}<br/>\n"
+                        if detail.get('description'):
+                            content += f"''Description:'' {detail['description']}<br/>\n"
+                    
+                    content += "<br/>\n"
+                
                 content += "|}\n\n"
+        
+        # Problematic Resources (excluding stopped)
+        if proxmox.get('problematic_resources'):
+            problem_count = len(proxmox['problematic_resources'])
+            content += f"* '''Problematic Resources:''' {problem_count}\n\n"
+            content += "==== Issues Found ====\n"
+            for resource in proxmox['problematic_resources'][:8]:  # Show up to 8 problem resources
+                resource_type = "VM" if resource.get('type') == 'vm' else "Container"
+                content += f"* '''{resource_type} {resource.get('name', resource.get('vmid', 'Unknown'))}''' (ID: {resource.get('vmid', 'Unknown')}) - Status: {resource.get('status', 'Unknown')}"
+                if resource.get('lock'):
+                    content += f" - Locked: {resource['lock']}"
+                content += "\n"
+            if problem_count > 8:
+                content += f"\n''... and {problem_count - 8} more problematic resources''\n\n"
         
         content += "\n"
     
@@ -1051,7 +1474,12 @@ class DocumentationManager:
                         docker_count = len(data['docker_containers'])
                         extra_info.append(f"Docker: {docker_count} containers")
                     if data.get('proxmox_info'):
-                        extra_info.append("Proxmox")
+                        vm_count = len(data['proxmox_info'].get('vms', []))
+                        ct_count = len(data['proxmox_info'].get('containers', []))
+                        if vm_count > 0 or ct_count > 0:
+                            extra_info.append(f"Proxmox: {vm_count} VMs, {ct_count} CTs")
+                        else:
+                            extra_info.append("Proxmox")
                     
                     extra_text = f" | {' | '.join(extra_info)}" if extra_info else ""
                     content += f"- **[{hostname}]({safe_hostname}.md)** - {os_display} - {uptime}{extra_text}\n"
