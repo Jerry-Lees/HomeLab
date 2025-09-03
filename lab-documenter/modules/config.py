@@ -19,7 +19,8 @@ CONFIG = {
     'csv_file': 'servers.csv',
     'mediawiki_api': 'http://your-wiki.local/api.php',
     'mediawiki_user': 'bot_user',
-    'mediawiki_password': 'bot_password'
+    'mediawiki_password': 'bot_password',
+    'mediawiki_index_page': 'Server Documentation'
 }
 
 def load_config_file(config_path: str) -> dict:
@@ -78,6 +79,8 @@ def update_config_from_args(config: dict, args) -> dict:
         config['mediawiki_user'] = args.wiki_user
     if args.wiki_password:
         config['mediawiki_password'] = args.wiki_password
+    if args.wiki_index_page:
+        config['mediawiki_index_page'] = args.wiki_index_page
     
     return config
 

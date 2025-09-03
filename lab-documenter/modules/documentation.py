@@ -1359,6 +1359,128 @@ def generate_mediawiki_content(host_data: Dict) -> str:
     
     return content
 
+def generate_wiki_index_content(inventory: Dict) -> str:
+    """Generate MediaWiki content for the server index page"""
+    from datetime import datetime
+    
+    content = "= Server Documentation =\n\n"
+    content += f"'''Last Updated:''' {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+    content += "This page provides an overview of all documented servers in the lab.\n\n"
+    
+    # Separate reachable and unreachable hosts
+    reachable_hosts = [(hostname, data) for hostname, data in inventory.items() if data.get('reachable')]
+    unreachable_hosts = [(hostname, data) for hostname, data in inventory.items() if not data.get('reachable')]
+    
+    # Statistics
+    content += "== Quick Statistics ==\n"
+    content += f"* '''Total Servers:''' {len(inventory)}\n"
+    content += f"* '''Reachable:''' {len(reachable_hosts)}\n"
+    content += f"* '''Unreachable:''' {len(unreachable_hosts)}\n\n"
+    
+    # Count by OS
+    os_counts = {}
+    service_counts = {'kubernetes': 0, 'docker': 0, 'proxmox': 0}
+    
+    for hostname, data in reachable_hosts:
+        if data.get('reachable'):
+            os_info = data.get('os_release', {})
+            os_name = os_info.get('name', 'Unknown')
+            os_counts[os_name] = os_counts.get(os_name, 0) + 1
+            
+            # Count special services
+            if data.get('kubernetes_info'):
+                service_counts['kubernetes'] += 1
+            if data.get('docker_containers'):
+                service_counts['docker'] += 1
+            if data.get('proxmox_info'):
+                service_counts['proxmox'] += 1
+    
+    if os_counts:
+        content += "== Operating Systems ==\n"
+        for os_name, count in sorted(os_counts.items()):
+            content += f"* '''{os_name}:''' {count} server{'s' if count != 1 else ''}\n"
+        content += "\n"
+    
+    if any(service_counts.values()):
+        content += "== Special Services ==\n"
+        if service_counts['kubernetes'] > 0:
+            content += f"* '''Kubernetes:''' {service_counts['kubernetes']} server{'s' if service_counts['kubernetes'] != 1 else ''}\n"
+        if service_counts['docker'] > 0:
+            content += f"* '''Docker:''' {service_counts['docker']} server{'s' if service_counts['docker'] != 1 else ''}\n"
+        if service_counts['proxmox'] > 0:
+            content += f"* '''Proxmox:''' {service_counts['proxmox']} server{'s' if service_counts['proxmox'] != 1 else ''}\n"
+        content += "\n"
+    
+    # Active servers list
+    if reachable_hosts:
+        content += "== Active Servers ==\n\n"
+        content += "{| class='wikitable sortable'\n"
+        content += "|-\n"
+        content += "! Server !! Operating System !! Uptime !! Special Services\n"
+        
+        for hostname, data in sorted(reachable_hosts):
+            os_info = data.get('os_release', {})
+            os_display = os_info.get('pretty_name', os_info.get('name', 'Unknown OS'))
+            uptime = data.get('uptime', 'Unknown')
+            
+            # Special services
+            services = []
+            if data.get('kubernetes_info') and data['kubernetes_info'].get('pods'):
+                services.append(f"K8s ({len(data['kubernetes_info']['pods'])} pods)")
+            if data.get('docker_containers'):
+                services.append(f"Docker ({len(data['docker_containers'])} containers)")
+            if data.get('proxmox_info'):
+                vm_count = len(data['proxmox_info'].get('vms', []))
+                ct_count = len(data['proxmox_info'].get('containers', []))
+                if vm_count > 0 or ct_count > 0:
+                    services.append(f"Proxmox ({vm_count}VM/{ct_count}CT)")
+                else:
+                    services.append("Proxmox")
+            
+            services_text = ", ".join(services) if services else "None"
+            
+            content += "|-\n"
+            content += f"| [[Server:{hostname}|{hostname}]] || {os_display} || {uptime} || {services_text}\n"
+        
+        content += "|}\n\n"
+    
+    # Unreachable servers
+    if unreachable_hosts:
+        content += "== Unreachable Servers ==\n\n"
+        content += "{| class='wikitable'\n"
+        content += "|-\n"
+        content += "! Server !! Last Attempt !! Failure Reason\n"
+        
+        for hostname, data in sorted(unreachable_hosts):
+            last_attempt = data.get('timestamp', 'Never')
+            failure_reason = data.get('connection_failure_reason', 'Unknown')
+            
+            content += "|-\n"
+            content += f"| {hostname} || {last_attempt} || {failure_reason}\n"
+        
+        content += "|}\n\n"
+    
+    # Navigation section
+    content += "== Navigation ==\n"
+    content += "* [[Special:PrefixIndex/Server:|Browse all server pages]]\n"
+    content += "* [[Special:AllPages|All pages on this wiki]]\n"
+    content += "* [[Special:RecentChanges|Recent changes]]\n\n"
+    
+    # Search box
+    content += "== Quick Server Search ==\n"
+    content += "<inputbox>\n"
+    content += "type=search\n"
+    content += "prefix=Server:\n"
+    content += "placeholder=Enter server name...\n"
+    content += "buttonlabel=Search Servers\n"
+    content += "searchbuttonlabel=Search All\n"
+    content += "</inputbox>\n\n"
+    
+    content += "----\n"
+    content += "''This page is automatically generated by the Lab Documenter system.''\n"
+    
+    return content
+
 class DocumentationManager:
     def __init__(self, docs_dir: str = 'documentation'):
         self.docs_dir = docs_dir

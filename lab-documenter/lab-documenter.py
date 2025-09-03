@@ -8,6 +8,7 @@ import logging
 import argparse
 import os
 import sys
+import json
 from datetime import datetime
 
 # Import modules
@@ -16,7 +17,7 @@ from modules.network import NetworkScanner
 from modules.inventory import InventoryManager
 from modules.wiki import MediaWikiUpdater
 
-from modules.documentation import DocumentationManager, generate_mediawiki_content
+from modules.documentation import DocumentationManager, generate_mediawiki_content, generate_wiki_index_content
 from modules.utils import clean_directories, print_connection_summary, load_ignore_list, filter_ignored_hosts
 
 def setup_logging(verbose=False, quiet=False):
@@ -50,6 +51,7 @@ Examples:
   %(prog)s --scan                              Scan network and collect data from all discovered hosts
   %(prog)s --csv-only                          Only scan servers listed in CSV file  
   %(prog)s --scan --update-wiki                Scan network and update MediaWiki pages
+  %(prog)s --update-wiki-index                 Create or update the wiki server index page
   %(prog)s --clean                             Delete all files in ./documentation and ./logs directories
   %(prog)s --clean --dry-run                   Show what files would be deleted without deleting them
   %(prog)s --clean --scan                      Clean directories then scan and rebuild documentation
@@ -82,6 +84,8 @@ Configuration:
                            help='Only scan hosts listed in CSV file (skip network scan)')
     mode_group.add_argument('--update-wiki', action='store_true', 
                            help='Update MediaWiki pages with collected data')
+    mode_group.add_argument('--update-wiki-index', action='store_true',
+                           help='Create or update the wiki server index page')
     mode_group.add_argument('--dry-run', action='store_true', 
                            help='Show what would be done without making changes')
     mode_group.add_argument('--clean', action='store_true',
@@ -120,6 +124,8 @@ Configuration:
                            help='MediaWiki username')
     wiki_group.add_argument('--wiki-password', metavar='PASS', default=None,
                            help='MediaWiki password')
+    wiki_group.add_argument('--wiki-index-page', metavar='TITLE', default=None,
+                           help='Title for the wiki server index page')
     
     # Output settings
     output_group = parser.add_argument_group('Output Settings')
@@ -149,7 +155,7 @@ Configuration:
         clean_directories(dry_run=args.dry_run)
         
         # If only cleaning (no other operations), exit after cleaning
-        if not (args.scan or args.csv_only or args.update_wiki):
+        if not (args.scan or args.csv_only or args.update_wiki or args.update_wiki_index):
             print("Clean operation completed")
             return
     
@@ -161,14 +167,50 @@ Configuration:
         networks_display = ', '.join(config['network_ranges'])
         logger.info(f"Would use config: SSH user={config['ssh_user']}, Networks={networks_display}, Workers={config['max_workers']}")
     
-    # Validate required settings
-    if not config.get('ssh_user'):
-        logger.error("SSH user not configured. Set it in config file or use --ssh-user")
-        sys.exit(1)
+    # Handle wiki index update only
+    if args.update_wiki_index and not (args.scan or args.csv_only):
+        if not config.get('mediawiki_api'):
+            logger.error("MediaWiki API URL not configured")
+            sys.exit(1)
+        if not all([config.get('mediawiki_user'), config.get('mediawiki_password')]):
+            logger.error("MediaWiki credentials not configured")
+            sys.exit(1)
+        
+        # Load existing inventory to create index
+        if os.path.exists(config['output_file']):
+            with open(config['output_file'], 'r') as f:
+                inventory = json.load(f)
+            
+            wiki_updater = MediaWikiUpdater(
+                config['mediawiki_api'],
+                config['mediawiki_user'],
+                config['mediawiki_password']
+            )
+            
+            index_page_title = config.get('mediawiki_index_page', 'Server Documentation')
+            index_content = generate_wiki_index_content(inventory)
+            
+            if args.dry_run:
+                logger.info(f"DRY RUN: Would create/update wiki index page: {index_page_title}")
+                return
+            
+            if wiki_updater.create_index_page(index_page_title, index_content):
+                logger.info(f"Successfully updated wiki index page: {index_page_title}")
+            else:
+                logger.error(f"Failed to update wiki index page: {index_page_title}")
+        else:
+            logger.error(f"No inventory file found at {config['output_file']}. Run a scan first.")
+        return
     
-    if (args.scan or args.csv_only) and not os.path.exists(os.path.expanduser(config['ssh_key_path'])):
-        logger.error(f"SSH key not found: {config['ssh_key_path']}")
-        sys.exit(1)
+    # Validate required settings for scanning operations
+    if args.scan or args.csv_only:
+        if not config.get('ssh_user'):
+            logger.error("SSH user not configured. Set it in config file or use --ssh-user")
+            sys.exit(1)
+        
+        if not os.path.exists(os.path.expanduser(config['ssh_key_path'])):
+            logger.error(f"SSH key not found: {config['ssh_key_path']}")
+            sys.exit(1)
 
     inventory_manager = InventoryManager()
     
@@ -263,6 +305,23 @@ Configuration:
         logger.info(f"Updated {updated_count} wiki pages")
     elif args.update_wiki:
         logger.warning("MediaWiki update requested but API URL not configured")
+    
+    # Update wiki index page if requested
+    if (args.update_wiki or args.update_wiki_index) and config.get('mediawiki_api'):
+        if all([config.get('mediawiki_user'), config.get('mediawiki_password')]):
+            wiki_updater = MediaWikiUpdater(
+                config['mediawiki_api'],
+                config['mediawiki_user'],
+                config['mediawiki_password']
+            )
+            
+            index_page_title = config.get('mediawiki_index_page', 'Server Documentation')
+            index_content = generate_wiki_index_content(inventory_manager.inventory)
+            
+            if wiki_updater.create_index_page(index_page_title, index_content):
+                logger.info(f"Updated wiki index page: {index_page_title}")
+            else:
+                logger.error(f"Failed to update wiki index page: {index_page_title}")
     
     # Print connection summary at the end
     print_connection_summary(inventory_manager.connection_failures)

@@ -64,4 +64,47 @@ class MediaWikiUpdater:
         except Exception as e:
             logger.error(f"Failed to update page {title}: {e}")
             return False
+    
+    def get_page_content(self, title: str) -> str:
+        """Get existing page content"""
+        try:
+            response = self.session.get(self.api_url, params={
+                'action': 'query',
+                'titles': title,
+                'prop': 'revisions',
+                'rvprop': 'content',
+                'format': 'json'
+            })
+            
+            data = response.json()
+            pages = data.get('query', {}).get('pages', {})
+            
+            for page_id, page_data in pages.items():
+                if page_id != '-1':  # Page exists
+                    revisions = page_data.get('revisions', [])
+                    if revisions:
+                        return revisions[0].get('*', '')
+            
+            return ''  # Page doesn't exist
+        except Exception as e:
+            logger.warning(f"Failed to get page content for {title}: {e}")
+            return ''
+    
+    def create_index_page(self, title: str, content: str):
+        """Create or update the main server index page"""
+        if not self.login():
+            return False
+            
+        try:
+            # Check if page exists first
+            existing_content = self.get_page_content(title)
+            if existing_content != content:
+                logger.info(f"Updating index page: {title}")
+                return self.update_page(title, content)
+            else:
+                logger.debug(f"Index page {title} is up to date")
+                return True
+        except Exception as e:
+            logger.error(f"Failed to create index page {title}: {e}")
+            return False
 
