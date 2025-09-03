@@ -9,7 +9,7 @@ import os
 import sys
 
 def setup_logging(log_dir: str = 'logs', verbose: bool = False, quiet: bool = False):
-    """Set up logging configuration"""
+    """Set up logging configuration after potential clean operations"""
     os.makedirs(log_dir, exist_ok=True)
 
     if quiet:
@@ -29,6 +29,43 @@ def setup_logging(log_dir: str = 'logs', verbose: bool = False, quiet: bool = Fa
     )
     
     return logging.getLogger(__name__)
+
+def validate_ssh_configuration(config: dict) -> None:
+    """Validate SSH configuration parameters and exit on failure"""
+    logger = logging.getLogger(__name__)
+    
+    if not config.get('ssh_user'):
+        logger.error("SSH user not configured. Set it in config file or use --ssh-user")
+        sys.exit(1)
+    
+    ssh_key_path = os.path.expanduser(config['ssh_key_path'])
+    if not os.path.exists(ssh_key_path):
+        logger.error(f"SSH key not found: {config['ssh_key_path']}")
+        sys.exit(1)
+
+def validate_mediawiki_configuration(config: dict) -> None:
+    """Validate MediaWiki configuration parameters and exit on failure"""
+    logger = logging.getLogger(__name__)
+    
+    if not config.get('mediawiki_api'):
+        logger.error("MediaWiki API URL not configured")
+        sys.exit(1)
+        
+    if not all([config.get('mediawiki_user'), config.get('mediawiki_password')]):
+        logger.error("MediaWiki credentials not configured")
+        sys.exit(1)
+
+def get_unique_hosts(hosts: list) -> list:
+    """Remove duplicates from host list while preserving order"""
+    seen = set()
+    unique_hosts = []
+    
+    for host in hosts:
+        if host not in seen:
+            seen.add(host)
+            unique_hosts.append(host)
+    
+    return unique_hosts
 
 def clean_directories(directories_to_clean: list = None, dry_run: bool = False):
     """Clean files from specified directories"""
@@ -69,31 +106,6 @@ def clean_directories(directories_to_clean: list = None, dry_run: bool = False):
                 
         except Exception as e:
             logger.error(f"Error processing directory {directory}: {e}")
-
-def validate_ssh_configuration(config: dict) -> bool:
-    """Validate SSH configuration parameters"""
-    logger = logging.getLogger(__name__)
-    
-    if not config.get('ssh_user'):
-        logger.error("SSH user not configured. Set it in config file or use --ssh-user")
-        return False
-    
-    ssh_key_path = os.path.expanduser(config['ssh_key_path'])
-    if not os.path.exists(ssh_key_path):
-        logger.error(f"SSH key not found: {config['ssh_key_path']}")
-        return False
-    
-    return True
-
-def validate_mediawiki_configuration(config: dict) -> bool:
-    """Validate MediaWiki configuration parameters"""
-    required_fields = ['mediawiki_api', 'mediawiki_user', 'mediawiki_password']
-    
-    for field in required_fields:
-        if not config.get(field):
-            return False
-    
-    return True
 
 def load_ignore_list(ignore_file: str = 'ignore.csv') -> dict:
     """Load list of hosts to ignore from CSV file"""
@@ -209,16 +221,4 @@ def print_connection_summary(connection_failures: list):
         logger.info("")
     
     logger.info(f"{'='*60}")
-    
-def get_unique_hosts(hosts: list) -> list:
-    """Remove duplicates from host list while preserving order"""
-    seen = set()
-    unique_hosts = []
-    
-    for host in hosts:
-        if host not in seen:
-            seen.add(host)
-            unique_hosts.append(host)
-    
-    return unique_hosts
 

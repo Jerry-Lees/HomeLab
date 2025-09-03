@@ -18,29 +18,7 @@ from modules.inventory import InventoryManager
 from modules.wiki import MediaWikiUpdater
 
 from modules.documentation import DocumentationManager, generate_mediawiki_content, generate_wiki_index_content
-from modules.utils import clean_directories, print_connection_summary, load_ignore_list, filter_ignored_hosts
-
-def setup_logging(verbose=False, quiet=False):
-    """Set up logging after potential clean operations"""
-    log_dir = 'logs'
-    os.makedirs(log_dir, exist_ok=True)
-
-    if quiet:
-        level = logging.ERROR
-    elif verbose:
-        level = logging.DEBUG
-    else:
-        level = logging.INFO
-
-    logging.basicConfig(
-        level=level,
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(os.path.join(log_dir, 'lab-documenter.log')),
-            logging.StreamHandler()
-        ]
-    )
-    return logging.getLogger(__name__)
+from modules.utils import setup_logging, clean_directories, print_connection_summary, load_ignore_list, filter_ignored_hosts, get_unique_hosts, validate_ssh_configuration, validate_mediawiki_configuration
 
 def main():
     parser = argparse.ArgumentParser(
@@ -169,12 +147,8 @@ Configuration:
     
     # Handle wiki index update only
     if args.update_wiki_index and not (args.scan or args.csv_only):
-        if not config.get('mediawiki_api'):
-            logger.error("MediaWiki API URL not configured")
-            sys.exit(1)
-        if not all([config.get('mediawiki_user'), config.get('mediawiki_password')]):
-            logger.error("MediaWiki credentials not configured")
-            sys.exit(1)
+        # Validate MediaWiki configuration
+        validate_mediawiki_configuration(config)
         
         # Load existing inventory to create index
         if os.path.exists(config['output_file']):
@@ -204,13 +178,8 @@ Configuration:
     
     # Validate required settings for scanning operations
     if args.scan or args.csv_only:
-        if not config.get('ssh_user'):
-            logger.error("SSH user not configured. Set it in config file or use --ssh-user")
-            sys.exit(1)
-        
-        if not os.path.exists(os.path.expanduser(config['ssh_key_path'])):
-            logger.error(f"SSH key not found: {config['ssh_key_path']}")
-            sys.exit(1)
+        # Validate SSH configuration
+        validate_ssh_configuration(config)
 
     inventory_manager = InventoryManager()
     
@@ -246,7 +215,7 @@ Configuration:
         logger.warning(f"CSV file not found: {csv_file}")
     
     # Remove duplicates
-    hosts = list(set(hosts))
+    hosts = get_unique_hosts(hosts)
     
     # Load ignore list and filter out ignored hosts
     ignore_dict = load_ignore_list('ignore.csv')
@@ -282,9 +251,7 @@ Configuration:
     
     # Update MediaWiki only if requested
     if args.update_wiki and config.get('mediawiki_api'):
-        if not all([config.get('mediawiki_user'), config.get('mediawiki_password')]):
-            logger.error("MediaWiki credentials not configured")
-            sys.exit(1)
+        validate_mediawiki_configuration(config)
             
         wiki_updater = MediaWikiUpdater(
             config['mediawiki_api'],
@@ -308,7 +275,8 @@ Configuration:
     
     # Update wiki index page if requested
     if (args.update_wiki or args.update_wiki_index) and config.get('mediawiki_api'):
-        if all([config.get('mediawiki_user'), config.get('mediawiki_password')]):
+        try:
+            validate_mediawiki_configuration(config)
             wiki_updater = MediaWikiUpdater(
                 config['mediawiki_api'],
                 config['mediawiki_user'],
@@ -322,6 +290,8 @@ Configuration:
                 logger.info(f"Updated wiki index page: {index_page_title}")
             else:
                 logger.error(f"Failed to update wiki index page: {index_page_title}")
+        except SystemExit:
+            logger.warning("MediaWiki index update skipped due to configuration issues")
     
     # Print connection summary at the end
     print_connection_summary(inventory_manager.connection_failures)
