@@ -1,18 +1,18 @@
 # Lab Documenter
 
-A comprehensive home lab documentation system that automatically discovers and documents servers, VMs, containers, and services in your infrastructure. Features intelligent network scanning, detailed connection failure analysis, and automatic service discovery with a clean modular architecture.
+A comprehensive home lab documentation system that automatically discovers and documents servers, VMs, containers, and services in your infrastructure. Features intelligent network scanning, detailed connection failure analysis, automatic service discovery, and MediaWiki integration.
 
 ## Features
 
 ### Core Capabilities
 - **Automatic Discovery**: Network scanning across multiple CIDR ranges to find live hosts
 - **Multi-Platform Support**: Ubuntu, Debian, CentOS, RHEL, Rocky Linux, Fedora, and other Linux distributions
-- **Modular Architecture**: Clean separation of concerns with dedicated modules for different functions
+- **Clean Architecture**: Separation of concerns with dedicated modules for different functions
 
 ### Data Collection
 - **System Information**: OS, kernel, hardware, uptime, resource usage
 - **Network Configuration**: IP addresses, listening ports with service identification
-- **Running Services**: Systemd services with enhanced descriptions from intelligent database
+- **Running Services**: Systemd services with intelligent descriptions from auto-learning database
 - **Docker Containers**: Container names, images, and status information
 - **Kubernetes Integration**: Cluster info, nodes, pods, services, deployments with issue detection
 - **Proxmox Support**: VM and container listings on Proxmox hypervisors
@@ -29,7 +29,7 @@ A comprehensive home lab documentation system that automatically discovers and d
 - **Local Documentation**: Always creates Markdown files for each server plus master index
 - **JSON Inventory**: Comprehensive raw data in structured format
 - **Individual JSON Files**: Separate JSON file per server for analysis tools
-- **MediaWiki Integration**: Optional wiki page creation and updates
+- **MediaWiki Integration**: Automatic wiki page creation and updates with server index
 
 ### Performance & Reliability
 - **Concurrent Processing**: Multi-threaded scanning for faster execution
@@ -76,6 +76,9 @@ A comprehensive home lab documentation system that automatically discovers and d
 # Scan networks and also update MediaWiki pages  
 ./lab-documenter.py --scan --update-wiki
 
+# Update only the wiki server index page
+./lab-documenter.py --update-wiki-index
+
 # Clean old files then perform fresh scan
 ./lab-documenter.py --clean --scan
 
@@ -100,9 +103,10 @@ A comprehensive home lab documentation system that automatically discovers and d
     "max_workers": 5,
     "output_file": "./inventory.json",
     "csv_file": "./servers.csv",
-    "mediawiki_api": "http://wiki.homelab.local/api.php",
+    "mediawiki_api": "https://wiki.example.com/api.php",
     "mediawiki_user": "documentation_bot",
-    "mediawiki_password": "your_bot_password"
+    "mediawiki_password": "your_bot_password",
+    "mediawiki_index_page": "Server Documentation"
 }
 ```
 
@@ -138,6 +142,7 @@ old-server.local,Decommissioned equipment
 - `--scan` - Scan network(s) for live hosts and collect data
 - `--csv-only` - Only scan hosts listed in CSV file (skip network scan)
 - `--update-wiki` - Update MediaWiki pages with collected data
+- `--update-wiki-index` - Create or update the wiki server index page
 - `--clean` - Delete all files in ./documentation and ./logs directories
 - `--dry-run` - Show what would be done without making changes
 
@@ -161,6 +166,7 @@ old-server.local,Decommissioned equipment
 - `--wiki-api URL` - MediaWiki API URL
 - `--wiki-user USER` - MediaWiki username
 - `--wiki-password PASS` - MediaWiki password
+- `--wiki-index-page TITLE` - Title for the wiki server index page
 
 ### Output Settings
 - `--verbose, -v` - Enable verbose logging output
@@ -181,6 +187,21 @@ old-server.local,Decommissioned equipment
 
 # Clean old files and create fresh documentation
 ./lab-documenter.py --clean --scan --update-wiki
+```
+
+### MediaWiki Operations
+```bash
+# Scan and update both individual server pages and index
+./lab-documenter.py --scan --update-wiki
+
+# Update only the wiki index page from existing data
+./lab-documenter.py --update-wiki-index
+
+# Use custom wiki index page title
+./lab-documenter.py --update-wiki-index --wiki-index-page "My Lab Servers"
+
+# Test wiki operations without making changes
+./lab-documenter.py --update-wiki-index --dry-run --verbose
 ```
 
 ### Multiple Network Scanning
@@ -212,6 +233,43 @@ old-server.local,Decommissioned equipment
 # Conservative scanning with longer timeouts
 ./lab-documenter.py --ssh-timeout 30 --workers 5 --scan
 ```
+
+## MediaWiki Integration
+
+### MediaWiki Setup
+
+1. **Create a bot user account** in your MediaWiki installation
+2. **Grant bot permissions**: `bot`, `confirmed`, and `autoconfirmed` user groups
+3. **Enable API access** in `LocalSettings.php`:
+   ```php
+   $wgEnableAPI = true;
+   $wgEnableWriteAPI = true;
+   ```
+4. **Configure the bot credentials** in your `config.json`
+
+### Wiki Output Features
+
+**Individual Server Pages**: Creates `Server:hostname` pages containing:
+- System information (OS, kernel, hardware, uptime)
+- Resource usage (memory, disk, CPU load)
+- Network configuration and listening ports
+- Running services with descriptions
+- Docker containers and Kubernetes information
+- Proxmox VM/container lists
+
+**Server Index Page**: Creates a configurable main index page featuring:
+- Quick statistics (total servers, reachable/unreachable counts)
+- Operating system breakdown
+- Special services summary (Kubernetes, Docker, Proxmox)
+- Sortable table of all active servers with links
+- Unreachable servers section with failure reasons
+- Built-in search box for quick server lookup
+- Navigation links to browse all server pages
+
+### Wiki Page Access
+
+- Individual servers: `https://your-wiki.com/wiki/Server:hostname`
+- Main index: `https://your-wiki.com/wiki/Server_Documentation` (or custom title)
 
 ## Output Format
 
@@ -299,9 +357,9 @@ Comprehensive raw data saved to inventory file:
 
 ## Architecture
 
-### Modular Design
+### Module Organization
 
-The system uses a clean modular architecture:
+The system uses a clean architecture with focused modules:
 
 ```
 lab-documenter/
@@ -335,7 +393,7 @@ lab-documenter/
 4. **SSH Data Collection**: Concurrent connections to gather system information
 5. **Service Enhancement**: Uses intelligent database to categorize services
 6. **Documentation Generation**: Creates local Markdown files and JSON data
-7. **Optional Wiki Updates**: Pushes to MediaWiki if configured
+7. **MediaWiki Updates**: Creates/updates individual server pages and index page
 8. **Failure Analysis**: Categorizes and reports connection issues
 
 ## Advanced Features
@@ -376,7 +434,7 @@ The `services.json` database automatically learns about new services:
 }
 ```
 
-Unknown services are auto-added and can be manually enhanced.
+Unknown services are auto-added and can be manually edited for better descriptions.
 
 ### Connection Failure Analysis
 
@@ -388,25 +446,6 @@ Detailed categorization helps troubleshoot connectivity issues:
 - **DNS resolution failed** - Hostname cannot be resolved
 - **Network unreachable** - Routing issues
 - **SSH key compatibility** - Key format problems (DSA, etc.)
-
-## MediaWiki Integration
-
-### Setup
-
-1. Create a bot user in MediaWiki
-2. Grant appropriate permissions (edit pages, create pages)
-3. Configure API URL and credentials in `config.json`
-4. Use `--update-wiki` flag when running
-
-### Generated Pages
-
-MediaWiki pages follow the format `Server:hostname` and include:
-- System information (OS, kernel, hardware)
-- Resource usage (memory, disk, CPU load)
-- Network configuration and listening ports
-- Running services with descriptions
-- Docker containers and Kubernetes information
-- Proxmox VM/container lists
 
 ## Automation
 
@@ -482,9 +521,20 @@ ping -c 1 192.168.1.1
 
 **MediaWiki Update Failures**:
 ```bash
-# Test MediaWiki API
-curl -X POST "http://wiki.local/api.php" \
+# Test MediaWiki API connectivity
+curl -X POST "https://your-wiki.com/api.php" \
      -d "action=query&meta=siteinfo&format=json"
+
+# Verify bot permissions in MediaWiki user management
+# Check API is enabled in LocalSettings.php
+```
+
+**JSON Configuration Errors**:
+```bash
+# Validate JSON syntax
+python3 -m json.tool config.json
+
+# Common issues: missing commas, unquoted keys, extra trailing commas
 ```
 
 ### Debug Mode
@@ -507,6 +557,7 @@ tail -f ./logs/lab-documenter.log
 - SSH client
 - Network connectivity to target hosts
 - Cron daemon (for automation)
+- MediaWiki installation (for wiki integration)
 
 ### Python Dependencies
 - `paramiko>=2.11.0` - SSH connections
@@ -527,7 +578,7 @@ tail -f ./logs/lab-documenter.log
 
 1. Fork the repository
 2. Create a feature branch
-3. Make your changes with proper modular separation
+3. Make your changes with proper separation of concerns
 4. Add appropriate logging and error handling
 5. Update documentation and help text
 6. Test with `--dry-run` and `--verbose` modes
@@ -548,15 +599,16 @@ For issues, questions, or contributions:
 ## Changelog
 
 ### v1.0.0 (Current)
-- **Modular Architecture**: Clean separation into focused modules
+- **Clean Architecture**: Separation into focused modules
 - **Multiple Network Support**: Scan across multiple CIDR ranges simultaneously  
 - **Intelligent Service Discovery**: Auto-learning database with service categorization
 - **Connection Failure Analysis**: Detailed error categorization and reporting
 - **Host Filtering**: ignore.csv support for skipping problematic hosts
 - **Clean Operation**: Easy cleanup of generated files with --clean option
-- **Enhanced Documentation**: Always-generated local Markdown files with comprehensive indexing
+- **Local Documentation**: Always-generated Markdown files with comprehensive indexing
+- **MediaWiki Integration**: Automatic server page creation with configurable index page
 - **Beep Notification**: Audio completion signal for long-running operations
-- **Improved Error Handling**: Better SSH connection retry logic and error classification
+- **Error Handling**: SSH connection retry logic and error classification
 - **Individual JSON Files**: Separate JSON output per server for analysis tools
 - **Flexible Configuration**: Support for both single and multiple network configurations
 
