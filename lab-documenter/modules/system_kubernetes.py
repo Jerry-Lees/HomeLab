@@ -5,7 +5,7 @@ Handles Kubernetes cluster information gathering via kubectl commands.
 """
 
 import logging
-from typing import Dict, List, Callable, Optional
+from typing import Dict, List, Callable, Optional, Union, Any
 
 logger = logging.getLogger(__name__)
 
@@ -19,9 +19,9 @@ class KubernetesCollector:
         """
         self.run_command = command_runner
     
-    def collect_kubernetes_info(self) -> Dict:
+    def collect_kubernetes_info(self) -> Dict[str, Any]:
         """Get comprehensive Kubernetes information if kubectl is available"""
-        k8s_info = {}
+        k8s_info: Dict[str, Any] = {}
         
         # Check if kubectl is available
         kubectl_version = self.run_command('kubectl version --client -o json 2>/dev/null | grep gitVersion || kubectl version --client 2>/dev/null | head -1')
@@ -64,18 +64,18 @@ class KubernetesCollector:
         
         return k8s_info
     
-    def collect_nodes(self) -> List[Dict]:
+    def collect_nodes(self) -> List[Dict[str, Optional[str]]]:
         """Collect Kubernetes nodes information"""
         nodes = self.run_command('kubectl get nodes --no-headers -o wide 2>/dev/null')
         if not nodes:
             return []
         
-        nodes_list = []
+        nodes_list: List[Dict[str, Optional[str]]] = []
         for line in nodes.split('\n'):
             if line.strip():
                 parts = line.split()
                 if len(parts) >= 2:
-                    node_info = {
+                    node_info: Dict[str, Optional[str]] = {
                         'name': parts[0],
                         'status': parts[1],
                         'roles': parts[2] if len(parts) > 2 else 'Unknown',
@@ -107,20 +107,20 @@ class KubernetesCollector:
         
         return [line.split()[0] for line in namespaces.split('\n') if line.strip()]
     
-    def collect_pods(self) -> Dict:
+    def collect_pods(self) -> Dict[str, List[Dict[str, Optional[str]]]]:
         """Collect Kubernetes pods information and identify problematic ones"""
         pods = self.run_command('kubectl get pods --all-namespaces --no-headers -o wide 2>/dev/null')
         if not pods:
             return {'pods': [], 'problematic_pods': []}
         
-        pods_list = []
-        problematic_pods = []
+        pods_list: List[Dict[str, Optional[str]]] = []
+        problematic_pods: List[Dict[str, Optional[str]]] = []
         
         for line in pods.split('\n'):
             if line.strip():
                 parts = line.split()
                 if len(parts) >= 5:
-                    pod_info = {
+                    pod_info: Dict[str, Optional[str]] = {
                         'namespace': parts[0],
                         'name': parts[1],
                         'ready': parts[2],
@@ -147,7 +147,7 @@ class KubernetesCollector:
         
         return {'pods': pods_list, 'problematic_pods': problematic_pods}
     
-    def is_pod_problematic(self, pod_info: Dict) -> bool:
+    def is_pod_problematic(self, pod_info: Dict[str, Optional[str]]) -> bool:
         """Determine if a pod has issues that need attention"""
         status = pod_info.get('status', '')
         ready = pod_info.get('ready', '')
@@ -163,14 +163,14 @@ class KubernetesCollector:
             return True
         
         # Check if pod is not ready (but should be running)
-        if status == 'Running' and '/' in ready:
+        if status == 'Running' and ready and '/' in ready:
             ready_parts = ready.split('/')
             if len(ready_parts) == 2 and ready_parts[0] != ready_parts[1]:
                 return True
         
         # Check for excessive restarts
         try:
-            restart_count = int(restarts)
+            restart_count = int(restarts or '0')
             if restart_count > 5:
                 return True
         except (ValueError, TypeError):
@@ -178,18 +178,18 @@ class KubernetesCollector:
         
         return False
     
-    def collect_services(self) -> List[Dict]:
+    def collect_services(self) -> List[Dict[str, Optional[str]]]:
         """Collect Kubernetes services information"""
         services = self.run_command('kubectl get services --all-namespaces --no-headers 2>/dev/null')
         if not services:
             return []
         
-        services_list = []
+        services_list: List[Dict[str, Optional[str]]] = []
         for line in services.split('\n'):
             if line.strip():
                 parts = line.split()
                 if len(parts) >= 4:
-                    service_info = {
+                    service_info: Dict[str, Optional[str]] = {
                         'namespace': parts[0],
                         'name': parts[1],
                         'type': parts[2],
@@ -202,18 +202,18 @@ class KubernetesCollector:
         
         return services_list
     
-    def collect_deployments(self) -> List[Dict]:
+    def collect_deployments(self) -> List[Dict[str, str]]:
         """Collect Kubernetes deployments information"""
         deployments = self.run_command('kubectl get deployments --all-namespaces --no-headers 2>/dev/null')
         if not deployments:
             return []
         
-        deployments_list = []
+        deployments_list: List[Dict[str, str]] = []
         for line in deployments.split('\n'):
             if line.strip():
                 parts = line.split()
                 if len(parts) >= 4:
-                    deployment_info = {
+                    deployment_info: Dict[str, str] = {
                         'namespace': parts[0],
                         'name': parts[1],
                         'ready': parts[2],
@@ -225,18 +225,18 @@ class KubernetesCollector:
         
         return deployments_list
     
-    def collect_persistent_volumes(self) -> List[Dict]:
+    def collect_persistent_volumes(self) -> List[Dict[str, str]]:
         """Collect Kubernetes persistent volumes information"""
         pvs = self.run_command('kubectl get pv --no-headers 2>/dev/null')
         if not pvs:
             return []
         
-        pv_list = []
+        pv_list: List[Dict[str, str]] = []
         for line in pvs.split('\n'):
             if line.strip():
                 parts = line.split()
                 if len(parts) >= 4:
-                    pv_info = {
+                    pv_info: Dict[str, str] = {
                         'name': parts[0],
                         'capacity': parts[1],
                         'access_modes': parts[2],
@@ -251,18 +251,18 @@ class KubernetesCollector:
         
         return pv_list
     
-    def collect_ingresses(self) -> List[Dict]:
+    def collect_ingresses(self) -> List[Dict[str, Optional[str]]]:
         """Collect Kubernetes ingresses information"""
         ingresses = self.run_command('kubectl get ingresses --all-namespaces --no-headers 2>/dev/null')
         if not ingresses:
             return []
         
-        ingress_list = []
+        ingress_list: List[Dict[str, Optional[str]]] = []
         for line in ingresses.split('\n'):
             if line.strip():
                 parts = line.split()
                 if len(parts) >= 3:
-                    ingress_info = {
+                    ingress_info: Dict[str, Optional[str]] = {
                         'namespace': parts[0],
                         'name': parts[1],
                         'class': parts[2] if parts[2] != '<none>' else None,
@@ -275,9 +275,9 @@ class KubernetesCollector:
         
         return ingress_list
     
-    def get_cluster_health_summary(self) -> Dict:
+    def get_cluster_health_summary(self) -> Dict[str, int]:
         """Get a high-level health summary of the cluster"""
-        health_summary = {
+        health_summary: Dict[str, int] = {
             'total_nodes': 0,
             'ready_nodes': 0,
             'total_pods': 0,
