@@ -11,6 +11,7 @@ import json
 from datetime import datetime
 from typing import Dict, List, Optional
 from modules.services import ServiceDatabase
+from modules.utils import bytes_to_gb, convert_uptime_seconds
 
 logger = logging.getLogger(__name__)
 
@@ -629,21 +630,6 @@ class SystemCollector:
         
         return proxmox_info
 
-    def bytes_to_gb(self, bytes_str: str) -> str:
-        """Convert bytes string to GB with appropriate formatting"""
-        try:
-            bytes_value = int(bytes_str)
-            gb_value = bytes_value / (1024 ** 3)
-            
-            if gb_value >= 1000:
-                return f"{gb_value/1024:.1f}TB"
-            elif gb_value >= 1:
-                return f"{gb_value:.1f}GB"
-            else:
-                return f"{gb_value*1024:.0f}MB"
-        except (ValueError, TypeError):
-            return bytes_str  # Return original if conversion fails
-
     def parse_cluster_json(self, cluster_data: list) -> Dict:
         """Parse JSON cluster status from pvesh API"""
         cluster_info = {'clustered': True}
@@ -862,40 +848,14 @@ class SystemCollector:
                         'name': parts[0],
                         'type': parts[1],
                         'status': parts[2],
-                        'total': self.bytes_to_gb(parts[3]),
-                        'used': self.bytes_to_gb(parts[4]),
-                        'available': self.bytes_to_gb(parts[5]),
+                        'total': bytes_to_gb(parts[3]),
+                        'used': bytes_to_gb(parts[4]),
+                        'available': bytes_to_gb(parts[5]),
                         'usage_percent': parts[6] if len(parts) > 6 else 'Unknown'
                     }
                     storage.append(storage_info)
         
         return storage
-
-    def convert_uptime_seconds(self, uptime_seconds) -> str:
-        """Convert uptime in seconds to human readable format"""
-        try:
-            seconds = int(float(str(uptime_seconds)))
-            
-            days = seconds // 86400
-            hours = (seconds % 86400) // 3600
-            minutes = (seconds % 3600) // 60
-            remaining_seconds = seconds % 60
-            
-            parts = []
-            if days > 0:
-                parts.append(f"{days} day{'s' if days != 1 else ''}")
-            if hours > 0:
-                parts.append(f"{hours} hour{'s' if hours != 1 else ''}")
-            if minutes > 0:
-                parts.append(f"{minutes} minute{'s' if minutes != 1 else ''}")
-            if remaining_seconds > 0 or not parts:  # Show seconds if no other parts or if only seconds
-                parts.append(f"{remaining_seconds} second{'s' if remaining_seconds != 1 else ''}")
-            
-            # Return first 2-3 most significant parts
-            return ", ".join(parts[:3])
-            
-        except (ValueError, TypeError):
-            return str(uptime_seconds)  # Return original if conversion fails
 
     def get_node_detailed_status(self, node_name: str) -> Dict:
         """Get detailed status for a specific node"""
@@ -913,12 +873,12 @@ class SystemCollector:
                 
                 # Convert uptime from seconds to readable format
                 uptime_seconds = status_data.get('uptime', 0)
-                uptime_readable = self.convert_uptime_seconds(uptime_seconds)
+                uptime_readable = convert_uptime_seconds(uptime_seconds)
                 
                 return {
                     'cpu_usage': cpu_percentage,
-                    'memory_total': self.bytes_to_gb(str(status_data.get('memory', {}).get('total', 0))),
-                    'memory_used': self.bytes_to_gb(str(status_data.get('memory', {}).get('used', 0))),
+                    'memory_total': bytes_to_gb(str(status_data.get('memory', {}).get('total', 0))),
+                    'memory_used': bytes_to_gb(str(status_data.get('memory', {}).get('used', 0))),
                     'memory_usage_percent': f"{(status_data.get('memory', {}).get('used', 0) / max(status_data.get('memory', {}).get('total', 1), 1))*100:.1f}%",
                     'uptime': uptime_readable,
                     'uptime_seconds': uptime_seconds,  # Keep raw for other uses
@@ -977,8 +937,8 @@ class SystemCollector:
             summary['cpu_usage']['percentage'] = f"{(summary['cpu_usage']['used'] / summary['cpu_usage']['total']) * 100:.1f}%"
         
         if summary['memory_usage']['total'] > 0:
-            summary['memory_usage']['total_gb'] = self.bytes_to_gb(str(int(summary['memory_usage']['total'])))
-            summary['memory_usage']['used_gb'] = self.bytes_to_gb(str(int(summary['memory_usage']['used'])))
+            summary['memory_usage']['total_gb'] = bytes_to_gb(str(int(summary['memory_usage']['total'])))
+            summary['memory_usage']['used_gb'] = bytes_to_gb(str(int(summary['memory_usage']['used'])))
             summary['memory_usage']['percentage'] = f"{(summary['memory_usage']['used'] / summary['memory_usage']['total']) * 100:.1f}%"
         
         return summary
@@ -1024,13 +984,13 @@ class SystemCollector:
                 
                 # Convert uptime from seconds to readable format
                 uptime_seconds = status_data.get('uptime', 0)
-                uptime_readable = self.convert_uptime_seconds(uptime_seconds)
+                uptime_readable = convert_uptime_seconds(uptime_seconds)
                 
                 detailed_info.update({
                     'uptime': uptime_readable,
                     'uptime_seconds': uptime_seconds,
                     'cpu_usage': cpu_percentage,
-                    'memory_current': self.bytes_to_gb(str(status_data.get('mem', 0))),
+                    'memory_current': bytes_to_gb(str(status_data.get('mem', 0))),
                     'pid': status_data.get('pid', 'Unknown'),
                     'ha_state': status_data.get('ha', {}),
                 })
@@ -1038,8 +998,8 @@ class SystemCollector:
                 # Get network I/O if available
                 if 'netin' in status_data and 'netout' in status_data:
                     detailed_info['network_io'] = {
-                        'bytes_in': self.bytes_to_gb(str(status_data.get('netin', 0))),
-                        'bytes_out': self.bytes_to_gb(str(status_data.get('netout', 0)))
+                        'bytes_in': bytes_to_gb(str(status_data.get('netin', 0))),
+                        'bytes_out': bytes_to_gb(str(status_data.get('netout', 0)))
                     }
                     
         except (json.JSONDecodeError, KeyError, TypeError) as e:
@@ -1093,15 +1053,15 @@ class SystemCollector:
                 
                 # Convert uptime from seconds to readable format
                 uptime_seconds = status_data.get('uptime', 0)
-                uptime_readable = self.convert_uptime_seconds(uptime_seconds)
+                uptime_readable = convert_uptime_seconds(uptime_seconds)
                 
                 detailed_info.update({
                     'uptime': uptime_readable,
                     'uptime_seconds': uptime_seconds,
                     'cpu_usage': cpu_percentage,
-                    'memory_current': self.bytes_to_gb(str(status_data.get('mem', 0))),
-                    'swap_current': self.bytes_to_gb(str(status_data.get('swap', 0))),
-                    'disk_usage': self.bytes_to_gb(str(status_data.get('disk', 0))),
+                    'memory_current': bytes_to_gb(str(status_data.get('mem', 0))),
+                    'swap_current': bytes_to_gb(str(status_data.get('swap', 0))),
+                    'disk_usage': bytes_to_gb(str(status_data.get('disk', 0))),
                     'pid': status_data.get('pid', 'Unknown')
                 })
                     

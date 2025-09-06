@@ -222,3 +222,44 @@ def print_connection_summary(connection_failures: list):
     
     logger.info(f"{'='*60}")
 
+def bytes_to_gb(bytes_str: str) -> str:
+    """Convert bytes string to GB with appropriate formatting"""
+    try:
+        bytes_value = int(bytes_str)
+        gb_value = bytes_value / (1024 ** 3)
+        
+        if gb_value >= 1000:
+            return f"{gb_value/1024:.1f}TB"
+        elif gb_value >= 1:
+            return f"{gb_value:.1f}GB"
+        else:
+            return f"{gb_value*1024:.0f}MB"
+    except (ValueError, TypeError):
+        return bytes_str  # Return original if conversion fails
+
+def convert_uptime_seconds(uptime_seconds) -> str:
+    """Convert uptime in seconds to human readable format"""
+    try:
+        seconds = int(float(str(uptime_seconds)))
+        
+        days = seconds // 86400
+        hours = (seconds % 86400) // 3600
+        minutes = (seconds % 3600) // 60
+        remaining_seconds = seconds % 60
+        
+        parts = []
+        if days > 0:
+            parts.append(f"{days} day{'s' if days != 1 else ''}")
+        if hours > 0:
+            parts.append(f"{hours} hour{'s' if hours != 1 else ''}")
+        if minutes > 0:
+            parts.append(f"{minutes} minute{'s' if minutes != 1 else ''}")
+        if remaining_seconds > 0 or not parts:  # Show seconds if no other parts or if only seconds
+            parts.append(f"{remaining_seconds} second{'s' if remaining_seconds != 1 else ''}")
+        
+        # Return first 2-3 most significant parts
+        return ", ".join(parts[:3])
+        
+    except (ValueError, TypeError):
+        return str(uptime_seconds)  # Return original if conversion fails
+

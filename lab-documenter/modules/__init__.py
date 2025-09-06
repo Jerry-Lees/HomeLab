@@ -11,7 +11,11 @@ from modules.network import NetworkScanner
 from modules.inventory import InventoryManager
 from modules.wiki import MediaWikiUpdater
 from modules.documentation import DocumentationManager, generate_mediawiki_content
-from modules.utils import setup_logging, clean_directories, validate_ssh_configuration, validate_mediawiki_configuration, get_unique_hosts, print_connection_summary, load_ignore_list, filter_ignored_hosts
+from modules.utils import (
+    setup_logging, clean_directories, validate_ssh_configuration, 
+    validate_mediawiki_configuration, get_unique_hosts, print_connection_summary, 
+    load_ignore_list, filter_ignored_hosts, bytes_to_gb, convert_uptime_seconds
+)
 
 __all__ = [
     'CONFIG',
@@ -23,7 +27,18 @@ __all__ = [
     'InventoryManager',
     'MediaWikiUpdater',
     'DocumentationManager',
-    'generate_mediawiki_content'
+    'generate_mediawiki_content',
+    'setup_logging',
+    'clean_directories',
+    'validate_ssh_configuration',
+    'validate_mediawiki_configuration',
+    'get_unique_hosts',
+    'print_connection_summary',
+    'load_ignore_list',
+    'filter_ignored_hosts',
+    'bytes_to_gb',
+    'convert_uptime_seconds'
 ]
 
 __version__ = '1.0.0'
+
