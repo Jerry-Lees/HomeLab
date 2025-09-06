@@ -105,26 +105,27 @@ setup_directories() {
 install_python_deps() {
     print_step "Installing Python dependencies..."
     
-    # Create requirements.txt
-    cat > requirements.txt << 'EOF'
-paramiko>=2.11.0
-requests>=2.28.0
-ipaddress>=1.0.23
-EOF
+    # Check if requirements.txt exists
+    if [ ! -f "requirements.txt" ]; then
+        print_error "requirements.txt not found in current directory"
+        print_info "This file should be part of the repository"
+        exit 1
+    fi
     
     # Install in virtual environment
     python3 -m venv venv
     ./venv/bin/pip install --upgrade pip
     ./venv/bin/pip install -r requirements.txt
     
-    print_info "Python dependencies installed in virtual environment"
+    print_info "Python dependencies installed in virtual environment from requirements.txt"
 }
 
 create_config_files() {
     print_step "Creating configuration files..."
     
-    # Create config.json
-    cat > config.json << EOF
+    # Create config.json if it doesn't exist
+    if [ ! -f "config.json" ]; then
+        cat > config.json << EOF
 {
     "ssh_user": "$SERVICE_USER",
     "ssh_key_path": "$INSTALL_DIR/.ssh/homelab_key",
@@ -138,6 +139,10 @@ create_config_files() {
     "mediawiki_password": "change_me"
 }
 EOF
+        print_info "Created config.json"
+    else
+        print_info "config.json already exists, keeping existing file"
+    fi
     
     # Create sample servers.csv if it doesn't exist
     if [ ! -f "servers.csv" ]; then
@@ -154,7 +159,7 @@ EOF
         print_info "servers.csv already exists, keeping existing file"
     fi
     
-    print_info "Configuration files created"
+    print_info "Configuration files ready"
 }
 
 install_main_script() {
@@ -166,8 +171,7 @@ install_main_script() {
         print_info "lab-documenter.py found and made executable"
     else
         print_warning "lab-documenter.py not found in current directory"
-        print_info "Please place the script in this directory"
-        touch lab-documenter.py
+        print_info "Please ensure the script is in this directory"
     fi
 }
 
@@ -403,6 +407,7 @@ print_post_install() {
     echo "  ./run-lab-documenter.sh --scan              # Scan network and create local docs"
     echo "  ./run-lab-documenter.sh --csv-only          # Only scan servers from CSV"
     echo "  ./run-lab-documenter.sh --scan --update-wiki # Scan and update MediaWiki"
+    echo "  ./run-lab-documenter.sh --dry-run --verbose # Test without changes"
     echo
     print_step "Generated files:"
     echo "  ./inventory.json             # Raw data (JSON)"
