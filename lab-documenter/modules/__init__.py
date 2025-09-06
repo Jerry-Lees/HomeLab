@@ -11,6 +11,8 @@ from modules.network import NetworkScanner
 from modules.inventory import InventoryManager
 from modules.wiki import MediaWikiUpdater
 from modules.documentation import DocumentationManager, generate_mediawiki_content
+from modules.system_kubernetes import KubernetesCollector
+from modules.system_proxmox import ProxmoxCollector
 from modules.utils import (
     setup_logging, clean_directories, validate_ssh_configuration, 
     validate_mediawiki_configuration, get_unique_hosts, print_connection_summary, 
@@ -28,6 +30,8 @@ __all__ = [
     'MediaWikiUpdater',
     'DocumentationManager',
     'generate_mediawiki_content',
+    'KubernetesCollector',
+    'ProxmoxCollector',
     'setup_logging',
     'clean_directories',
     'validate_ssh_configuration',
@@ -41,4 +45,3 @@ __all__ = [
 ]
 
 __version__ = '1.0.0'
-
