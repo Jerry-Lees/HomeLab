@@ -8,7 +8,7 @@ import json
 import os
 import logging
 from datetime import datetime
-from typing import Dict
+from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ class ServiceDatabase:
             logger.error(f"Failed to load services database from {self.services_db_path}: {e}")
             return {}
     
-    def save_services_database(self):
+    def save_services_database(self) -> None:
         """Save the services database back to file"""
         try:
             if os.path.exists(self.services_db_path):
@@ -49,7 +49,7 @@ class ServiceDatabase:
         except Exception as e:
             logger.error(f"Failed to save services database: {e}")
     
-    def add_unknown_service(self, service_name: str, process_info: str = None) -> Dict:
+    def add_unknown_service(self, service_name: str, process_info: Optional[str] = None) -> Dict:
         """Add a new unknown service to the database"""
         timestamp = datetime.now().strftime('%Y-%m-%d')
         
@@ -79,7 +79,7 @@ class ServiceDatabase:
         
         return new_service
     
-    def get_service_info(self, service_name: str, process_info: str = None) -> Dict:
+    def get_service_info(self, service_name: str, process_info: Optional[str] = None) -> Dict:
         """Get enhanced service information from database"""
         if service_name in self.services_db:
             return self.services_db[service_name]
@@ -100,7 +100,7 @@ class ServiceDatabase:
         logger.debug(f"Service '{service_name}' not found in database, adding as unknown")
         return self.add_unknown_service(service_name, process_info)
     
-    def enhance_service(self, service_name: str, status: str, process_info: str = None) -> Dict:
+    def enhance_service(self, service_name: str, status: str, process_info: Optional[str] = None) -> Dict:
         """Enhance service information with database data"""
         base_info = {
             "name": service_name,
@@ -113,7 +113,7 @@ class ServiceDatabase:
         
         return base_info
     
-    def finalize(self):
+    def finalize(self) -> None:
         """Called at the end of data collection to save any new services"""
         if self.new_services_added:
             self.save_services_database()

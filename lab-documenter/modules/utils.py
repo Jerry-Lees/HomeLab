@@ -7,8 +7,9 @@ Contains shared helper functions and utilities.
 import logging
 import os
 import sys
+from typing import Optional, List, Tuple, Dict, Union
 
-def setup_logging(log_dir: str = 'logs', verbose: bool = False, quiet: bool = False):
+def setup_logging(log_dir: str = 'logs', verbose: bool = False, quiet: bool = False) -> logging.Logger:
     """Set up logging configuration after potential clean operations"""
     os.makedirs(log_dir, exist_ok=True)
 
@@ -30,7 +31,7 @@ def setup_logging(log_dir: str = 'logs', verbose: bool = False, quiet: bool = Fa
     
     return logging.getLogger(__name__)
 
-def validate_ssh_configuration(config: dict) -> None:
+def validate_ssh_configuration(config: Dict[str, Union[str, int, List[str]]]) -> None:
     """Validate SSH configuration parameters and exit on failure"""
     logger = logging.getLogger(__name__)
     
@@ -38,12 +39,12 @@ def validate_ssh_configuration(config: dict) -> None:
         logger.error("SSH user not configured. Set it in config file or use --ssh-user")
         sys.exit(1)
     
-    ssh_key_path = os.path.expanduser(config['ssh_key_path'])
+    ssh_key_path = os.path.expanduser(str(config['ssh_key_path']))
     if not os.path.exists(ssh_key_path):
         logger.error(f"SSH key not found: {config['ssh_key_path']}")
         sys.exit(1)
 
-def validate_mediawiki_configuration(config: dict) -> None:
+def validate_mediawiki_configuration(config: Dict[str, Union[str, int, List[str]]]) -> None:
     """Validate MediaWiki configuration parameters and exit on failure"""
     logger = logging.getLogger(__name__)
     
@@ -55,7 +56,7 @@ def validate_mediawiki_configuration(config: dict) -> None:
         logger.error("MediaWiki credentials not configured")
         sys.exit(1)
 
-def get_unique_hosts(hosts: list) -> list:
+def get_unique_hosts(hosts: List[str]) -> List[str]:
     """Remove duplicates from host list while preserving order"""
     seen = set()
     unique_hosts = []
@@ -67,7 +68,7 @@ def get_unique_hosts(hosts: list) -> list:
     
     return unique_hosts
 
-def clean_directories(directories_to_clean: list = None, dry_run: bool = False):
+def clean_directories(directories_to_clean: Optional[List[str]] = None, dry_run: bool = False) -> None:
     """Clean files from specified directories"""
     logger = logging.getLogger(__name__)
     
@@ -107,10 +108,10 @@ def clean_directories(directories_to_clean: list = None, dry_run: bool = False):
         except Exception as e:
             logger.error(f"Error processing directory {directory}: {e}")
 
-def load_ignore_list(ignore_file: str = 'ignore.csv') -> dict:
+def load_ignore_list(ignore_file: str = 'ignore.csv') -> Dict[str, str]:
     """Load list of hosts to ignore from CSV file"""
     logger = logging.getLogger(__name__)
-    ignore_dict = {}
+    ignore_dict: Dict[str, str] = {}
     
     if not os.path.exists(ignore_file):
         logger.debug(f"Ignore file {ignore_file} does not exist, no hosts will be ignored")
@@ -160,7 +161,7 @@ def load_ignore_list(ignore_file: str = 'ignore.csv') -> dict:
     
     return ignore_dict
 
-def filter_ignored_hosts(hosts: list, ignore_dict: dict) -> tuple:
+def filter_ignored_hosts(hosts: List[str], ignore_dict: Dict[str, str]) -> Tuple[List[str], List[Tuple[str, str]]]:
     """Filter out ignored hosts from the host list"""
     logger = logging.getLogger(__name__)
     
@@ -184,7 +185,7 @@ def filter_ignored_hosts(hosts: list, ignore_dict: dict) -> tuple:
     
     return filtered_hosts, ignored_hosts
 
-def print_connection_summary(connection_failures: list):
+def print_connection_summary(connection_failures: List[Dict[str, str]]) -> None:
     """Print a summary of connection failures at the end of execution"""
     logger = logging.getLogger(__name__)
     
@@ -200,7 +201,7 @@ def print_connection_summary(connection_failures: list):
     logger.info("")
     
     # Group failures by reason for better organization
-    failure_groups = {}
+    failure_groups: Dict[str, List[Dict[str, str]]] = {}
     for failure in connection_failures:
         reason = failure['failure_reason']
         if reason not in failure_groups:
@@ -237,7 +238,7 @@ def bytes_to_gb(bytes_str: str) -> str:
     except (ValueError, TypeError):
         return bytes_str  # Return original if conversion fails
 
-def convert_uptime_seconds(uptime_seconds) -> str:
+def convert_uptime_seconds(uptime_seconds: Union[str, int, float]) -> str:
     """Convert uptime in seconds to human readable format"""
     try:
         seconds = int(float(str(uptime_seconds)))
