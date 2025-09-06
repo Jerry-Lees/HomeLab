@@ -6,7 +6,7 @@ Handles Proxmox Virtual Environment cluster information gathering.
 
 import json
 import logging
-from typing import Dict, List, Callable, Optional
+from typing import Dict, List, Callable, Optional, Union, Any
 from modules.utils import bytes_to_gb, convert_uptime_seconds
 
 logger = logging.getLogger(__name__)
@@ -21,9 +21,9 @@ class ProxmoxCollector:
         """
         self.run_command = command_runner
     
-    def collect_proxmox_info(self) -> Dict:
+    def collect_proxmox_info(self) -> Dict[str, Any]:
         """Get comprehensive Proxmox information if available"""
-        proxmox_info = {}
+        proxmox_info: Dict[str, Any] = {}
         
         # Check if Proxmox is installed
         pve_version = self.run_command('pveversion 2>/dev/null')
@@ -67,9 +67,9 @@ class ProxmoxCollector:
         
         return proxmox_info
     
-    def collect_cluster_info(self) -> Dict:
+    def collect_cluster_info(self) -> Dict[str, Any]:
         """Collect Proxmox cluster information"""
-        cluster_info = {}
+        cluster_info: Dict[str, Any] = {}
         
         # Try JSON API first for more reliable parsing
         cluster_json = self.run_command('pvesh get /cluster/status --output-format=json 2>/dev/null')
@@ -97,9 +97,9 @@ class ProxmoxCollector:
         
         return cluster_info
     
-    def collect_cluster_info_text(self) -> Dict:
+    def collect_cluster_info_text(self) -> Dict[str, Any]:
         """Collect cluster info using text parsing as fallback"""
-        cluster_info = {}
+        cluster_info: Dict[str, Any] = {}
         
         cluster_status = self.run_command('pvecm status 2>/dev/null')
         if cluster_status and 'Cluster information' in cluster_status:
@@ -132,9 +132,9 @@ class ProxmoxCollector:
         
         return cluster_info
     
-    def parse_cluster_json(self, cluster_data: list) -> Dict:
+    def parse_cluster_json(self, cluster_data: list) -> Dict[str, Any]:
         """Parse JSON cluster status from pvesh API"""
-        cluster_info = {'clustered': True}
+        cluster_info: Dict[str, Any] = {'clustered': True}
         
         for item in cluster_data:
             if item.get('type') == 'cluster':
@@ -146,13 +146,13 @@ class ProxmoxCollector:
         
         return cluster_info
 
-    def parse_nodes_json(self, cluster_data: list) -> List[Dict]:
+    def parse_nodes_json(self, cluster_data: list) -> List[Dict[str, Any]]:
         """Parse JSON node information from pvesh API"""
-        nodes = []
+        nodes: List[Dict[str, Any]] = []
         
         for item in cluster_data:
             if item.get('type') == 'node':
-                node = {
+                node: Dict[str, Any] = {
                     'name': item.get('name', 'Unknown'),
                     'id': item.get('nodeid', 'Unknown'),
                     'status': 'online' if item.get('online') else 'offline',
@@ -173,9 +173,9 @@ class ProxmoxCollector:
         
         return nodes
 
-    def parse_cluster_status(self, cluster_status: str) -> Dict:
+    def parse_cluster_status(self, cluster_status: str) -> Dict[str, Any]:
         """Parse pvecm status output"""
-        cluster_info = {'clustered': True}
+        cluster_info: Dict[str, Any] = {'clustered': True}
         
         lines = cluster_status.split('\n')
         for line in lines:
@@ -196,9 +196,9 @@ class ProxmoxCollector:
         
         return cluster_info
 
-    def parse_cluster_nodes(self, nodes_output: str) -> List[Dict]:
+    def parse_cluster_nodes(self, nodes_output: str) -> List[Dict[str, Any]]:
         """Parse pvecm nodes output"""
-        nodes = []
+        nodes: List[Dict[str, Any]] = []
         lines = nodes_output.split('\n')
         
         # Find the membership information section
@@ -214,7 +214,7 @@ class ProxmoxCollector:
                 parts = line.split()
                 if len(parts) >= 3:
                     # Format: Nodeid Votes Name
-                    node = {
+                    node: Dict[str, Any] = {
                         'name': parts[2],
                         'id': parts[0],
                         'votes': parts[1],
@@ -232,7 +232,7 @@ class ProxmoxCollector:
         
         return nodes
     
-    def get_node_detailed_status(self, node_name: str) -> Dict:
+    def get_node_detailed_status(self, node_name: str) -> Dict[str, Any]:
         """Get detailed status for a specific node"""
         try:
             node_status = self.run_command(f'pvesh get /nodes/{node_name}/status --output-format=json 2>/dev/null')
@@ -265,7 +265,7 @@ class ProxmoxCollector:
             logger.debug(f"Failed to get detailed status for node {node_name}: {e}")
         return {}
     
-    def collect_cluster_resources(self) -> Dict:
+    def collect_cluster_resources(self) -> Dict[str, Any]:
         """Parse cluster resources summary"""
         cluster_resources = self.run_command('pvesh get /cluster/resources --output-format=json 2>/dev/null')
         if not cluster_resources:
@@ -278,9 +278,9 @@ class ProxmoxCollector:
             logger.warning(f"Failed to parse cluster resources: {e}")
             return {}
 
-    def parse_cluster_resources(self, resources_data: list) -> Dict:
+    def parse_cluster_resources(self, resources_data: list) -> Dict[str, Any]:
         """Parse cluster resources summary"""
-        summary = {
+        summary: Dict[str, Any] = {
             'total_nodes': 0,
             'online_nodes': 0,
             'total_vms': 0,
@@ -331,7 +331,7 @@ class ProxmoxCollector:
         
         return summary
     
-    def collect_vms(self) -> List[Dict]:
+    def collect_vms(self) -> List[Dict[str, Any]]:
         """Collect Virtual Machine information"""
         vms_output = self.run_command('qm list 2>/dev/null')
         if not vms_output:
@@ -339,9 +339,9 @@ class ProxmoxCollector:
         
         return self.parse_vm_list(vms_output)
 
-    def parse_vm_list(self, vms_output: str) -> List[Dict]:
+    def parse_vm_list(self, vms_output: str) -> List[Dict[str, Any]]:
         """Parse qm list output into structured data"""
-        vms = []
+        vms: List[Dict[str, Any]] = []
         lines = vms_output.split('\n')
         
         # Get current node name for detailed queries
@@ -355,7 +355,7 @@ class ProxmoxCollector:
             if line.strip():
                 parts = line.split()
                 if len(parts) >= 3:
-                    vm = {
+                    vm: Dict[str, Any] = {
                         'vmid': parts[0],
                         'name': parts[1],
                         'status': parts[2],
@@ -398,9 +398,9 @@ class ProxmoxCollector:
         logger.debug(f"Got detailed info for {detail_count} VMs out of {len(vms)} total VMs")
         return vms
 
-    def get_vm_detailed_info(self, node_name: str, vmid: str) -> Dict:
+    def get_vm_detailed_info(self, node_name: str, vmid: str) -> Dict[str, Any]:
         """Get detailed information for a specific VM"""
-        detailed_info = {}
+        detailed_info: Dict[str, Any] = {}
         
         # Limit detailed queries to avoid performance issues
         try:
@@ -462,7 +462,7 @@ class ProxmoxCollector:
             
         return detailed_info
     
-    def collect_containers(self) -> List[Dict]:
+    def collect_containers(self) -> List[Dict[str, Any]]:
         """Collect LXC container information"""
         containers_output = self.run_command('pct list 2>/dev/null')
         if not containers_output:
@@ -470,9 +470,9 @@ class ProxmoxCollector:
         
         return self.parse_container_list(containers_output)
 
-    def parse_container_list(self, containers_output: str) -> List[Dict]:
+    def parse_container_list(self, containers_output: str) -> List[Dict[str, Any]]:
         """Parse pct list output into structured data"""
-        containers = []
+        containers: List[Dict[str, Any]] = []
         lines = containers_output.split('\n')
         
         # Get current node name for detailed queries
@@ -486,7 +486,7 @@ class ProxmoxCollector:
             if line.strip():
                 parts = line.split()
                 if len(parts) >= 3:
-                    container = {
+                    container: Dict[str, Any] = {
                         'vmid': parts[0],
                         'status': parts[1],
                         'lock': parts[2] if parts[2] != '-' else None,
@@ -515,9 +515,9 @@ class ProxmoxCollector:
         logger.debug(f"Got detailed info for {detail_count} containers out of {len(containers)} total containers")
         return containers
 
-    def get_container_detailed_info(self, node_name: str, vmid: str) -> Dict:
+    def get_container_detailed_info(self, node_name: str, vmid: str) -> Dict[str, Any]:
         """Get detailed information for a specific container"""
-        detailed_info = {}
+        detailed_info: Dict[str, Any] = {}
         
         try:
             # Get container configuration
@@ -578,7 +578,7 @@ class ProxmoxCollector:
             
         return detailed_info
     
-    def collect_storage(self) -> List[Dict]:
+    def collect_storage(self) -> List[Dict[str, str]]:
         """Collect storage information"""
         storage_output = self.run_command('pvesm status 2>/dev/null')
         if not storage_output:
@@ -586,9 +586,9 @@ class ProxmoxCollector:
         
         return self.parse_storage_status(storage_output)
 
-    def parse_storage_status(self, storage_output: str) -> List[Dict]:
+    def parse_storage_status(self, storage_output: str) -> List[Dict[str, str]]:
         """Parse pvesm status output"""
-        storage = []
+        storage: List[Dict[str, str]] = []
         lines = storage_output.split('\n')
         
         # Skip header
@@ -596,7 +596,7 @@ class ProxmoxCollector:
             if line.strip():
                 parts = line.split()
                 if len(parts) >= 6:
-                    storage_info = {
+                    storage_info: Dict[str, str] = {
                         'name': parts[0],
                         'type': parts[1],
                         'status': parts[2],
@@ -609,9 +609,9 @@ class ProxmoxCollector:
         
         return storage
     
-    def identify_problematic_resources(self, vms: List[Dict], containers: List[Dict]) -> List[Dict]:
+    def identify_problematic_resources(self, vms: List[Dict[str, Any]], containers: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Identify VMs and containers that have issues"""
-        problematic_resources = []
+        problematic_resources: List[Dict[str, Any]] = []
         
         # Check VMs
         for vm in vms:
@@ -631,9 +631,9 @@ class ProxmoxCollector:
         
         return problematic_resources
     
-    def get_cluster_health_summary(self) -> Dict:
+    def get_cluster_health_summary(self) -> Dict[str, Union[bool, int]]:
         """Get a high-level health summary of the Proxmox cluster"""
-        health_summary = {
+        health_summary: Dict[str, Union[bool, int]] = {
             'cluster_healthy': True,
             'total_nodes': 0,
             'online_nodes': 0,
