@@ -1,6 +1,6 @@
 # Lab Documenter
 
-A comprehensive home lab documentation system that automatically discovers and documents servers, VMs, containers, and services in your infrastructure. Features intelligent network scanning, detailed connection failure analysis, automatic service discovery, and MediaWiki integration.
+A comprehensive home lab documentation system that automatically discovers and documents servers, VMs, containers, and services in your infrastructure. Features intelligent network scanning, detailed connection failure analysis, automatic service discovery, and MediaWiki integration with a flexible Jinja2 template system.
 
 ## Features
 
@@ -8,6 +8,7 @@ A comprehensive home lab documentation system that automatically discovers and d
 - **Automatic Discovery**: Network scanning across multiple CIDR ranges to find live hosts
 - **Multi-Platform Support**: Ubuntu, Debian, CentOS, RHEL, Rocky Linux, Fedora, and other Linux distributions
 - **Clean Architecture**: Separation of concerns with dedicated modules for different functions
+- **Template System**: Jinja2-based templates for customizable documentation output
 
 ### Data Collection
 - **System Information**: OS, kernel, hardware, uptime, resource usage
@@ -30,12 +31,14 @@ A comprehensive home lab documentation system that automatically discovers and d
 - **JSON Inventory**: Comprehensive raw data in structured format
 - **Individual JSON Files**: Separate JSON file per server for analysis tools
 - **MediaWiki Integration**: Automatic wiki page creation and updates with server index
+- **Template-Based Generation**: Customizable output through Jinja2 templates
 
 ### Performance & Reliability
 - **Concurrent Processing**: Multi-threaded scanning for faster execution
 - **Secure SSH Access**: Key-based authentication with connection retry logic
 - **Comprehensive Logging**: Detailed logs with intelligent error categorization
 - **Flexible Configuration**: JSON config files with command-line overrides
+- **Template Fallback**: Graceful degradation when templates are unavailable
 
 ## Quick Start
 
@@ -49,6 +52,7 @@ A comprehensive home lab documentation system that automatically discovers and d
    The installer automatically:
    - Installs system dependencies (may require sudo for packages)
    - Creates Python virtual environment in current directory
+   - Installs required dependencies including Jinja2 for templates
    - Generates SSH keys (`homelab_key`) for secure server access
    - Adds SSH key to ssh-agent
    - Creates configuration files with proper paths
@@ -58,7 +62,7 @@ A comprehensive home lab documentation system that automatically discovers and d
 2. **Manual Installation**:
    ```bash
    # Install dependencies
-   pip3 install paramiko requests
+   pip3 install paramiko requests jinja2
    
    # Copy script to desired location
    chmod +x lab-documenter.py
@@ -135,6 +139,54 @@ printer.local,Network printer without SSH
 old-server.local,Decommissioned equipment
 # 192.168.1.200,This line is commented out
 ```
+
+## Template System
+
+Lab Documenter uses Jinja2 templates for flexible documentation generation. Templates are organized in a structured hierarchy:
+
+### Template Structure
+```
+templates/
+├── base/
+│   ├── macros.j2                 # Reusable macros
+│   └── server_base.md.j2         # Base Markdown template
+├── components/
+│   ├── services.md.j2            # Services section
+│   ├── kubernetes.md.j2          # Kubernetes section
+│   ├── proxmox.md.j2            # Proxmox section
+│   ├── memory_modules.md.j2      # Memory information
+│   ├── docker_containers.md.j2   # Docker containers
+│   └── listening_ports.md.j2     # Network ports
+└── pages/
+    ├── server.md.j2              # Main server page (Markdown)
+    ├── server.wiki.j2            # Main server page (MediaWiki)
+    ├── index.md.j2               # Markdown index
+    └── index.wiki.j2             # MediaWiki index
+```
+
+### Template Features
+- **Variable Substitution**: `{{ hostname }}`, `{{ os_release.pretty_name }}`
+- **Conditionals**: `{% if kubernetes_info %}...{% endif %}`
+- **Loops**: `{% for service in services %}...{% endfor %}`
+- **Includes**: `{% include 'components/kubernetes.md.j2' %}`
+- **Macros**: Reusable formatting functions with parameters
+- **Filters**: Built-in and custom data transformation functions
+
+### Customizing Templates
+
+Templates can be modified to change output formatting without touching Python code:
+
+```jinja2
+{# Example: Customize service display #}
+{% for service in services %}
+- **{{ service.display_name }}** ({{ service.status }})
+  {%- if service.description %} - {{ service.description }}{% endif %}
+{% endfor %}
+```
+
+### Template Fallback
+
+If Jinja2 is not available or templates are missing, the system automatically falls back to basic content generation with appropriate warnings.
 
 ## Command Line Options
 
@@ -371,9 +423,13 @@ lab-documenter/
 │   ├── system.py             # SSH connections and data collection
 │   ├── services.py           # Service database management
 │   ├── inventory.py          # Host data aggregation
-│   ├── documentation.py      # Markdown/MediaWiki generation
+│   ├── documentation.py      # Jinja2 template-based generation
 │   ├── wiki.py              # MediaWiki API integration
 │   └── utils.py              # Utility functions and helpers
+├── templates/
+│   ├── base/                 # Base templates and macros
+│   ├── components/           # Reusable component templates
+│   └── pages/                # Complete page templates
 ├── config.json               # Main configuration
 ├── servers.csv              # Optional server list
 ├── ignore.csv               # Optional ignore list
@@ -392,9 +448,10 @@ lab-documenter/
 3. **Host Filtering**: Applies ignore.csv exclusions
 4. **SSH Data Collection**: Concurrent connections to gather system information
 5. **Service Enhancement**: Uses intelligent database to categorize services
-6. **Documentation Generation**: Creates local Markdown files and JSON data
-7. **MediaWiki Updates**: Creates/updates individual server pages and index page
-8. **Failure Analysis**: Categorizes and reports connection issues
+6. **Template Rendering**: Processes Jinja2 templates with collected data
+7. **Documentation Generation**: Creates local Markdown files and JSON data
+8. **MediaWiki Updates**: Creates/updates individual server pages and index page
+9. **Failure Analysis**: Categorizes and reports connection issues
 
 ## Advanced Features
 
@@ -419,7 +476,7 @@ Or specify from command line:
 
 ### Intelligent Service Discovery
 
-The `services.json` database automatically learns about new services:
+The `services.json` database automatically learns about services:
 
 ```json
 {
@@ -446,6 +503,26 @@ Detailed categorization helps troubleshoot connectivity issues:
 - **DNS resolution failed** - Hostname cannot be resolved
 - **Network unreachable** - Routing issues
 - **SSH key compatibility** - Key format problems (DSA, etc.)
+
+### Template Customization
+
+Templates support advanced features for customizable output:
+
+```jinja2
+{# Collapsible sections with smart thresholds #}
+{% from 'base/macros.j2' import collapsible_list_md %}
+{% call collapsible_list_md(services, "Services", 5) %}
+- {{ format_service(this) }}
+{% endcall %}
+
+{# Conditional content based on data presence #}
+{% if kubernetes_info and kubernetes_info.pods %}
+### Kubernetes Cluster
+{% for namespace, pods in kubernetes_info.pods|groupby('namespace') %}
+**{{ namespace }}**: {{ pods|list|length }} pods
+{% endfor %}
+{% endif %}
+```
 
 ## Automation
 
@@ -529,6 +606,15 @@ curl -X POST "https://your-wiki.com/api.php" \
 # Check API is enabled in LocalSettings.php
 ```
 
+**Template Errors**:
+```bash
+# Check template syntax with dry run
+./lab-documenter.py --dry-run --verbose --scan
+
+# Verify Jinja2 installation
+python3 -c "import jinja2; print(jinja2.__version__)"
+```
+
 **JSON Configuration Errors**:
 ```bash
 # Validate JSON syntax
@@ -562,6 +648,7 @@ tail -f ./logs/lab-documenter.log
 ### Python Dependencies
 - `paramiko>=2.11.0` - SSH connections
 - `requests>=2.28.0` - HTTP/MediaWiki API
+- `jinja2>=3.0.0` - Template processing
 
 ### Target Host Requirements
 - SSH server running
@@ -598,7 +685,16 @@ For issues, questions, or contributions:
 
 ## Changelog
 
-### v1.0.0 (Current)
+### v1.0.9 (Current)
+- **Template System**: Integrated Jinja2-based template engine for customizable output generation
+- **Modular Templates**: Organized templates into reusable components (base, components, pages)
+- **Template Fallback**: Graceful degradation when Jinja2 unavailable or templates missing
+- **Backward Compatibility**: Maintained existing function signatures and behavior
+- **Code Reduction**: Replaced 1,350+ lines of string concatenation with maintainable templates
+- **Enhanced Customization**: Non-programmers can modify output by editing template files
+- **Improved Architecture**: Clean separation of data processing and presentation logic
+
+### v1.0.0 (Previous)
 - **Clean Architecture**: Separation into focused modules
 - **Multiple Network Support**: Scan across multiple CIDR ranges simultaneously  
 - **Intelligent Service Discovery**: Auto-learning database with service categorization
