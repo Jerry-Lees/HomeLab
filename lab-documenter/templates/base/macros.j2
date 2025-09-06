@@ -1,0 +1,35 @@
+{# Reusable macros for all templates #}
+
+{# Simple collapsible list macro for Markdown - no caller needed #}
+{% macro collapsible_list_md(items, title, threshold=5, show_first=3) %}
+  {% if items|length <= threshold %}
+    {# Show all items directly for small lists #}
+    {% for item in items %}
+- {{ format_service(item) if title == "Services" else format_port(item) if title == "Listening Ports" else format_container(item) if title == "Docker Containers" else item }}
+    {% endfor %}
+  {% else %}
+    {# Show first few items, then collapsible section #}
+    {% for item in items[:show_first] %}
+- {{ format_service(item) if title == "Services" else format_port(item) if title == "Listening Ports" else format_container(item) if title == "Docker Containers" else item }}
+    {% endfor %}
+    
+<details>
+<summary><strong>Show {{ items|length - show_first }} more {{ title.lower() }} (total: {{ items|length }})</strong></summary>
+
+    {% for item in items[show_first:] %}
+- {{ format_service(item) if title == "Services" else format_port(item) if title == "Listening Ports" else format_container(item) if title == "Docker Containers" else item }}
+    {% endfor %}
+
+</details>
+  {% endif %}
+{% endmacro %}
+
+{# Status icon macro #}
+{% macro status_icon(status) %}
+  {%- if status == 'running' or status == 'Running' -%}✅
+  {%- elif status == 'stopped' -%}ℹ️
+  {%- elif status in ['Failed', 'Error', 'CrashLoopBackOff'] -%}❌
+  {%- else -%}⚠️
+  {%- endif -%}
+{% endmacro %}
+

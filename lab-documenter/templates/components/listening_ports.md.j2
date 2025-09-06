@@ -1,0 +1,24 @@
+{% if listening_ports %}
+## Listening Ports
+{% if listening_ports|length <= 8 %}
+{# Show ports directly for small lists #}
+{% for port in listening_ports %}
+- {{ format_port(port) }}
+{% endfor %}
+{% else %}
+{# Show first few ports, then collapsible section #}
+{% for port in listening_ports[:4] %}
+- {{ format_port(port) }}
+{% endfor %}
+
+<details>
+<summary><strong>Show {{ listening_ports|length - 4 }} more ports (total: {{ listening_ports|length }})</strong></summary>
+
+{% for port in listening_ports[4:] %}
+- {{ format_port(port) }}
+{% endfor %}
+
+</details>
+{% endif %}
+{% endif %}
+

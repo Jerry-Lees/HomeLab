@@ -1,0 +1,24 @@
+{% if docker_containers %}
+## Docker Containers
+{% if docker_containers|length <= 5 %}
+{# Show containers directly for small lists #}
+{% for container in docker_containers %}
+- {{ format_container(container) }}
+{% endfor %}
+{% else %}
+{# Show first few containers, then collapsible section #}
+{% for container in docker_containers[:3] %}
+- {{ format_container(container) }}
+{% endfor %}
+
+<details>
+<summary><strong>Show {{ docker_containers|length - 3 }} more containers (total: {{ docker_containers|length }})</strong></summary>
+
+{% for container in docker_containers[3:] %}
+- {{ format_container(container) }}
+{% endfor %}
+
+</details>
+{% endif %}
+{% endif %}
+

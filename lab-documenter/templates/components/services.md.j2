@@ -1,0 +1,26 @@
+## Services
+{% if services %}
+{% if services|length <= 5 %}
+{# Show services directly for small lists #}
+{% for service in services %}
+- {{ format_service(service) }}
+{% endfor %}
+{% else %}
+{# Use collapsible section for large lists #}
+{% for service in services[:3] %}
+- {{ format_service(service) }}
+{% endfor %}
+
+<details>
+<summary><strong>Show {{ services|length - 3 }} more services (total: {{ services|length }})</strong></summary>
+
+{% for service in services[3:] %}
+- {{ format_service(service) }}
+{% endfor %}
+
+</details>
+{% endif %}
+{% else %}
+*No services information available*
+{% endif %}
+

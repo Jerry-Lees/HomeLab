@@ -1,0 +1,25 @@
+{% if docker_containers %}
+== Docker Containers ==
+{% if docker_containers|length <= 5 %}
+{# Show containers directly for small lists #}
+{% for container in docker_containers %}
+* '''Name:''' {{ container.name or 'Unknown' }}, '''Image:''' {{ container.image or 'Unknown' }}, '''Status:''' {{ container.status or 'Unknown' }}
+{% endfor %}
+{% else %}
+{# Show first few containers, then collapsible table #}
+{% for container in docker_containers[:3] %}
+* '''Name:''' {{ container.name or 'Unknown' }}, '''Image:''' {{ container.image or 'Unknown' }}, '''Status:''' {{ container.status or 'Unknown' }}
+{% endfor %}
+
+{| class='wikitable mw-collapsible mw-collapsed'
+|+ Additional Containers ({{ docker_containers|length - 3 }} more, total: {{ docker_containers|length }})
+|-
+! Name !! Image !! Status
+{% for container in docker_containers[3:] %}
+|-
+| {{ container.name or 'Unknown' }} || {{ container.image or 'Unknown' }} || {{ container.status or 'Unknown' }}
+{% endfor %}
+|}
+{% endif %}
+{% endif %}
+

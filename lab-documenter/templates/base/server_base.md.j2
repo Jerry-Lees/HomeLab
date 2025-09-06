@@ -1,0 +1,54 @@
+{# Base template for server documentation in Markdown format #}
+# {{ display_hostname }}
+
+**Last Updated:** {{ timestamp }}
+
+## System Information
+- **OS:** {{ os_release.pretty_name or os_release.name or 'Unknown' }}
+- **Version:** {{ os_release.version or 'Unknown' }}
+- **Distribution:** {{ (os_release.id or 'unknown') | title }}
+- **Kernel:** {{ kernel or 'Unknown' }}
+- **Architecture:** {{ architecture or 'Unknown' }}
+- **Uptime:** {{ uptime or 'Unknown' }}
+- **CPU:** {{ cpu_info or 'Unknown' }} ({{ cpu_cores or 'Unknown' }} cores)
+
+{% if bios_info %}
+### BIOS Information
+{% if bios_info.vendor %}
+- **Vendor:** {{ bios_info.vendor }}
+{% endif %}
+{% if bios_info.version %}
+- **Version:** {{ bios_info.version }}
+{% endif %}
+{% if bios_info.date %}
+- **Date:** {{ bios_info.date }}
+{% endif %}
+{% if bios_info.capabilities %}
+- **Capabilities:** {{ bios_info.capabilities }}
+{% endif %}
+
+{% endif %}
+## Resources
+- **Memory:** {{ memory_used or 'Unknown' }} / {{ memory_total or 'Unknown' }}
+
+{% include 'components/memory_modules.md.j2' %}
+
+- **Disk Usage:** {{ disk_usage or 'Unknown' }}
+- **Load Average:** {{ load_average or 'Unknown' }}
+
+## Network
+- **IP Addresses:**
+```
+{{ ip_addresses or 'Unknown' }}
+```
+
+{% include 'components/services.md.j2' %}
+
+{% include 'components/listening_ports.md.j2' %}
+
+{% include 'components/docker_containers.md.j2' %}
+
+{% include 'components/kubernetes.md.j2' %}
+
+{% include 'components/proxmox.md.j2' %}
+

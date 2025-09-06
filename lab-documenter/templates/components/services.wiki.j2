@@ -1,0 +1,45 @@
+== Services ==
+{% if services %}
+{% if services|length <= 5 %}
+{# Show services directly for small lists #}
+{% for service in services %}
+{% set display_name = service.display_name or service.name or 'Unknown' %}
+{% set description = service.description or '' %}
+{% set category = service.category or '' %}
+{% set service_line = "* '''" + display_name + "''' (" + (service.status or 'Unknown') + ")" %}
+{% if category and category != 'unknown' %}
+  {% set service_line = service_line + " - ''" + category + "''" %}
+{% elif service._auto_generated %}
+  {% set service_line = service_line + " - ''auto-discovered''" %}
+{% endif %}
+{% if description and description != 'Unknown service' %}
+  {% if service._auto_generated %}
+    {% set service_line = service_line + " - Please update service information" %}
+  {% else %}
+    {% set service_line = service_line + " - " + description %}
+  {% endif %}
+{% endif %}
+{{ service_line }}
+{% endfor %}
+{% else %}
+{# Use MediaWiki collapsible table for large lists #}
+{| class='wikitable mw-collapsible mw-collapsed'
+|+ All Services ({{ services|length }} total)
+|-
+! Service Name !! Status !! Category !! Description
+{% for service in services %}
+{% set display_name = service.display_name or service.name or 'Unknown' %}
+{% set description = service.description or '' %}
+{% if description|length > 60 %}
+  {% set description = description[:60] + "..." %}
+{% endif %}
+{% set category = service.category or 'unknown' %}
+|-
+| {{ display_name }} || {{ service.status or 'Unknown' }} || {{ category }} || {{ description }}
+{% endfor %}
+|}
+{% endif %}
+{% else %}
+''No services information available''
+{% endif %}
+

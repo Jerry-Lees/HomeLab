@@ -1,0 +1,314 @@
+{% if proxmox_info %}
+## Proxmox
+{% if proxmox_info.pve_version %}
+- **Version:** {{ proxmox_info.pve_version }}
+{% endif %}
+
+{% if proxmox_info.cluster_status %}
+{% if proxmox_info.cluster_status.clustered %}
+### Cluster Information
+- **Cluster Name:** {{ proxmox_info.cluster_status.name or 'Unknown' }}
+- **Nodes:** {{ proxmox_info.cluster_status.node_count or proxmox_info.nodes|length }}
+- **Transport:** {{ proxmox_info.cluster_status.transport or 'Unknown' }}
+- **Config Version:** {{ proxmox_info.cluster_status.config_version or 'Unknown' }}
+{% if proxmox_info.cluster_status.quorate is defined %}
+- **Quorate:** {{ 'Yes' if proxmox_info.cluster_status.quorate else 'No' }}
+{% endif %}
+{% else %}
+### Standalone Node
+- **Clustered:** No
+{% endif %}
+{% endif %}
+
+{% if proxmox_info.nodes %}
+### Nodes ({{ proxmox_info.nodes|length }})
+{% for node in proxmox_info.nodes %}
+{% set status_indicator = 'Online' if node.online else 'Offline' %}
+{% set node_line = '- **' + (node.name or 'Unknown') + '** - ' + status_indicator %}
+{% if node.type %}
+  {% set node_line = node_line + ' (' + node.type %}
+  {% if node.level %}
+    {% set node_line = node_line + ', level: ' + node.level %}
+  {% endif %}
+  {% set node_line = node_line + ')' %}
+{% endif %}
+{% if node.ip %}
+  {% set node_line = node_line + ' - IP: ' + node.ip %}
+{% endif %}
+{% if node.cpu_usage %}
+  {% set node_line = node_line + ' - CPU: ' + node.cpu_usage %}
+{% endif %}
+{% if node.memory_usage_percent %}
+  {% set node_line = node_line + ' - Memory: ' + node.memory_usage_percent %}
+{% endif %}
+{% if node.uptime %}
+  {% set node_line = node_line + ' - Uptime: ' + node.uptime %}
+{% endif %}
+{{ node_line }}
+{% endfor %}
+{% endif %}
+
+{% if proxmox_info.cluster_resources %}
+### Cluster Resource Summary
+- **Nodes:** {{ proxmox_info.cluster_resources.online_nodes or 0 }}/{{ proxmox_info.cluster_resources.total_nodes or 0 }} online
+- **VMs:** {{ proxmox_info.cluster_resources.running_vms or 0 }}/{{ proxmox_info.cluster_resources.total_vms or 0 }} running
+- **Containers:** {{ proxmox_info.cluster_resources.running_containers or 0 }}/{{ proxmox_info.cluster_resources.total_containers or 0 }} running
+- **Storage Pools:** {{ proxmox_info.cluster_resources.storage_pools or 0 }}
+{% if proxmox_info.cluster_resources.cpu_usage and proxmox_info.cluster_resources.cpu_usage.percentage %}
+- **Cluster CPU Usage:** {{ proxmox_info.cluster_resources.cpu_usage.percentage }}
+{% endif %}
+{% if proxmox_info.cluster_resources.memory_usage and proxmox_info.cluster_resources.memory_usage.percentage %}
+- **Cluster Memory Usage:** {{ proxmox_info.cluster_resources.memory_usage.used_gb }}/{{ proxmox_info.cluster_resources.memory_usage.total_gb }} ({{ proxmox_info.cluster_resources.memory_usage.percentage }})
+{% endif %}
+{% endif %}
+
+{% if proxmox_info.storage %}
+### Storage ({{ proxmox_info.storage|length }})
+{% if proxmox_info.storage|length <= 5 %}
+{% for storage in proxmox_info.storage %}
+{% set usage_info = '(' + (storage.usage_percent or 'Unknown') + ')' if storage.usage_percent != 'Unknown' else '' %}
+- **{{ storage.name or 'Unknown' }}** ({{ storage.type or 'Unknown' }}) - {{ storage.used or 'Unknown' }} / {{ storage.total or 'Unknown' }} {{ usage_info }}
+{% endfor %}
+{% else %}
+{% for storage in proxmox_info.storage[:3] %}
+{% set usage_info = '(' + (storage.usage_percent or 'Unknown') + ')' if storage.usage_percent != 'Unknown' else '' %}
+- **{{ storage.name or 'Unknown' }}** ({{ storage.type or 'Unknown' }}) - {{ storage.used or 'Unknown' }} / {{ storage.total or 'Unknown' }} {{ usage_info }}
+{% endfor %}
+
+<details>
+<summary><strong>Show {{ proxmox_info.storage|length - 3 }} more storage entries</strong></summary>
+
+{% for storage in proxmox_info.storage[3:] %}
+{% set usage_info = '(' + (storage.usage_percent or 'Unknown') + ')' if storage.usage_percent != 'Unknown' else '' %}
+- **{{ storage.name or 'Unknown' }}** ({{ storage.type or 'Unknown' }}) - {{ storage.used or 'Unknown' }} / {{ storage.total or 'Unknown' }} {{ usage_info }}
+{% endfor %}
+
+</details>
+{% endif %}
+{% endif %}
+
+{% if proxmox_info.vms %}
+{% set running_vms = proxmox_info.vms | selectattr('status', 'equalto', 'running') | list %}
+### Virtual Machines Summary
+- **Total VMs:** {{ proxmox_info.vms|length }}
+- **Running:** {{ running_vms|length }}
+- **Stopped:** {{ proxmox_info.vms|length - running_vms|length }}
+
+<details>
+<summary><strong>All Virtual Machines ({{ proxmox_info.vms|length }} total)</strong></summary>
+
+{% for vm in proxmox_info.vms %}
+{% if vm.status == 'running' %}
+  {% set status_icon = '✅' %}
+{% elif vm.status == 'stopped' %}
+  {% set status_icon = 'ℹ️' %}
+{% else %}
+  {% set status_icon = '⚠️' %}
+{% endif %}
+{% set vm_line = '- ' + status_icon + ' **' + (vm.name or vm.vmid or 'Unknown') + '** (ID: ' + (vm.vmid or 'Unknown') + ') - ' + (vm.status or 'Unknown') %}
+
+{% if vm.memory_allocated %}
+  {% set vm_line = vm_line + ' - Memory: ' + vm.memory_allocated %}
+{% endif %}
+{% if vm.disk_size %}
+  {% set vm_line = vm_line + ' - Disk: ' + vm.disk_size %}
+{% endif %}
+
+{{ vm_line }}
+
+{% if vm.detailed_info %}
+<details>
+<summary><strong>Detailed Information for {{ vm.name or vm.vmid or 'Unknown' }}</strong></summary>
+
+{% set detail = vm.detailed_info %}
+{% if detail.cores or detail.sockets or detail.cpu_usage %}
+**CPU Configuration:**
+{% if detail.cores %}
+- Cores: {{ detail.cores }}
+{% endif %}
+{% if detail.sockets %}
+- Sockets: {{ detail.sockets }}
+{% endif %}
+{% if detail.cpu_usage %}
+- Current Usage: {{ detail.cpu_usage }}
+{% endif %}
+
+{% endif %}
+{% if detail.memory_mb or detail.memory_current %}
+**Memory Configuration:**
+{% if detail.memory_mb %}
+- Allocated: {{ detail.memory_mb }}MB
+{% endif %}
+{% if detail.memory_current %}
+- Current Usage: {{ detail.memory_current }}
+{% endif %}
+
+{% endif %}
+{% if detail.networks %}
+**Network Interfaces:**
+{% for network in detail.networks %}
+- {{ network }}
+{% endfor %}
+
+{% endif %}
+{% if detail.uptime %}
+**Runtime Information:**
+- Uptime: {{ detail.uptime }}
+{% if detail.pid %}
+- PID: {{ detail.pid }}
+{% endif %}
+
+{% endif %}
+{% if detail.ha_priority or detail.tags or detail.description %}
+**Configuration:**
+{% if detail.ha_priority %}
+- HA Priority: {{ detail.ha_priority }}
+{% endif %}
+{% if detail.tags %}
+- Tags: {{ detail.tags }}
+{% endif %}
+{% if detail.description %}
+- Description: {{ detail.description }}
+{% endif %}
+
+{% endif %}
+{% if detail.network_io %}
+**Network I/O Statistics:**
+- Bytes In: {{ detail.network_io.bytes_in }}
+- Bytes Out: {{ detail.network_io.bytes_out }}
+
+{% endif %}
+</details>
+
+{% endif %}
+{% endfor %}
+
+</details>
+
+{% endif %}
+
+{% if proxmox_info.containers %}
+{% set running_containers = proxmox_info.containers | selectattr('status', 'equalto', 'running') | list %}
+### Containers Summary
+- **Total Containers:** {{ proxmox_info.containers|length }}
+- **Running:** {{ running_containers|length }}
+- **Stopped:** {{ proxmox_info.containers|length - running_containers|length }}
+
+<details>
+<summary><strong>All Containers ({{ proxmox_info.containers|length }} total)</strong></summary>
+
+{% for ct in proxmox_info.containers %}
+{% if ct.status == 'running' %}
+  {% set status_icon = '✅' %}
+{% elif ct.status == 'stopped' %}
+  {% set status_icon = 'ℹ️' %}
+{% else %}
+  {% set status_icon = '⚠️' %}
+{% endif %}
+
+{% set container_name = ct.name or ('Container-' + (ct.vmid or 'Unknown')) %}
+{% set display_name = container_name + ' (' + (ct.vmid or 'Unknown') + ')' %}
+{% set ct_line = '- ' + status_icon + ' **' + display_name + '** - ' + (ct.status or 'Unknown') %}
+
+{% if ct.lock %}
+  {% set ct_line = ct_line + ' - Locked: ' + ct.lock %}
+{% endif %}
+
+{{ ct_line }}
+
+{% if ct.detailed_info %}
+<details>
+<summary><strong>Detailed Information for {{ container_name }}</strong></summary>
+
+{% set detail = ct.detailed_info %}
+{% if detail.memory_mb or detail.cores or detail.cpu_usage %}
+**Resource Allocation:**
+{% if detail.memory_mb %}
+- Memory Limit: {{ detail.memory_mb }}MB
+{% endif %}
+{% if detail.memory_current %}
+- Memory Usage: {{ detail.memory_current }}
+{% endif %}
+{% if detail.cores %}
+- CPU Cores: {{ detail.cores }}
+{% endif %}
+{% if detail.cpu_usage %}
+- CPU Usage: {{ detail.cpu_usage }}
+{% endif %}
+
+{% endif %}
+{% if detail.swap_mb or detail.swap_current or detail.disk_usage %}
+**Storage Configuration:**
+{% if detail.swap_mb %}
+- Swap Limit: {{ detail.swap_mb }}MB
+{% endif %}
+{% if detail.swap_current %}
+- Swap Usage: {{ detail.swap_current }}
+{% endif %}
+{% if detail.disk_usage %}
+- Disk Usage: {{ detail.disk_usage }}
+{% endif %}
+
+{% endif %}
+{% if detail.networks %}
+**Network Interfaces:**
+{% for network in detail.networks %}
+- {{ network }}
+{% endfor %}
+
+{% endif %}
+{% if detail.rootfs or detail.mount_points %}
+**Storage Configuration:**
+{% if detail.rootfs %}
+- Root Filesystem: {{ detail.rootfs }}
+{% endif %}
+{% if detail.mount_points %}
+- Mount Points:
+{% for mount in detail.mount_points %}
+  - {{ mount }}
+{% endfor %}
+{% endif %}
+
+{% endif %}
+{% if detail.uptime %}
+**Runtime Information:**
+- Uptime: {{ detail.uptime }}
+{% if detail.pid %}
+- PID: {{ detail.pid }}
+{% endif %}
+
+{% endif %}
+{% if detail.tags or detail.description %}
+**Metadata:**
+{% if detail.tags %}
+- Tags: {{ detail.tags }}
+{% endif %}
+{% if detail.description %}
+- Description: {{ detail.description }}
+{% endif %}
+
+{% endif %}
+</details>
+
+{% endif %}
+{% endfor %}
+
+</details>
+
+{% endif %}
+
+{% if proxmox_info.problematic_resources %}
+#### Issues Found
+{% for resource in proxmox_info.problematic_resources[:8] %}
+{% set resource_type = 'VM' if resource.type == 'vm' else 'Container' %}
+{% set lock_info = ' - Locked: ' + resource.lock if resource.lock else '' %}
+- **{{ resource_type }} {{ resource.name or resource.vmid or 'Unknown' }}** (ID: {{ resource.vmid or 'Unknown' }}) - Status: {{ resource.status or 'Unknown' }}{{ lock_info }}
+{% endfor %}
+{% if proxmox_info.problematic_resources|length > 8 %}
+
+*... and {{ proxmox_info.problematic_resources|length - 8 }} more problematic resources*
+{% endif %}
+{% endif %}
+
+{% endif %}
+

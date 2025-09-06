@@ -1,0 +1,109 @@
+{% if kubernetes_info %}
+## Kubernetes
+{% if kubernetes_info.kubectl_version %}
+- **Version:** {{ kubernetes_info.kubectl_version }}
+{% endif %}
+
+{% if kubernetes_info.namespaces %}
+### Namespaces ({{ kubernetes_info.namespaces|length }})
+{% for namespace in kubernetes_info.namespaces|sort %}
+- {{ namespace }}
+{% endfor %}
+{% endif %}
+
+{% if kubernetes_info.nodes %}
+### Nodes ({{ kubernetes_info.nodes|length }})
+{% for node in kubernetes_info.nodes %}
+- **{{ node.name or 'Unknown' }}** ({{ node.roles or 'Unknown' }}) - {{ 'Ready' if node.status == 'Ready' else 'NotReady' }}
+{% endfor %}
+{% endif %}
+
+{% if kubernetes_info.pods %}
+{% set running_pods = kubernetes_info.pods | selectattr('status', 'equalto', 'Running') | list %}
+### Pods Summary
+- **Total Pods:** {{ kubernetes_info.pods|length }}
+- **Running:** {{ running_pods|length }}
+
+<details>
+<summary><strong>All Pods by Namespace ({{ kubernetes_info.pods|length }} total)</strong></summary>
+
+{% set pods_by_namespace = kubernetes_info.pods | groupby('namespace') %}
+{% for namespace, namespace_pods in pods_by_namespace %}
+**{{ namespace }}** ({{ namespace_pods|list|length }} pods):
+
+{% for pod in namespace_pods|list|sort(attribute='name') %}
+  {% set restart_info = '(' + (pod.restarts or '0') + ' restarts)' if pod.restarts and pod.restarts != '0' else '' %}
+  {% set age_info = 'Age: ' + pod.age if pod.age and pod.age != 'Unknown' else '' %}
+  {% if pod.status == 'Running' %}
+    {% set status_icon = '✅' %}
+  {% elif pod.status in ['Failed', 'Error', 'CrashLoopBackOff'] %}
+    {% set status_icon = '❌' %}
+  {% else %}
+    {% set status_icon = '⚠️' %}
+  {% endif %}
+  - {{ status_icon }} **{{ pod.name or 'Unknown' }}** - {{ pod.status or 'Unknown' }} - Ready: {{ pod.ready or 'Unknown' }} {{ restart_info }} {{ age_info }}
+{% endfor %}
+
+{% endfor %}
+</details>
+
+{% if kubernetes_info.problematic_pods %}
+#### Issues Found
+{% for pod in kubernetes_info.problematic_pods[:8] %}
+- **{{ pod.namespace or 'Unknown' }}/{{ pod.name or 'Unknown' }}** - Status: {{ pod.status or 'Unknown' }}, Ready: {{ pod.ready or 'Unknown' }}, Restarts: {{ pod.restarts or 'Unknown' }}
+{% endfor %}
+{% if kubernetes_info.problematic_pods|length > 8 %}
+
+*... and {{ kubernetes_info.problematic_pods|length - 8 }} more problematic pods*
+{% endif %}
+{% endif %}
+{% endif %}
+
+{% if kubernetes_info.services %}
+### Kubernetes Services ({{ kubernetes_info.services|length }})
+{% if kubernetes_info.services|length <= 8 %}
+{% for svc in kubernetes_info.services %}
+{% set external_info = ' (External: ' + svc.external_ip + ')' if svc.external_ip else '' %}
+- **{{ svc.namespace or 'Unknown' }}/{{ svc.name or 'Unknown' }}** ({{ svc.type or 'Unknown' }}) - {{ svc.cluster_ip or 'Unknown' }}{{ external_info }}
+{% endfor %}
+{% else %}
+{% for svc in kubernetes_info.services[:4] %}
+{% set external_info = ' (External: ' + svc.external_ip + ')' if svc.external_ip else '' %}
+- **{{ svc.namespace or 'Unknown' }}/{{ svc.name or 'Unknown' }}** ({{ svc.type or 'Unknown' }}) - {{ svc.cluster_ip or 'Unknown' }}{{ external_info }}
+{% endfor %}
+
+<details>
+<summary><strong>Show {{ kubernetes_info.services|length - 4 }} more Kubernetes services</strong></summary>
+
+{% for svc in kubernetes_info.services[4:] %}
+{% set external_info = ' (External: ' + svc.external_ip + ')' if svc.external_ip else '' %}
+- **{{ svc.namespace or 'Unknown' }}/{{ svc.name or 'Unknown' }}** ({{ svc.type or 'Unknown' }}) - {{ svc.cluster_ip or 'Unknown' }}{{ external_info }}
+{% endfor %}
+
+</details>
+{% endif %}
+{% endif %}
+
+{% if kubernetes_info.deployments %}
+### Deployments ({{ kubernetes_info.deployments|length }})
+{% if kubernetes_info.deployments|length <= 8 %}
+{% for dep in kubernetes_info.deployments %}
+- **{{ dep.namespace or 'Unknown' }}/{{ dep.name or 'Unknown' }}** - Ready: {{ dep.ready or 'Unknown' }}, Up-to-date: {{ dep.up_to_date or 'Unknown' }}, Available: {{ dep.available or 'Unknown' }}
+{% endfor %}
+{% else %}
+{% for dep in kubernetes_info.deployments[:4] %}
+- **{{ dep.namespace or 'Unknown' }}/{{ dep.name or 'Unknown' }}** - Ready: {{ dep.ready or 'Unknown' }}, Up-to-date: {{ dep.up_to_date or 'Unknown' }}, Available: {{ dep.available or 'Unknown' }}
+{% endfor %}
+
+<details>
+<summary><strong>Show {{ kubernetes_info.deployments|length - 4 }} more deployments</strong></summary>
+
+{% for dep in kubernetes_info.deployments[4:] %}
+- **{{ dep.namespace or 'Unknown' }}/{{ dep.name or 'Unknown' }}** - Ready: {{ dep.ready or 'Unknown' }}, Up-to-date: {{ dep.up_to_date or 'Unknown' }}, Available: {{ dep.available or 'Unknown' }}
+{% endfor %}
+
+</details>
+{% endif %}
+{% endif %}
+
+{% endif %}

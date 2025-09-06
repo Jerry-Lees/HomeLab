@@ -1,0 +1,83 @@
+{# Memory modules component for MediaWiki with complex formatting #}
+
+{% if memory_modules and memory_modules is mapping %}
+  {% set memory_banks = memory_modules.memory_banks or [] %}
+  
+  {% if memory_banks %}
+    {% set populated_slots = memory_banks | selectattr('size') | rejectattr('empty', 'equalto', true) | list %}
+    {% set empty_slots = memory_banks | selectattr('empty', 'equalto', true) | list %}
+    
+    {% if populated_slots %}
+{| class='wikitable mw-collapsible mw-collapsed'
+|+ Installed Memory Modules ({{ populated_slots|length }} slots populated)
+|-
+! Slot !! Size !! Type !! Speed
+      {% for bank in populated_slots %}
+        {% set slot = bank.slot or 'Unknown slot' %}
+        {% set size = bank.size or 'Unknown size' %}
+        {% set speed = bank.clock or 'Unknown speed' %}
+        {% set desc = bank.description or '' %}
+        
+        {# Extract memory type from description #}
+        {% if 'DDR4' in desc %}
+          {% set mem_type = 'DDR4' %}
+        {% elif 'DDR3' in desc %}
+          {% set mem_type = 'DDR3' %}
+        {% elif 'DDR5' in desc %}
+          {% set mem_type = 'DDR5' %}
+        {% else %}
+          {% set mem_type = 'Unknown type' %}
+        {% endif %}
+        
+|-
+| {{ slot }} || {{ size }} || {{ mem_type }} || {{ speed }}
+      {% endfor %}
+|}
+
+    {% endif %}
+    
+    {% if empty_slots %}
+{| class='wikitable mw-collapsible mw-collapsed'
+|+ Empty Memory Slots ({{ empty_slots|length }} slots)
+|-
+! Slot !! Width
+      {% for bank in empty_slots %}
+        {% set slot = bank.slot or 'Unknown slot' %}
+        {% set width = bank.width or 'Unknown' %}
+|-
+| {{ slot }} || {{ width }}
+      {% endfor %}
+|}
+
+    {% endif %}
+    
+    {# Show system memory info if available #}
+    {% set sys_mem = memory_modules.system_memory or {} %}
+    {% if sys_mem %}
+      {% if sys_mem.capabilities %}
+'''Memory Features:''' {{ sys_mem.capabilities }}
+
+      {% endif %}
+      {% if sys_mem.configuration %}
+'''Error Detection:''' {{ sys_mem.configuration }}
+
+      {% endif %}
+    {% endif %}
+    
+  {% elif memory_modules is string %}
+    {# Fallback for old text format #}
+{| class='wikitable mw-collapsible mw-collapsed'
+|+ Memory Module Details
+|-
+| <pre>{{ memory_modules }}</pre>
+|}
+
+  {% else %}
+''Memory module information not available''
+
+  {% endif %}
+{% else %}
+''Memory module information not available''
+
+{% endif %}
+
