@@ -197,11 +197,11 @@ class InventoryManager:
                     logger.info(f"Collected data for {best_key} (platform: {data.get('platform_type', 'unknown')})")
                 
                 except Exception as e:
-                    # Track exceptions as failures too
+                    # Track exceptions as failures too - no truncation
                     failure_info = {
                         'original_host': original_host,
                         'actual_hostname': None,
-                        'failure_reason': f"Collection exception: {str(e)[:80]}...",
+                        'failure_reason': f"Collection exception: {str(e)}",
                         'timestamp': datetime.now().isoformat()
                     }
                     self.connection_failures.append(failure_info)
