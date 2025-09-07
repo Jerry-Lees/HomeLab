@@ -59,6 +59,9 @@ class SystemCollector:
         self.platform_type = None
         self.platform_info = {}
         
+        # Detection mode flag
+        self.in_detection_mode = True
+        
         # Initialize specialized collectors
         self.kubernetes_collector = None
         self.proxmox_collector = None
@@ -66,8 +69,11 @@ class SystemCollector:
         self.nas_collector = None
     
     def try_connection_cascade(self) -> Tuple[bool, str]:
-        """Try connection methods in priority order: Windows -> Linux -> NAS"""
+        """Try connection methods in priority order: Windows → NAS → Linux"""
         logger.debug(f"Trying connection cascade for {self.hostname}")
+        
+        # Set detection mode to suppress warnings during fingerprinting
+        self.in_detection_mode = True
         
         # Method 1: Try Windows (WinRM)
         if HAS_WINRM and HAS_WINDOWS_COLLECTOR:
@@ -75,25 +81,51 @@ class SystemCollector:
                 logger.info(f"Connected to {self.hostname} via WinRM (Windows detected)")
                 self.platform_type = 'windows'
                 self.platform_info['detection_method'] = 'WinRM connection successful'
+                self.in_detection_mode = False
                 return True, 'windows'
         
-        # Method 2: Try Linux (SSH with keys)
-        if self.try_ssh_key_connection():
-            logger.info(f"Connected to {self.hostname} via SSH keys (Linux assumed)")
-            self.platform_type = 'linux'
-            self.platform_info['detection_method'] = 'SSH key authentication successful'
-            return True, 'linux'
-        
-        # Method 3: Try NAS (SSH with password)
+        # Method 2: Try NAS (SSH with password) - moved before generic Linux
         if HAS_NAS_COLLECTOR:
             if self.try_ssh_password_connection():
                 logger.info(f"Connected to {self.hostname} via SSH password (NAS assumed)")
                 self.platform_type = 'nas'
                 self.platform_info['detection_method'] = 'SSH password authentication successful'
+                self.in_detection_mode = False
                 return True, 'nas'
         
+        # Method 3: Try Linux (SSH with keys) - now the fallback
+        if self.try_ssh_key_connection():
+            logger.info(f"Connected to {self.hostname} via SSH keys (Linux assumed)")
+            self.platform_type = 'linux'
+            self.platform_info['detection_method'] = 'SSH key authentication successful'
+            self.in_detection_mode = False
+            return True, 'linux'
+        
+        self.in_detection_mode = False
         logger.warning(f"All connection methods failed for {self.hostname}")
         return False, 'unreachable'
+    
+    def refine_platform_detection(self) -> str:
+        """After successful connection, refine platform detection (especially for TrueNAS)"""
+        if self.platform_type != 'linux':
+            return self.platform_type
+        
+        # Check if this Linux system is actually a NAS
+        if HAS_NAS_COLLECTOR and self.connection_type in ['ssh_key', 'ssh_password']:
+            # Create a temporary NAS collector to test detection
+            temp_nas_collector = NASCollector(self.run_command)
+            nas_type = temp_nas_collector.detect_nas_type()
+            
+            if nas_type:
+                logger.info(f"Refined detection: {self.hostname} is actually a {nas_type} NAS system")
+                self.platform_type = 'nas'
+                self.platform_info['detection_method'] += f' (refined to {nas_type} NAS)'
+                self.platform_info['nas_type'] = nas_type
+                # Initialize the real NAS collector
+                self.nas_collector = temp_nas_collector
+                return 'nas'
+        
+        return self.platform_type
     
     def try_winrm_connection(self) -> bool:
         """Try to connect via WinRM"""
@@ -102,7 +134,8 @@ class SystemCollector:
             windows_password = self.config.get('windows_password')
             
             if not windows_user or not windows_password:
-                logger.debug(f"Windows credentials not configured for {self.hostname}")
+                if not self.in_detection_mode:
+                    logger.debug(f"Windows credentials not configured for {self.hostname}")
                 return False
             
             # Try WinRM connection with NTLM authentication (more secure)
@@ -115,10 +148,12 @@ class SystemCollector:
                 if result.status_code == 0:
                     self.winrm_session = session
                     self.connection_type = 'winrm'
-                    logger.debug(f"WinRM connected using NTLM authentication for {self.hostname}")
+                    if not self.in_detection_mode:
+                        logger.debug(f"WinRM connected using NTLM authentication for {self.hostname}")
                     return True
             except Exception as ntlm_error:
-                logger.debug(f"NTLM authentication failed for {self.hostname}: {ntlm_error}")
+                if not self.in_detection_mode:
+                    logger.debug(f"NTLM authentication failed for {self.hostname}: {ntlm_error}")
             
             # Fallback to Kerberos if in domain environment
             try:
@@ -127,10 +162,12 @@ class SystemCollector:
                 if result.status_code == 0:
                     self.winrm_session = session
                     self.connection_type = 'winrm'
-                    logger.debug(f"WinRM connected using Kerberos authentication for {self.hostname}")
+                    if not self.in_detection_mode:
+                        logger.debug(f"WinRM connected using Kerberos authentication for {self.hostname}")
                     return True
             except Exception as krb_error:
-                logger.debug(f"Kerberos authentication failed for {self.hostname}: {krb_error}")
+                if not self.in_detection_mode:
+                    logger.debug(f"Kerberos authentication failed for {self.hostname}: {krb_error}")
             
             # Last resort: basic auth (only if others fail)
             try:
@@ -139,23 +176,27 @@ class SystemCollector:
                 if result.status_code == 0:
                     self.winrm_session = session
                     self.connection_type = 'winrm'
-                    logger.warning(f"WinRM connected using basic authentication for {self.hostname} - consider enabling NTLM")
+                    if not self.in_detection_mode:
+                        logger.warning(f"WinRM connected using basic authentication for {self.hostname} - consider enabling NTLM")
                     return True
                 else:
-                    logger.debug(f"WinRM test command failed for {self.hostname}: {result.std_err}")
+                    if not self.in_detection_mode:
+                        logger.debug(f"WinRM test command failed for {self.hostname}: {result.std_err}")
                     return False
             except Exception as basic_error:
-                logger.debug(f"Basic authentication failed for {self.hostname}: {basic_error}")
+                if not self.in_detection_mode:
+                    logger.debug(f"Basic authentication failed for {self.hostname}: {basic_error}")
                 return False
                 
         except Exception as e:
-            logger.debug(f"WinRM connection failed for {self.hostname}: {e}")
-            if 'timeout' in str(e).lower():
-                self.connection_failure_reason = "WinRM connection timeout (port 5985 may be closed)"
-            elif 'unauthorized' in str(e).lower() or 'authentication' in str(e).lower():
-                self.connection_failure_reason = "WinRM authentication failed (check Windows credentials)"
-            elif 'connection refused' in str(e).lower():
-                self.connection_failure_reason = "WinRM connection refused (service may not be running)"
+            if not self.in_detection_mode:
+                logger.debug(f"WinRM connection failed for {self.hostname}: {e}")
+                if 'timeout' in str(e).lower():
+                    self.connection_failure_reason = "WinRM connection timeout (port 5985 may be closed)"
+                elif 'unauthorized' in str(e).lower() or 'authentication' in str(e).lower():
+                    self.connection_failure_reason = "WinRM authentication failed (check Windows credentials)"
+                elif 'connection refused' in str(e).lower():
+                    self.connection_failure_reason = "WinRM connection refused (service may not be running)"
             return False
     
     def try_ssh_key_connection(self) -> bool:
@@ -166,12 +207,14 @@ class SystemCollector:
             ssh_timeout = self.config.get('ssh_timeout', 10)
             
             if not ssh_user or not ssh_key_path:
-                logger.debug(f"SSH key credentials not configured for {self.hostname}")
+                if not self.in_detection_mode:
+                    logger.debug(f"SSH key credentials not configured for {self.hostname}")
                 return False
             
             ssh_key_path = os.path.expanduser(ssh_key_path)
             if not os.path.exists(ssh_key_path):
-                logger.debug(f"SSH key not found: {ssh_key_path}")
+                if not self.in_detection_mode:
+                    logger.debug(f"SSH key not found: {ssh_key_path}")
                 return False
             
             # Try SSH connection with key
@@ -188,8 +231,9 @@ class SystemCollector:
             return True
             
         except Exception as e:
-            logger.debug(f"SSH key connection failed for {self.hostname}: {e}")
-            self._categorize_ssh_failure(e)
+            if not self.in_detection_mode:
+                logger.debug(f"SSH key connection failed for {self.hostname}: {e}")
+                self._categorize_ssh_failure(e)
             if self.ssh_client:
                 self.ssh_client.close()
                 self.ssh_client = None
@@ -203,7 +247,8 @@ class SystemCollector:
             ssh_timeout = self.config.get('ssh_timeout', 10)
             
             if not nas_user or not nas_password:
-                logger.debug(f"NAS credentials not configured for {self.hostname}")
+                if not self.in_detection_mode:
+                    logger.debug(f"NAS credentials not configured for {self.hostname}")
                 return False
             
             # Try SSH connection with password
@@ -220,8 +265,11 @@ class SystemCollector:
             return True
             
         except Exception as e:
-            logger.debug(f"SSH password connection failed for {self.hostname}: {e}")
+            # Always categorize the failure for connection summary
             self._categorize_ssh_failure(e)
+            # Only log during normal operation, not detection
+            if not self.in_detection_mode:
+                logger.debug(f"SSH password connection failed for {self.hostname}: {e}")
             if self.ssh_client:
                 self.ssh_client.close()
                 self.ssh_client = None
@@ -259,7 +307,8 @@ class SystemCollector:
         elif self.connection_type in ['ssh_key', 'ssh_password'] and self.ssh_client:
             return self.run_ssh_command(command)
         else:
-            logger.warning(f"No active connection for {self.hostname}")
+            if not self.in_detection_mode:
+                logger.warning(f"No active connection for {self.hostname}")
             return None
     
     def run_winrm_command(self, command: str) -> Optional[str]:
@@ -276,10 +325,32 @@ class SystemCollector:
             if result.status_code == 0:
                 return result.std_out.decode('utf-8').strip()
             else:
-                logger.warning(f"WinRM command failed on {self.hostname}: {command} - {result.std_err}")
+                if not self.in_detection_mode:
+                    logger.warning(f"WinRM command failed on {self.hostname}: {command} - {result.std_err}")
                 return None
         except Exception as e:
-            logger.warning(f"WinRM command failed on {self.hostname}: {command} - {e}")
+            if not self.in_detection_mode:
+                logger.warning(f"WinRM command failed on {self.hostname}: {command} - {e}")
+            return None
+    
+    def run_winrm_command_silent(self, command: str) -> Optional[str]:
+        """Execute WinRM command without warnings for expected failures"""
+        try:
+            if command.startswith('powershell'):
+                # Execute PowerShell command
+                ps_command = command.replace('powershell -Command "', '').rstrip('"')
+                result = self.winrm_session.run_ps(ps_command)
+            else:
+                # Execute regular command
+                result = self.winrm_session.run_cmd(command)
+            
+            if result.status_code == 0:
+                return result.std_out.decode('utf-8').strip()
+            else:
+                # Return the error output for analysis, but don't log warnings
+                return result.std_err.decode('utf-8').strip() if result.std_err else None
+        except Exception as e:
+            # Silent failure for expected command failures
             return None
     
     def run_ssh_command(self, command: str) -> Optional[str]:
@@ -288,11 +359,17 @@ class SystemCollector:
             stdin, stdout, stderr = self.ssh_client.exec_command(command)
             return stdout.read().decode('utf-8').strip()
         except Exception as e:
-            logger.warning(f"SSH command failed on {self.hostname}: {command} - {e}")
+            if not self.in_detection_mode:
+                logger.warning(f"SSH command failed on {self.hostname}: {command} - {e}")
             return None
     
     def collect_system_info(self) -> Dict:
         """Collect comprehensive system information using cascade connection"""
+        # Log the start of collection for this device
+        logger.info(f"{'='*60}")
+        logger.info(f"STARTING DATA COLLECTION: {self.hostname}")
+        logger.info(f"{'='*60}")
+        
         info = {
             'hostname': self.hostname,
             'timestamp': datetime.now().isoformat(),
@@ -303,22 +380,31 @@ class SystemCollector:
         connected, platform_type = self.try_connection_cascade()
         if not connected:
             info['connection_failure_reason'] = self.connection_failure_reason
+            logger.warning(f"FAILED TO CONNECT: {self.hostname} - {self.connection_failure_reason}")
+            logger.info(f"{'='*60}")
+            logger.info(f"FINISHED DATA COLLECTION: {self.hostname} (FAILED)")
+            logger.info(f"{'='*60}")
             return info
         
+        # Refine platform detection (important for TrueNAS)
+        final_platform_type = self.refine_platform_detection()
+        
         info['reachable'] = True
-        info['platform_type'] = platform_type
+        info['platform_type'] = final_platform_type
         info['platform_detection'] = self.platform_info
         info['connection_type'] = self.connection_type
         
-        # Initialize specialized collectors
+        # Initialize specialized collectors based on final platform type
         if self.connection_type in ['ssh_key', 'ssh_password']:
             self.kubernetes_collector = KubernetesCollector(self.run_command)
             self.proxmox_collector = ProxmoxCollector(self.run_command)
         
         if HAS_WINDOWS_COLLECTOR and self.connection_type == 'winrm':
-            self.windows_collector = WindowsCollector(self.run_command)
+            # Create Windows collector with silent command runner for feature detection
+            self.windows_collector = WindowsCollector(self.run_winrm_command_silent)
         
-        if HAS_NAS_COLLECTOR and self.connection_type == 'ssh_password':
+        # NAS collector might already be initialized in refine_platform_detection
+        if HAS_NAS_COLLECTOR and final_platform_type == 'nas' and not self.nas_collector:
             self.nas_collector = NASCollector(self.run_command)
         
         # Get actual hostname
@@ -326,21 +412,30 @@ class SystemCollector:
         if actual_hostname:
             info['actual_hostname'] = actual_hostname
         
-        # Route to platform-specific collection
-        if platform_type == 'windows':
+        # Route to platform-specific collection based on FINAL platform type
+        if final_platform_type == 'windows':
             info.update(self.collect_windows_info())
-        elif platform_type == 'nas':
+        elif final_platform_type == 'nas':
             info.update(self.collect_nas_info())
         else:  # linux
             info.update(self.collect_linux_info())
         
         # Always try to collect Kubernetes and Proxmox info (Linux/NAS only)
-        if platform_type in ['linux', 'nas']:
+        if final_platform_type in ['linux', 'nas']:
+            logger.debug(f"Checking for Kubernetes on {self.hostname}")
             info['kubernetes_info'] = self.kubernetes_collector.collect_kubernetes_info()
+            logger.debug(f"Checking for Proxmox on {self.hostname}")
             info['proxmox_info'] = self.proxmox_collector.collect_proxmox_info()
         
         # Clean up connections
         self.cleanup_connections()
+        
+        # Log the completion of collection for this device
+        logger.info(f"{'='*60}")
+        logger.info(f"FINISHED DATA COLLECTION: {self.hostname} (SUCCESS)")
+        logger.info(f"Platform: {final_platform_type}, Connection: {self.connection_type}")
+        logger.info(f"{'='*60}")
+        
         return info
     
     def get_actual_hostname(self) -> Optional[str]:
@@ -408,15 +503,16 @@ class SystemCollector:
             if nas_data:
                 info['nas_info'] = nas_data
                 
-                # Try to get basic Linux info that works on NAS
+                # Get basic system info using FreeBSD/Linux compatible commands
                 basic_commands = {
                     'kernel': 'uname -r',
                     'architecture': 'uname -m',
                     'uptime': 'uptime -p 2>/dev/null || uptime',
-                    'memory_total': 'free -h | grep Mem | awk \'{print $2}\' 2>/dev/null',
-                    'memory_used': 'free -h | grep Mem | awk \'{print $3}\' 2>/dev/null',
-                    'load_average': 'uptime | awk -F"load average:" \'{print $2}\'',
-                    'ip_addresses': 'ip -4 addr show | grep inet | awk \'{print $2}\' | grep -v 127.0.0.1 2>/dev/null || ifconfig | grep "inet " | awk \'{print $2}\' | grep -v 127.0.0.1'
+                    'memory_total': 'free -h 2>/dev/null | grep Mem | awk \'{print $2}\' || sysctl -n hw.physmem | awk \'{print $1/1024/1024/1024 "GB"}\'',
+                    'memory_used': 'free -h 2>/dev/null | grep Mem | awk \'{print $3}\' || echo "Unknown"',
+                    'load_average': 'uptime | awk -F"load average:" \'{print $2}\' 2>/dev/null || uptime | grep "load averages" | awk \'{print $10 ", " $11 ", " $12}\'',
+                    'ip_addresses': 'ip -4 addr show 2>/dev/null | grep inet | awk \'{print $2}\' | grep -v 127.0.0.1 || ifconfig | grep "inet " | awk \'{print $2}\' | grep -v 127.0.0.1',
+                    'cpu_cores': 'nproc 2>/dev/null || sysctl -n hw.ncpu'
                 }
                 
                 for key, command in basic_commands.items():
@@ -426,12 +522,23 @@ class SystemCollector:
                 # Create OS release info from NAS data
                 if 'model_info' in nas_data:
                     model_info = nas_data['model_info']
-                    info['os_release'] = {
-                        'name': f"{nas_data.get('nas_type', 'NAS').title()} NAS",
-                        'version': model_info.get('firmware_version', 'Unknown'),
-                        'id': nas_data.get('nas_type', 'nas'),
-                        'pretty_name': f"{model_info.get('model', 'Unknown')} - {model_info.get('firmware_version', 'Unknown')}"
-                    }
+                    nas_type = nas_data.get('nas_type', 'NAS').title()
+                    
+                    # Special handling for TrueNAS
+                    if nas_data.get('nas_type') in ['truenas', 'freebsd_nas']:
+                        info['os_release'] = {
+                            'name': 'TrueNAS',
+                            'version': model_info.get('firmware_version', info.get('kernel', 'Unknown')),
+                            'id': 'truenas',
+                            'pretty_name': f"TrueNAS - {model_info.get('firmware_version', info.get('kernel', 'Unknown'))}"
+                        }
+                    else:
+                        info['os_release'] = {
+                            'name': f"{nas_type} NAS",
+                            'version': model_info.get('firmware_version', 'Unknown'),
+                            'id': nas_data.get('nas_type', 'nas'),
+                            'pretty_name': f"{model_info.get('model', 'Unknown')} - {model_info.get('firmware_version', 'Unknown')}"
+                        }
                 
                 # Try to get basic services
                 info['services'] = self.get_services()
@@ -442,7 +549,7 @@ class SystemCollector:
     
     def collect_linux_info(self) -> Dict:
         """Collect Linux-specific information"""
-        logger.debug(f"Collecting Linux information for {self.hostname}")
+        logger.info(f"Collecting Linux information for {self.hostname}")
         
         info = {}
         

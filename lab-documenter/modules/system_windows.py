@@ -229,17 +229,54 @@ class WindowsCollector:
         return services
     
     def get_windows_features(self) -> List[str]:
-        """Get installed Windows features"""
+        """Get installed Windows features (handles both Server and Client editions)"""
         features = []
         
-        cmd = ('Get-WindowsFeature | Where-Object {$_.InstallState -eq "Installed"} | '
-               'Select-Object -ExpandProperty Name')
+        # First try Get-WindowsFeature (Server editions)
+        server_cmd = ('Get-WindowsFeature | Where-Object {$_.InstallState -eq "Installed"} | '
+                     'Select-Object -ExpandProperty Name')
         
-        result = self.run_command(f'powershell -Command "{cmd}"')
-        if result:
+        result = self.run_command(f'powershell -Command "{server_cmd}"')
+        
+        # Check for failure more comprehensively - fix case sensitivity
+        if result and not any(error_indicator in result.lower() for error_indicator in [
+            'not recognized', 'commandnotfoundexception', 'objectnotfound'
+        ]):
+            # Success - this is a Windows Server
             features = [feature.strip() for feature in result.split('\n') if feature.strip()]
+            logger.debug("Successfully retrieved Windows Server features")
+        else:
+            # Try Get-WindowsOptionalFeature (Client editions)
+            client_cmd = ('Get-WindowsOptionalFeature -Online | Where-Object {$_.State -eq "Enabled"} | '
+                         'Select-Object -ExpandProperty FeatureName')
+            
+            result = self.run_command(f'powershell -Command "{client_cmd}"')
+            if result and not any(error_indicator in result.lower() for error_indicator in [
+                'not recognized', 'commandnotfoundexception', 'objectnotfound'
+            ]):
+                # Success - this is a Windows Client
+                features = [feature.strip() for feature in result.split('\n') if feature.strip()]
+                logger.debug("Successfully retrieved Windows Client optional features")
+            else:
+                # Fallback: try DISM command
+                dism_cmd = 'dism /online /get-features /format:table | findstr "Enabled"'
+                result = self.run_command(dism_cmd)
+                if result:
+                    # Parse DISM output
+                    lines = result.split('\n')
+                    for line in lines:
+                        if 'Enabled' in line and '|' in line:
+                            # Extract feature name from DISM table format
+                            parts = line.split('|')
+                            if len(parts) > 0:
+                                feature_name = parts[0].strip()
+                                if feature_name and feature_name not in ['Feature Name', '---']:
+                                    features.append(feature_name)
+                    logger.debug("Retrieved features using DISM fallback")
+                else:
+                    logger.debug("Unable to retrieve Windows features - no supported method worked")
         
-        return features[:10]  # Limit for display
+        return features[:15]  # Limit for display
     
     def get_update_info(self) -> Dict[str, Any]:
         """Get Windows Update information"""
