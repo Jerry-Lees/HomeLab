@@ -20,7 +20,7 @@ def set_device_context(hostname: str):
     """Set the current device being processed for this thread"""
     _thread_local.current_device = hostname
 
-def get_device_context() -> str:
+def get_device_context() -> Optional[str]:
     """Get the current device being processed for this thread"""
     return getattr(_thread_local, 'current_device', None)
 
