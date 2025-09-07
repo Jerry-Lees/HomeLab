@@ -58,5 +58,5 @@ __all__ = [
     'convert_uptime_seconds'
 ]
 
-__version__ = '1.1.0'  # Bump version for multi-platform support
+__version__ = '1.1.1'
 
