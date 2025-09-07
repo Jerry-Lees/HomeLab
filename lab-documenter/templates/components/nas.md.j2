@@ -1,0 +1,83 @@
+{% if nas_info %}
+## NAS System Information
+
+### Device Details
+- **NAS Type:** {{ nas_info.nas_type | title }}
+{% if nas_info.model_info %}
+{% if nas_info.model_info.model %}
+- **Model:** {{ nas_info.model_info.model }}
+{% endif %}
+{% if nas_info.model_info.firmware_version %}
+- **Firmware:** {{ nas_info.model_info.firmware_version }}
+{% endif %}
+{% if nas_info.model_info.build_number %}
+- **Build:** {{ nas_info.model_info.build_number }}
+{% endif %}
+{% endif %}
+
+{% if nas_info.volumes %}
+### Storage Volumes
+{% for volume in nas_info.volumes %}
+- **{{ volume.mount_point }}** ({{ volume.type }}) - {{ volume.used }}/{{ volume.size }} ({{ volume.usage_percent }})
+  - Device: {{ volume.device }}
+{% endfor %}
+{% endif %}
+
+{% if nas_info.storage_pools %}
+### Storage Pools
+{% for pool in nas_info.storage_pools %}
+- **{{ pool.name }}** ({{ pool.type }}) - {{ pool.state }}
+{% if pool.level %}
+  - RAID Level: {{ pool.level }}
+{% endif %}
+{% endfor %}
+{% endif %}
+
+{% if nas_info.shares %}
+### Network Shares
+{% for share in nas_info.shares %}
+- **{{ share.name }}** ({{ share.protocol }})
+{% endfor %}
+{% endif %}
+
+{% if nas_info.disk_health %}
+### Disk Health
+{% for disk in nas_info.disk_health %}
+- **{{ disk.device }}** ({{ disk.size }}) - {{ disk.model }} - Health: {{ disk.health }}
+{% endfor %}
+{% endif %}
+
+{% if nas_info.network_interfaces %}
+### Network Interfaces
+{% for iface in nas_info.network_interfaces %}
+- **{{ iface.name }}** - {{ iface.ip_address or 'No IP' }} ({{ iface.state }})
+{% endfor %}
+{% endif %}
+
+{% if nas_info.installed_packages %}
+### Installed Packages/Apps
+<details>
+<summary><strong>Show {{ nas_info.installed_packages|length }} installed packages</strong></summary>
+
+{% for package in nas_info.installed_packages %}
+- {{ package }}
+{% endfor %}
+
+</details>
+{% endif %}
+
+{% if nas_info.system_status %}
+### System Status
+{% if nas_info.system_status.uptime %}
+- **Uptime:** {{ nas_info.system_status.uptime }}
+{% endif %}
+{% if nas_info.system_status.load_average %}
+- **Load Average:** {{ nas_info.system_status.load_average }}
+{% endif %}
+{% if nas_info.system_status.temperature %}
+- **Temperature:** {{ nas_info.system_status.temperature }}
+{% endif %}
+{% endif %}
+
+{% endif %}
+

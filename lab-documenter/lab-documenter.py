@@ -234,12 +234,9 @@ Configuration:
         return
     
     # Collect data
+    max_workers = config.get('max_workers', 5)
     inventory_manager.collect_all_data(
-        hosts, 
-        config['ssh_user'], 
-        config['ssh_key_path'], 
-        config['ssh_timeout'], 
-        config['max_workers']
+        hosts, config, max_workers
     )
     
     # Save inventory

@@ -3,6 +3,13 @@
 
 **Last Updated:** {{ timestamp }}
 
+{% if platform_type %}
+**Platform Type:** {{ platform_type | title }}
+{% if platform_detection and platform_detection.detection_method %}
+**Detection Method:** {{ platform_detection.detection_method }}
+{% endif %}
+{% endif %}
+
 ## System Information
 - **OS:** {{ os_release.pretty_name or os_release.name or 'Unknown' }}
 - **Version:** {{ os_release.version or 'Unknown' }}
@@ -51,4 +58,10 @@
 {% include 'components/kubernetes.md.j2' %}
 
 {% include 'components/proxmox.md.j2' %}
+
+{# Include Windows-specific information #}
+{% include 'components/windows.md.j2' %}
+
+{# Include NAS-specific information #}
+{% include 'components/nas.md.j2' %}
 

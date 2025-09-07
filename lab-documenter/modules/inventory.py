@@ -36,13 +36,13 @@ class InventoryManager:
                 logger.error(f"Failed to read CSV file {csv_file}: {e}")
         return hosts
     
-    def collect_all_data(self, hosts: List[str], ssh_user: str, ssh_key_path: str, ssh_timeout: int = 5, max_workers: int = 10):
-        """Collect data from all hosts"""
+    def collect_all_data(self, hosts: List[str], config: Dict, max_workers: int = 10):
+        """Collect data from all hosts using cascade connection approach"""
         logger.info(f"Collecting data from {len(hosts)} hosts")
     
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {
-                executor.submit(self.collect_host_data, host, ssh_user, ssh_key_path, ssh_timeout): host 
+                executor.submit(self.collect_host_data, host, config): host 
                 for host in hosts
             }
         
@@ -71,7 +71,7 @@ class InventoryManager:
                         best_key = original_host
                 
                     self.inventory[best_key] = data
-                    logger.info(f"Collected data for {best_key}")
+                    logger.info(f"Collected data for {best_key} (platform: {data.get('platform_type', 'unknown')})")
                 
                 except Exception as e:
                     # Track exceptions as failures too
@@ -84,11 +84,12 @@ class InventoryManager:
                     self.connection_failures.append(failure_info)
                     logger.error(f"Failed to collect data for {original_host}: {e}")
     
-    def collect_host_data(self, host: str, ssh_user: str, ssh_key_path: str, ssh_timeout: int = 5) -> Dict:
-        """Collect data from a single host"""
-        collector = SystemCollector(host, ssh_user, ssh_key_path, ssh_timeout)
+    def collect_host_data(self, host: str, config: Dict) -> Dict:
+        """Collect data from a single host using new cascade approach"""
+        collector = SystemCollector(host, config)
         data = collector.collect_system_info()
         
+        # Finalize services database
         collector.services_db.finalize()
         
         return data

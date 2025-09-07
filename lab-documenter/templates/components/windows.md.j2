@@ -1,0 +1,81 @@
+{% if windows_info %}
+## Windows System Information
+
+{% if windows_info.system_info %}
+### System Details
+{% if windows_info.system_info.cpu_info %}
+- **CPU:** {{ windows_info.system_info.cpu_info }} ({{ windows_info.system_info.cpu_cores or 'Unknown' }} cores)
+{% endif %}
+{% if windows_info.system_info.architecture %}
+- **Architecture:** {{ windows_info.system_info.architecture }}
+{% endif %}
+{% if windows_info.system_info.uptime %}
+- **Uptime:** {{ windows_info.system_info.uptime }}
+{% endif %}
+{% endif %}
+
+{% if windows_info.memory_info %}
+### Memory Information
+{% if windows_info.memory_info.memory_total %}
+- **Total Memory:** {{ windows_info.memory_info.memory_total }}
+{% endif %}
+{% if windows_info.memory_info.memory_available %}
+- **Available Memory:** {{ windows_info.memory_info.memory_available }}
+{% endif %}
+{% endif %}
+
+{% if windows_info.disk_info %}
+### Disk Information
+{% for disk in windows_info.disk_info %}
+- **{{ disk.device }}** ({{ disk.filesystem or 'Unknown' }}) - {{ disk.used or 'Unknown' }}/{{ disk.size or 'Unknown' }} ({{ disk.usage_percent or 'Unknown' }})
+{% endfor %}
+{% endif %}
+
+{% if windows_info.services %}
+### Windows Services ({{ windows_info.services|length }})
+{% if windows_info.services|length <= 10 %}
+{% for service in windows_info.services %}
+- **{{ service.display_name or service.name }}** ({{ service.status }})
+{% endfor %}
+{% else %}
+{% for service in windows_info.services[:5] %}
+- **{{ service.display_name or service.name }}** ({{ service.status }})
+{% endfor %}
+
+<details>
+<summary><strong>Show {{ windows_info.services|length - 5 }} more services</strong></summary>
+
+{% for service in windows_info.services[5:] %}
+- **{{ service.display_name or service.name }}** ({{ service.status }})
+{% endfor %}
+
+</details>
+{% endif %}
+{% endif %}
+
+{% if windows_info.features %}
+### Installed Features
+<details>
+<summary><strong>Windows Features ({{ windows_info.features|length }} installed)</strong></summary>
+
+{% for feature in windows_info.features %}
+- {{ feature }}
+{% endfor %}
+
+</details>
+{% endif %}
+
+{% if windows_info.network_info %}
+### Network Interfaces
+{% for iface in windows_info.network_info %}
+- **{{ iface.name }}** - {{ iface.description }} (Speed: {{ iface.speed }})
+{% endfor %}
+{% endif %}
+
+{% if windows_info.updates and windows_info.updates.last_update %}
+### Update Information
+- **Last Update:** {{ windows_info.updates.last_update.hotfix_id }} ({{ windows_info.updates.last_update.installed_on }})
+{% endif %}
+
+{% endif %}
+
