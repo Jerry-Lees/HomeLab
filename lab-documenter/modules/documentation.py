@@ -24,9 +24,9 @@ class DocumentationManager:
         self.template_dir = template_dir
         
         if HAS_JINJA2:
-            self.jinja_env = Environment(
-                loader=FileSystemLoader(template_dir),
-                autoescape=select_autoescape(['html', 'xml']),
+            self.jinja_env = Environment(  # type: ignore
+                loader=FileSystemLoader(template_dir),   # type: ignore
+                autoescape=select_autoescape(['html', 'xml']),  # type: ignore
                 trim_blocks=True,
                 lstrip_blocks=True
             )
