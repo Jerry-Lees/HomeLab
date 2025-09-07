@@ -9,6 +9,7 @@ A comprehensive home lab documentation system that automatically discovers and d
 - **Intelligent Platform Detection**: Automatically detects and adapts to Windows, Linux, and NAS platforms
 - **Cascade Authentication**: Smart connection priority system for mixed environments
 - **Automatic Discovery**: Network scanning across multiple CIDR ranges to find live hosts
+- **CSV Auto-Update**: Automatically add successfully documented network-discovered hosts to CSV inventory
 - **Clean Architecture**: Separation of concerns with dedicated modules for different functions
 - **Template System**: Jinja2-based templates for customizable documentation output
 
@@ -39,6 +40,7 @@ A comprehensive home lab documentation system that automatically discovers and d
 - **Offline Mode**: Process existing data without re-scanning for iterative development
 - **Enhanced SSH Diagnostics**: Comprehensive connectivity troubleshooting tools
 - **Beep Notification**: Audio completion signal for long-running scans
+- **CSV Auto-Discovery**: Automatically add newly discovered hosts to CSV inventory
 
 ### Output Formats
 - **Local Documentation**: Always creates Markdown files for each server plus master index
@@ -90,6 +92,9 @@ A comprehensive home lab documentation system that automatically discovers and d
 
 # Only scan servers listed in CSV file
 ./lab-documenter.py --csv-only
+
+# Scan networks and auto-add new systems to CSV file
+./lab-documenter.py --scan --csv servers.csv --csv-update
 
 # Use existing data without re-scanning (offline mode)
 ./lab-documenter.py --use-existing-data --update-wiki
@@ -228,6 +233,7 @@ old-server.local,Decommissioned equipment
 - `--update-wiki-index` - Create or update the wiki server index page
 - `--clean` - Delete all files in ./documentation and ./logs directories
 - `--dry-run` - Show what would be done without making changes
+- `--csv-update` - Auto-add successfully documented network-discovered hosts to CSV file (requires --scan and --csv)
 
 ### File Paths
 - `--config FILE` - Configuration file path (default: config.json)
@@ -276,6 +282,21 @@ old-server.local,Decommissioned equipment
 
 # Clean and rebuild everything
 ./lab-documenter.py --clean --scan --update-wiki
+```
+
+### CSV Auto-Discovery Operations
+```bash
+# Scan networks and auto-add new systems to CSV
+./lab-documenter.py --scan --csv servers.csv --csv-update
+
+# Preview what would be added without making changes
+./lab-documenter.py --scan --csv servers.csv --csv-update --dry-run
+
+# Auto-discovery with verbose logging to see what's happening
+./lab-documenter.py --scan --csv servers.csv --csv-update --verbose
+
+# Use custom CSV file for auto-updates
+./lab-documenter.py --scan --csv my-lab-inventory.csv --csv-update
 ```
 
 ### Platform-Specific Operations
@@ -333,6 +354,55 @@ ssh -i .ssh/homelab_key admin@192.168.1.100
 
 # Conservative scanning with longer timeouts
 ./lab-documenter.py --ssh-timeout 30 --workers 5 --scan
+```
+
+## CSV Auto-Discovery Feature
+
+The `--csv-update` feature automatically maintains your server inventory by adding newly discovered systems to your CSV file.
+
+### How It Works
+
+1. **Network Scan**: Use `--scan` to discover live hosts on your networks
+2. **CSV Comparison**: Compare discovered hosts against existing CSV entries
+3. **Connection Testing**: Only add hosts that were successfully connected to and documented
+4. **Smart Defaults**: Automatically suggest appropriate descriptions and roles based on detected platform and OS
+5. **Preserve Structure**: Maintains your existing CSV file structure and format
+
+### Generated CSV Entries
+
+When new systems are discovered, they're added with intelligent defaults:
+
+```csv
+hostname,description,role,location
+# Existing entries remain unchanged
+server1.local,Main file server,NAS,Rack 1
+
+# Auto-discovered entries get smart defaults
+ubuntu-vm-01,Auto-discovered linux system (Ubuntu),Ubuntu Server,Auto-discovered
+windows-pc-05,Auto-discovered windows system (Windows 11 Pro),Windows Client,Auto-discovered
+synology-backup,Auto-discovered nas system (Synology DSM),Storage/NAS,Auto-discovered
+```
+
+### Requirements
+
+- Must use `--scan` (to discover new hosts)
+- Must specify `--csv FILE` or have `csv_file` in config
+- New hosts must be successfully connected to and documented
+
+### Example Workflow
+
+```bash
+# Initial setup with existing servers
+./lab-documenter.py --csv-only --csv my-servers.csv
+
+# Later, scan for new systems and auto-add them
+./lab-documenter.py --scan --csv my-servers.csv --csv-update --verbose
+
+# Review what was added (check the logs)
+tail -20 logs/lab-documenter.log
+
+# Edit CSV file to customize descriptions/roles if needed
+nano my-servers.csv
 ```
 
 ## Platform-Specific Features
@@ -560,8 +630,9 @@ lab-documenter/
 7. **Service Enhancement**: Uses intelligent database to categorize services
 8. **Template Rendering**: Processes Jinja2 templates with collected data
 9. **Documentation Generation**: Creates local Markdown files and JSON data
-10. **MediaWiki Updates**: Creates/updates individual server pages and index page
-11. **Failure Analysis**: Categorizes and reports connection issues with reverse DNS
+10. **CSV Auto-Update**: Adds newly discovered hosts to CSV inventory (if enabled)
+11. **MediaWiki Updates**: Creates/updates individual server pages and index page
+12. **Failure Analysis**: Categorizes and reports connection issues with reverse DNS
 
 ## Advanced Features
 
@@ -754,6 +825,33 @@ powershell "Get-WindowsFeature | Where-Object {$_.InstallState -eq 'Installed'}"
 powershell "Get-WindowsOptionalFeature -Online | Where-Object {$_.State -eq 'Enabled'}"
 ```
 
+### CSV Auto-Update Issues
+
+**CSV Not Being Updated**:
+```bash
+# Check that requirements are met
+./lab-documenter.py --scan --csv servers.csv --csv-update --verbose
+
+# Verify hosts are being discovered and documented successfully
+./lab-documenter.py --scan --dry-run --verbose
+
+# Check CSV file permissions
+ls -la servers.csv
+chmod 644 servers.csv
+```
+
+**Unexpected CSV Entries**:
+```bash
+# Review what was added
+tail -50 logs/lab-documenter.log | grep "Added hosts"
+
+# Edit CSV to customize entries
+nano servers.csv
+
+# Use dry-run to preview changes
+./lab-documenter.py --scan --csv servers.csv --csv-update --dry-run
+```
+
 ### Debug Mode
 
 ```bash
@@ -851,7 +949,14 @@ For issues, questions, or contributions:
 
 ## Changelog
 
-### v1.1.1 (Current)
+### v1.1.2 (Current)
+- **CSV Auto-Discovery**: Added `--csv-update` flag to automatically add successfully documented network-discovered hosts to CSV file
+- **Intelligent CSV Entries**: Auto-generated entries include smart role and description suggestions based on detected platform and OS
+- **CSV Structure Preservation**: Maintains existing CSV file format and field structure when adding new entries
+- **Auto-Discovery Workflow**: Seamless integration between network scanning and CSV inventory management
+- **Enhanced Logging**: Detailed logging of CSV update operations with summaries of added hosts
+
+### v1.1.1
 - **Connection Logging Optimization**: Eliminated paramiko authentication noise during detection
 - **MAC Address Lookup**: Failed devices now show MAC addresses in connection summary
 - **Vendor Identification**: Automatic device manufacturer lookup using MAC address APIs
@@ -893,4 +998,3 @@ For issues, questions, or contributions:
 - **Error Handling**: SSH connection retry logic and error classification
 - **Individual JSON Files**: Separate JSON output per server for analysis tools
 - **Configuration**: Support for both single and multiple network configurations
-

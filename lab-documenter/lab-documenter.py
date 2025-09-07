@@ -54,6 +54,7 @@ Examples:
   %(prog)s --network "192.168.1.0/24,10.0.0.0/24" --scan  Scan multiple network ranges
   %(prog)s --ssh-user admin --scan            Use specific SSH username
   %(prog)s --workers 20 --scan                Use 20 concurrent workers for faster scanning
+  %(prog)s --scan --csv servers.csv --csv-update  Scan network and auto-add new systems to CSV
 
 Configuration:
   The script looks for config.json in the current directory by default.
@@ -82,6 +83,8 @@ Configuration:
                            help='Show what would be done without making changes')
     mode_group.add_argument('--clean', action='store_true',
                            help='Delete all files in ./documentation and ./logs directories')
+    mode_group.add_argument('--csv-update', action='store_true',
+                           help='Auto-add successfully documented network-discovered hosts to CSV file (requires --scan and --csv)')
     
     # File paths
     file_group = parser.add_argument_group('File Paths')
@@ -141,6 +144,17 @@ Configuration:
     # Update global CONFIG for modules
     CONFIG.update(config)
     
+    # Validate --csv-update requirements
+    if args.csv_update:
+        if not args.scan:
+            print("ERROR: --csv-update requires --scan to discover new hosts")
+            print("Usage: %s --scan --csv servers.csv --csv-update" % sys.argv[0])
+            sys.exit(1)
+        if not config.get('csv_file'):
+            print("ERROR: --csv-update requires --csv FILE or csv_file in config")
+            print("Usage: %s --scan --csv servers.csv --csv-update" % sys.argv[0])
+            sys.exit(1)
+    
     # Check for --use-existing-data mode FIRST
     if args.use_existing_data:
         # Check if inventory file exists
@@ -181,6 +195,8 @@ Configuration:
             ignored_switches.append('--csv')
         if args.clean:
             ignored_switches.append('--clean')
+        if args.csv_update:
+            ignored_switches.append('--csv-update')
         
         if ignored_switches:
             print(f"INFO: --use-existing-data provided, ignoring: {', '.join(ignored_switches)}")
@@ -282,7 +298,9 @@ Configuration:
                 else:
                     logger.debug(f"  {key}: {value}")
         
-        # Determine which hosts to scan
+        # Determine which hosts to scan and track sources for CSV auto-update
+        network_discovered_hosts = []
+        csv_hosts = []
         hosts = []
         
         if not args.csv_only and args.scan:
@@ -291,8 +309,8 @@ Configuration:
                 logger.info(f"Would scan networks: {networks_display}")
             else:
                 scanner = NetworkScanner(config['network_ranges'], config['max_workers'])
-                scanned_hosts = scanner.scan_network()
-                hosts.extend(scanned_hosts)
+                network_discovered_hosts = scanner.scan_network()
+                hosts.extend(network_discovered_hosts)
         
         # Always check for CSV hosts
         csv_file = config['csv_file']
@@ -321,6 +339,8 @@ Configuration:
         
         if args.dry_run:
             logger.info("DRY RUN: Would collect data from hosts, save inventory, and create documentation files")
+            if args.csv_update:
+                logger.info("DRY RUN: Would auto-add successfully documented network-discovered hosts to CSV")
             return
         
         # Collect data
@@ -328,6 +348,33 @@ Configuration:
         inventory_manager.collect_all_data(
             hosts, config, max_workers
         )
+        
+        # Handle CSV auto-update if requested
+        if args.csv_update and network_discovered_hosts and not args.dry_run:
+            csv_hosts_set = set(csv_hosts)
+            successfully_documented = []
+            
+            # Find network-discovered hosts that were successfully documented but not in CSV
+            for host in network_discovered_hosts:
+                if host not in csv_hosts_set:
+                    # Check if this host was successfully documented
+                    # Look for it in inventory by original hostname or actual hostname
+                    for inv_hostname, inv_data in inventory_manager.inventory.items():
+                        if (inv_data.get('reachable') and 
+                            (inv_hostname == host or inv_data.get('hostname') == host)):
+                            successfully_documented.append({
+                                'hostname': inv_data.get('actual_hostname', inv_hostname),
+                                'original_ip': host,
+                                'platform_type': inv_data.get('platform_type', 'unknown'),
+                                'os_name': inv_data.get('os_release', {}).get('name', 'Unknown')
+                            })
+                            break
+            
+            if successfully_documented:
+                logger.info(f"Auto-adding {len(successfully_documented)} newly discovered hosts to CSV file")
+                inventory_manager.update_csv_with_new_hosts(csv_file, successfully_documented)
+            else:
+                logger.info("No new hosts to add to CSV file")
         
         # Save inventory
         inventory_manager.save_inventory(config['output_file'])
