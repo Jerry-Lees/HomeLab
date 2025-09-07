@@ -20,6 +20,17 @@ from modules.wiki import MediaWikiUpdater
 from modules.documentation import DocumentationManager, generate_mediawiki_content, generate_wiki_index_content
 from modules.utils import setup_logging, clean_directories, print_connection_summary, load_ignore_list, filter_ignored_hosts, get_unique_hosts, validate_ssh_configuration, validate_mediawiki_configuration
 
+def setup_device_context_logging():
+    """Set up device context logging to prevent interlaced messages"""
+    from modules.utils import DeviceContextFilter
+    
+    # Get the root logger
+    root_logger = logging.getLogger()
+    
+    # Add device context filter to prevent interlaced logging
+    device_filter = DeviceContextFilter()
+    root_logger.addFilter(device_filter)
+
 def main():
     parser = argparse.ArgumentParser(
         description='Lab Documenter - Discovers and documents servers, VMs, containers, and services in your home lab',
@@ -179,6 +190,9 @@ Configuration:
         # Set up logging AFTER we know we're not cleaning
         logger = setup_logging(verbose=args.verbose, quiet=args.quiet)
         
+        # Set up device context logging to prevent interlaced messages
+        setup_device_context_logging()
+        
         if args.dry_run:
             logger.info("DRY RUN MODE - No changes will be made")
             logger.info(f"Would use existing inventory data from: {config['output_file']}")
@@ -212,6 +226,9 @@ Configuration:
         
         # NOW set up logging (after potential clean operation)
         logger = setup_logging(verbose=args.verbose, quiet=args.quiet)
+        
+        # Set up device context logging to prevent interlaced messages
+        setup_device_context_logging()
         
         if args.dry_run:
             logger.info("DRY RUN MODE - No changes will be made")

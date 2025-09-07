@@ -389,83 +389,93 @@ class SystemCollector:
         except Exception as e:
             if not self.in_detection_mode:
                 logger.warning(f"SSH command failed on {self.hostname}: {command} - {e}")
-            return None
-    
+                return None
+        
     def collect_system_info(self) -> Dict:
         """Collect comprehensive system information using cascade connection"""
-        # Log the start of collection for this device
-        logger.info(f"{'='*60}")
-        logger.info(f"STARTING DATA COLLECTION: {self.hostname}")
-        logger.info(f"{'='*60}")
+        from modules.utils import set_device_context, clear_device_context
         
-        info = {
-            'hostname': self.hostname,
-            'timestamp': datetime.now().isoformat(),
-            'reachable': False
-        }
+        # Set device context for this thread
+        set_device_context(self.hostname)
         
-        # Try connection cascade
-        connected, platform_type = self.try_connection_cascade()
-        if not connected:
-            info['connection_failure_reason'] = self.connection_failure_reason
-            logger.warning(f"FAILED TO CONNECT: {self.hostname} - {self.connection_failure_reason}")
+        try:
+            # Log the start of collection for this device
             logger.info(f"{'='*60}")
-            logger.info(f"FINISHED DATA COLLECTION: {self.hostname} (FAILED)")
+            logger.info(f"STARTING DATA COLLECTION: {self.hostname}")
             logger.info(f"{'='*60}")
+            
+            info = {
+                'hostname': self.hostname,
+                'timestamp': datetime.now().isoformat(),
+                'reachable': False
+            }
+            
+            # Try connection cascade
+            connected, platform_type = self.try_connection_cascade()
+            if not connected:
+                info['connection_failure_reason'] = self.connection_failure_reason
+                logger.warning(f"FAILED TO CONNECT: {self.hostname} - {self.connection_failure_reason}")
+                logger.info(f"{'='*60}")
+                logger.info(f"FINISHED DATA COLLECTION: {self.hostname} (FAILED)")
+                logger.info(f"{'='*60}")
+                return info
+            
+            # Refine platform detection (important for TrueNAS)
+            final_platform_type = self.refine_platform_detection()
+            
+            info['reachable'] = True
+            info['platform_type'] = final_platform_type
+            info['platform_detection'] = self.platform_info
+            info['connection_type'] = self.connection_type
+            
+            # Initialize specialized collectors based on final platform type
+            if self.connection_type in ['ssh_key', 'ssh_password']:
+                self.kubernetes_collector = KubernetesCollector(self.run_command)
+                self.proxmox_collector = ProxmoxCollector(self.run_command)
+            
+            if HAS_WINDOWS_COLLECTOR and self.connection_type == 'winrm':
+                # Create Windows collector with silent command runner for feature detection
+                self.windows_collector = WindowsCollector(self.run_winrm_command_silent)
+            
+            # NAS collector might already be initialized in refine_platform_detection
+            if HAS_NAS_COLLECTOR and final_platform_type == 'nas' and not self.nas_collector:
+                self.nas_collector = NASCollector(self.run_command)
+            
+            # Get actual hostname
+            actual_hostname = self.get_actual_hostname()
+            if actual_hostname:
+                info['actual_hostname'] = actual_hostname
+            
+            # Route to platform-specific collection based on FINAL platform type
+            if final_platform_type == 'windows':
+                info.update(self.collect_windows_info())
+            elif final_platform_type == 'nas':
+                info.update(self.collect_nas_info())
+            else:  # linux
+                info.update(self.collect_linux_info())
+            
+            # Always try to collect Kubernetes and Proxmox info (Linux/NAS only)
+            if final_platform_type in ['linux', 'nas']:
+                logger.debug(f"Checking for Kubernetes")
+                info['kubernetes_info'] = self.kubernetes_collector.collect_kubernetes_info()
+                logger.debug(f"Checking for Proxmox")
+                info['proxmox_info'] = self.proxmox_collector.collect_proxmox_info()
+            
+            # Clean up connections
+            self.cleanup_connections()
+            
+            # Log the completion of collection for this device
+            logger.info(f"{'='*60}")
+            logger.info(f"FINISHED DATA COLLECTION: {self.hostname} (SUCCESS)")
+            logger.info(f"Platform: {final_platform_type}, Connection: {self.connection_type}")
+            logger.info(f"{'='*60}")
+            
             return info
-        
-        # Refine platform detection (important for TrueNAS)
-        final_platform_type = self.refine_platform_detection()
-        
-        info['reachable'] = True
-        info['platform_type'] = final_platform_type
-        info['platform_detection'] = self.platform_info
-        info['connection_type'] = self.connection_type
-        
-        # Initialize specialized collectors based on final platform type
-        if self.connection_type in ['ssh_key', 'ssh_password']:
-            self.kubernetes_collector = KubernetesCollector(self.run_command)
-            self.proxmox_collector = ProxmoxCollector(self.run_command)
-        
-        if HAS_WINDOWS_COLLECTOR and self.connection_type == 'winrm':
-            # Create Windows collector with silent command runner for feature detection
-            self.windows_collector = WindowsCollector(self.run_winrm_command_silent)
-        
-        # NAS collector might already be initialized in refine_platform_detection
-        if HAS_NAS_COLLECTOR and final_platform_type == 'nas' and not self.nas_collector:
-            self.nas_collector = NASCollector(self.run_command)
-        
-        # Get actual hostname
-        actual_hostname = self.get_actual_hostname()
-        if actual_hostname:
-            info['actual_hostname'] = actual_hostname
-        
-        # Route to platform-specific collection based on FINAL platform type
-        if final_platform_type == 'windows':
-            info.update(self.collect_windows_info())
-        elif final_platform_type == 'nas':
-            info.update(self.collect_nas_info())
-        else:  # linux
-            info.update(self.collect_linux_info())
-        
-        # Always try to collect Kubernetes and Proxmox info (Linux/NAS only)
-        if final_platform_type in ['linux', 'nas']:
-            logger.debug(f"Checking for Kubernetes on {self.hostname}")
-            info['kubernetes_info'] = self.kubernetes_collector.collect_kubernetes_info()
-            logger.debug(f"Checking for Proxmox on {self.hostname}")
-            info['proxmox_info'] = self.proxmox_collector.collect_proxmox_info()
-        
-        # Clean up connections
-        self.cleanup_connections()
-        
-        # Log the completion of collection for this device
-        logger.info(f"{'='*60}")
-        logger.info(f"FINISHED DATA COLLECTION: {self.hostname} (SUCCESS)")
-        logger.info(f"Platform: {final_platform_type}, Connection: {self.connection_type}")
-        logger.info(f"{'='*60}")
-        
-        return info
-    
+            
+        finally:
+            # Always clear device context when done
+            clear_device_context()
+
     def get_actual_hostname(self) -> Optional[str]:
         """Get actual hostname using appropriate method for platform"""
         if self.connection_type == 'winrm':
@@ -484,7 +494,7 @@ class SystemCollector:
     
     def collect_windows_info(self) -> Dict:
         """Collect Windows-specific information"""
-        logger.info(f"Collecting Windows information for {self.hostname}")
+        logger.info(f"Collecting Windows information")
         
         info = {}
         
@@ -522,7 +532,7 @@ class SystemCollector:
     
     def collect_nas_info(self) -> Dict:
         """Collect NAS-specific information"""
-        logger.info(f"Collecting NAS information for {self.hostname}")
+        logger.info(f"Collecting NAS information")
         
         info = {}
         
@@ -577,7 +587,7 @@ class SystemCollector:
     
     def collect_linux_info(self) -> Dict:
         """Collect Linux-specific information"""
-        logger.info(f"Collecting Linux information for {self.hostname}")
+        logger.info(f"Collecting Linux information")
         
         info = {}
         
@@ -618,6 +628,8 @@ class SystemCollector:
         info['listening_ports'] = self.get_listening_ports()
         
         return info
+    
+    
     
     def cleanup_connections(self):
         """Clean up all connections"""
@@ -660,10 +672,10 @@ class SystemCollector:
     
     def get_memory_modules(self) -> dict:
         """Get detailed memory module information as structured data"""
-        logger.debug(f"Trying lshw command on {self.hostname}")
+        logger.debug(f"Trying lshw command")
         memory_info = self.run_command('lshw -c memory 2>/dev/null')
         if memory_info and 'command not found' not in memory_info.lower() and len(memory_info.strip()) > 10:
-            logger.debug(f"lshw successful on {self.hostname}")
+            logger.debug(f"lshw successful")
             return self.parse_lshw_memory_output(memory_info)
         
         return {'bios_info': {}, 'memory_banks': [], 'cache_info': [], 'system_memory': {}, 'error': 'Memory module information not available'}

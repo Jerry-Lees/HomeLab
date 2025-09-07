@@ -9,6 +9,299 @@ import os
 import sys
 import socket
 from typing import Optional, List, Tuple, Dict, Union
+import subprocess
+import requests
+import json
+import time
+import threading
+_thread_local = threading.local()
+
+def set_device_context(hostname: str):
+    """Set the current device being processed for this thread"""
+    _thread_local.current_device = hostname
+
+def get_device_context() -> str:
+    """Get the current device being processed for this thread"""
+    return getattr(_thread_local, 'current_device', None)
+
+def clear_device_context():
+    """Clear the device context for this thread"""
+    if hasattr(_thread_local, 'current_device'):
+        delattr(_thread_local, 'current_device')
+
+class DeviceContextFilter(logging.Filter):
+    """Logging filter to add device context to log messages"""
+    
+    def filter(self, record):
+        device = get_device_context()
+        if device:
+            # Only add context to messages that don't already have block headers
+            if not any(marker in record.getMessage() for marker in ['===', 'STARTING DATA COLLECTION', 'FINISHED DATA COLLECTION']):
+                record.msg = f"[{device}] {record.msg}"
+        return True
+
+# Cache for MAC vendor lookups to avoid repeated API calls
+_mac_vendor_cache = {}
+
+def get_mac_address(ip_address: str) -> Optional[str]:
+    """Get MAC address for an IP address using ARP table"""
+    try:
+        # Try different ARP commands for different systems
+        commands = [
+            f'arp -n {ip_address}',  # Linux/Unix
+            f'arp {ip_address}',     # Alternative format
+            f'ip neigh show {ip_address}'  # Modern Linux
+        ]
+        
+        for cmd in commands:
+            try:
+                result = subprocess.run(cmd.split(), capture_output=True, text=True, timeout=5)
+                if result.returncode == 0 and result.stdout:
+                    output = result.stdout.strip()
+                    
+                    # Parse ARP output to extract MAC address
+                    # Look for MAC address pattern: XX:XX:XX:XX:XX:XX or XX-XX-XX-XX-XX-XX
+                    import re
+                    mac_pattern = r'([0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}'
+                    match = re.search(mac_pattern, output)
+                    if match:
+                        mac = match.group(0)
+                        # Normalize to colon format
+                        return mac.replace('-', ':').upper()
+                        
+            except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+                continue
+                
+        return None
+    except Exception as e:
+        return None
+
+def lookup_mac_vendor(mac_address: str, use_api: bool = True) -> Dict[str, str]:
+    """
+    Look up MAC address vendor information
+    
+    Args:
+        mac_address: MAC address in XX:XX:XX:XX:XX:XX format
+        use_api: Whether to use online API lookup (requires internet)
+    
+    Returns:
+        Dict with vendor info: {'vendor': 'Vendor Name', 'source': 'api/local/unknown'}
+    """
+    if not mac_address:
+        return {'vendor': 'Unknown', 'source': 'unknown'}
+    
+    # Check cache first
+    if mac_address in _mac_vendor_cache:
+        return _mac_vendor_cache[mac_address]
+    
+    vendor_info = {'vendor': 'Unknown', 'source': 'unknown'}
+    
+    # Extract OUI (first 3 octets)
+    oui = mac_address[:8].replace(':', '').upper()
+    
+    # Try local OUI lookup first (basic common vendors)
+    local_vendor = _get_local_vendor(oui)
+    if local_vendor:
+        vendor_info = {'vendor': local_vendor, 'source': 'local'}
+    
+    # Try API lookup if enabled and no local match
+    if use_api and vendor_info['vendor'] == 'Unknown':
+        api_vendor = _api_vendor_lookup(mac_address)
+        if api_vendor:
+            vendor_info = {'vendor': api_vendor, 'source': 'api'}
+    
+    # Cache the result
+    _mac_vendor_cache[mac_address] = vendor_info
+    return vendor_info
+
+def _get_local_vendor(oui: str) -> Optional[str]:
+    """Get vendor from local OUI database (common vendors only)"""
+    # Common OUI mappings - you can expand this
+    local_ouis = {
+        '000D93': 'Apple',
+        '001B63': 'Apple', 
+        '001EC2': 'Apple',
+        '002608': 'Apple',
+        '002332': 'Apple',
+        '002436': 'Apple',
+        '002500': 'Apple',
+        '0025BC': 'Apple',
+        '0026BB': 'Apple',
+        'F0F61C': 'Apple',
+        'F82793': 'Apple',
+        '001F3F': 'Apple',
+        '0050E4': 'Apple',
+        '006171': 'Apple',
+        '0003BA': 'Sun Microsystems',
+        '080027': 'VirtualBox',
+        '0C0267': 'VirtualBox', 
+        '005056': 'VMware',
+        '000C29': 'VMware',
+        '001C14': 'VMware',
+        '0003FF': 'Microsoft',
+        '000D3A': 'Microsoft',
+        '001DD8': 'Microsoft',
+        '0017FA': 'Microsoft',
+        '7C1E52': 'Microsoft',
+        '001B44': 'Microsoft',
+        '00155D': 'Microsoft',
+        '3C970E': 'Microsoft',
+        '000B97': 'Intel',
+        '001B21': 'Intel',
+        '0013CE': 'Intel',
+        '001517': 'Intel',
+        '0016E6': 'Intel',
+        '001E68': 'Intel',
+        '0021F6': 'Intel',
+        '002186': 'Intel',
+        '002241': 'Intel',
+        '0024D7': 'Intel',
+        'E4B318': 'Intel',
+        '7CD1C3': 'Intel',
+        '000C76': 'Micro-Star International',
+        '001E58': 'WD',
+        '001B2F': 'WD',
+        '0090A9': 'Western Digital',
+        '001CF0': 'WD',
+        '001143': 'Dell',
+        '0014C2': 'Dell',
+        '00188B': 'Dell',
+        '001EC9': 'Dell',
+        '002219': 'Dell',
+        '0024E8': 'Dell',
+        '34159E': 'Dell',
+        'B0838F': 'Dell',
+        '001E0B': 'Cisco',
+        '00036B': 'Cisco',
+        '0007EB': 'Cisco',
+        '000B46': 'Cisco',
+        '000C85': 'Cisco',
+        '000FE2': 'Cisco',
+        '0013C4': 'Cisco',
+        '001643': 'Cisco',
+        '00D0C0': 'Cisco',
+        '001B0C': 'HP',
+        '001CC4': 'HP',
+        '001E0B': 'HP',
+        '002264': 'HP',
+        '0024A8': 'HP',
+        '0025B3': 'HP',
+        '001A4B': 'HP',
+        '009027': 'HP',
+        '001B78': 'HP',
+        '000423': 'HP',
+        '001560': 'ASUSTek',
+        '0013D4': 'ASUSTek',
+        '001EA6': 'ASUSTek',
+        '002522': 'ASUSTek',
+        '0026B6': 'ASUSTek',
+        '001F3F': 'ASUSTek',
+        '001D60': 'ASUSTek',
+        '000272': 'ASUSTek',
+        '000EA6': 'ASUSTek',
+        '70F395': 'ASUSTek',
+        '0025D3': 'Apple',
+        '68A86D': 'Apple',
+        'A81B5A': 'Apple',
+        'D49A20': 'Apple',
+        'E48B7F': 'Apple',
+        'F07960': 'Apple',
+        'F4F15A': 'Apple',
+        'F86214': 'Apple',
+        '4C32CC': 'Apple',
+        '5C59D6': 'Apple',
+        '6CBB13': 'Apple',
+        '84B153': 'Apple',
+        '843835': 'Apple',
+        '8C7712': 'Apple',
+        '90840D': 'Apple',
+        '9027E4': 'Apple',
+        '9803D8': 'Apple',
+        'A4C361': 'Apple',
+        'AC3C0B': 'Apple',
+        'B09FBA': 'Apple',
+        'B4F0AB': 'Apple',
+        'BCE143': 'Apple',
+        'C0D012': 'Apple',
+        'C42AD0': 'Apple',
+        'C4618B': 'Apple',
+        'C83DDC': 'Apple',
+        'CC25EF': 'Apple',
+        'D022BE': 'Apple',
+        'D02598': 'Apple',
+        'D0929E': 'Apple',
+        'D4619D': 'Apple',
+        'D8CF9C': 'Apple',
+        'DC2B2A': 'Apple',
+        'E0B52D': 'Apple',
+        'E425E7': 'Apple',
+        'E49A79': 'Apple',
+        'E498D1': 'Apple',
+        'E4C63D': 'Apple',
+        'E8040B': 'Apple',
+        'EC3586': 'Apple',
+        'EC8892': 'Apple',
+        'F40F24': 'Apple',
+        'F41BA1': 'Apple',
+        'F45FD4': 'Apple',
+        'F4D108': 'Apple',
+        'F4F951': 'Apple',
+        'F86FC1': 'Apple',
+        'FC253F': 'Apple',
+        '001124': 'Synology',
+        '001132': 'Synology',
+        '001743': 'Synology',
+        '0011D8': 'Synology',
+        '0E8E68': 'Synology',
+        '001EF7': 'QNAP',
+        '245EBE': 'QNAP',
+        '24F5AA': 'QNAP',
+        '000C29': 'VMware',
+        '005056': 'VMware',
+        '001C14': 'VMware',
+        '000569': 'VMware',
+        '0050C2': 'VMware',
+        '0A0027': 'VirtualBox'
+    }
+    
+    return local_ouis.get(oui[:6])  # Use first 6 chars (3 octets)
+
+def _api_vendor_lookup(mac_address: str) -> Optional[str]:
+    """Look up vendor using online API"""
+    try:
+        # Use macvendors.com API (free, no rate limit mentioned)
+        url = f"https://api.macvendors.com/{mac_address}"
+        
+        # Add a small delay to be respectful
+        time.sleep(0.1)
+        
+        response = requests.get(url, timeout=3)
+        if response.status_code == 200:
+            vendor = response.text.strip()
+            if vendor and vendor != "Not Found":
+                return vendor
+        elif response.status_code == 429:  # Rate limited
+            time.sleep(1)  # Wait a bit longer
+            
+    except (requests.RequestException, requests.Timeout):
+        pass
+    
+    return None
+
+def format_device_summary_with_mac(host: str, failure_reason: str, use_mac_lookup: bool = True) -> str:
+    """Format device summary with MAC address and vendor info"""
+    formatted_host = format_host_with_dns(host)
+    
+    if use_mac_lookup:
+        mac_address = get_mac_address(host.split('@')[-1] if '@' in host else host)
+        if mac_address:
+            vendor_info = lookup_mac_vendor(mac_address, use_api=True)
+            vendor_text = f" [{vendor_info['vendor']}]" if vendor_info['vendor'] != 'Unknown' else ''
+            return f"{formatted_host} (MAC: {mac_address}{vendor_text})"
+        else:
+            return f"{formatted_host} (MAC: Unknown)"
+    else:
+        return formatted_host
 
 def setup_logging(log_dir: str = 'logs', verbose: bool = False, quiet: bool = False) -> logging.Logger:
     """Set up logging configuration after potential clean operations"""
@@ -220,7 +513,7 @@ def format_host_with_dns(host: str) -> str:
         return host
 
 def print_connection_summary(connection_failures: List[Dict[str, str]]) -> None:
-    """Print a summary of connection failures at the end of execution"""
+    """Print a summary of connection failures with MAC addresses at the end of execution"""
     logger = logging.getLogger(__name__)
     
     if not connection_failures:
@@ -242,20 +535,37 @@ def print_connection_summary(connection_failures: List[Dict[str, str]]) -> None:
             failure_groups[reason] = []
         failure_groups[reason].append(failure)
     
-    # Print failures grouped by reason
+    # Print failures grouped by reason with MAC addresses
     for reason, failures in failure_groups.items():
         logger.info(f"• {reason} ({len(failures)} device{'s' if len(failures) != 1 else ''}):")
         for failure in failures:
             original_host = failure['original_host']
             actual_hostname = failure.get('actual_hostname')
             
+            # Get MAC address and vendor info for failed device
+            ip_only = original_host.split('@')[-1] if '@' in original_host else original_host
+            
+            # Extract just IP if it has port info
+            if ':' in ip_only:
+                ip_only = ip_only.split(':')[0]
+            
+            mac_address = get_mac_address(ip_only)
+            vendor_text = ""
+            if mac_address:
+                vendor_info = lookup_mac_vendor(mac_address, use_api=True)
+                if vendor_info['vendor'] != 'Unknown':
+                    vendor_text = f" [{vendor_info['vendor']}]"
+                mac_text = f" (MAC: {mac_address}{vendor_text})"
+            else:
+                mac_text = " (MAC: Unknown)"
+            
             # Format the host with reverse DNS lookup
             formatted_host = format_host_with_dns(original_host)
             
             if actual_hostname and actual_hostname != original_host:
-                logger.info(f"  - {formatted_host} (hostname: {actual_hostname})")
+                logger.info(f"  - {formatted_host} (hostname: {actual_hostname}){mac_text}")
             else:
-                logger.info(f"  - {formatted_host}")
+                logger.info(f"  - {formatted_host}{mac_text}")
         logger.info("")
     
     logger.info(f"{'='*60}")
