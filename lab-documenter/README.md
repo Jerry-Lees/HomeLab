@@ -685,6 +685,16 @@ For issues, questions, or contributions:
 
 ## Changelog
 
+### v1.1.0 (Current)
+- **Enhanced SSH Diagnostics**: Comprehensive connectivity troubleshooting with distribute-key.sh
+- **Platform Detection Improvements**: Better Windows, NAS, and TrueNAS detection
+- **Offline Mode**: `--use-existing-data` for fast iterative testing
+- **Enhanced Logging**: Clear device boundaries and connection summaries
+- **Reverse DNS Lookups**: Identify failed devices by hostname in connection summary
+- **Windows Features Fix**: Proper Server vs Client feature detection
+- **Multi-Platform Authentication**: SSH keys, SSH passwords, and WinRM support
+- **TrueNAS Support**: Full Core and Scale detection with FreeBSD compatibility
+
 ### v1.0.9 (Current)
 - **Template System**: Integrated Jinja2-based template engine for customizable output generation
 - **Modular Templates**: Organized templates into reusable components (base, components, pages)
@@ -694,7 +704,7 @@ For issues, questions, or contributions:
 - **Enhanced Customization**: Non-programmers can modify output by editing template files
 - **Improved Architecture**: Clean separation of data processing and presentation logic
 
-### v1.0.0 (Previous)
+### v1.0.0 
 - **Clean Architecture**: Separation into focused modules
 - **Multiple Network Support**: Scan across multiple CIDR ranges simultaneously  
 - **Intelligent Service Discovery**: Auto-learning database with service categorization
