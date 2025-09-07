@@ -1,29 +1,43 @@
 # Lab Documenter
 
-A comprehensive home lab documentation system that automatically discovers and documents servers, VMs, containers, and services in your infrastructure. Features intelligent network scanning, detailed connection failure analysis, automatic service discovery, and MediaWiki integration with a flexible Jinja2 template system.
+A comprehensive home lab documentation system that automatically discovers and documents servers, VMs, containers, and services across multiple platforms. Features intelligent network scanning, multi-platform authentication, detailed connection failure analysis, automatic service discovery, and MediaWiki integration with a flexible Jinja2 template system.
 
 ## Features
 
 ### Core Capabilities
+- **Multi-Platform Support**: Windows (WinRM), Linux (SSH keys), and NAS systems (SSH passwords)
+- **Intelligent Platform Detection**: Automatically detects and adapts to Windows, Linux, and NAS platforms
+- **Cascade Authentication**: Smart connection priority system for mixed environments
 - **Automatic Discovery**: Network scanning across multiple CIDR ranges to find live hosts
-- **Multi-Platform Support**: Ubuntu, Debian, CentOS, RHEL, Rocky Linux, Fedora, and other Linux distributions
 - **Clean Architecture**: Separation of concerns with dedicated modules for different functions
 - **Template System**: Jinja2-based templates for customizable documentation output
 
+### Supported Platforms
+- **Windows Systems**: Windows Server and Desktop editions via WinRM
+- **Linux Distributions**: Ubuntu, Debian, CentOS, RHEL, Rocky Linux, Fedora, and others
+- **NAS Systems**: Synology DSM, QNAP QTS, Asustor ADM, Buffalo, Netgear ReadyNAS
+- **FreeBSD Systems**: TrueNAS Core/Scale, generic FreeBSD installations
+- **Virtualization**: Proxmox VE hypervisors with VM/container enumeration
+- **Container Platforms**: Docker containers and Kubernetes clusters
+
 ### Data Collection
-- **System Information**: OS, kernel, hardware, uptime, resource usage
+- **System Information**: OS, kernel, hardware, uptime, resource usage (all platforms)
 - **Network Configuration**: IP addresses, listening ports with service identification
-- **Running Services**: Systemd services with intelligent descriptions from auto-learning database
+- **Running Services**: Platform-specific service enumeration with intelligent descriptions
+- **Windows Features**: Server roles/features and optional features detection
+- **NAS Capabilities**: Storage pools, shares, disk health, installed packages
 - **Docker Containers**: Container names, images, and status information
 - **Kubernetes Integration**: Cluster info, nodes, pods, services, deployments with issue detection
 - **Proxmox Support**: VM and container listings on Proxmox hypervisors
 
 ### Advanced Features  
 - **Smart Service Discovery**: Auto-learning database that categorizes unknown services
-- **Connection Failure Analysis**: Detailed categorization of SSH connection failures
+- **Connection Failure Analysis**: Detailed categorization of connection failures with reverse DNS
 - **Host Filtering**: ignore.csv support to skip problematic or irrelevant hosts
 - **Multiple Network Ranges**: Scan across different subnets in a single run
 - **Clean Operation**: Easy cleanup of generated documentation and logs
+- **Offline Mode**: Process existing data without re-scanning for iterative development
+- **Enhanced SSH Diagnostics**: Comprehensive connectivity troubleshooting tools
 - **Beep Notification**: Audio completion signal for long-running scans
 
 ### Output Formats
@@ -35,7 +49,7 @@ A comprehensive home lab documentation system that automatically discovers and d
 
 ### Performance & Reliability
 - **Concurrent Processing**: Multi-threaded scanning for faster execution
-- **Secure SSH Access**: Key-based authentication with connection retry logic
+- **Multi-Platform Security**: WinRM for Windows, SSH keys for Linux, SSH passwords for NAS
 - **Comprehensive Logging**: Detailed logs with intelligent error categorization
 - **Flexible Configuration**: JSON config files with command-line overrides
 - **Template Fallback**: Graceful degradation when templates are unavailable
@@ -57,12 +71,12 @@ A comprehensive home lab documentation system that automatically discovers and d
    - Adds SSH key to ssh-agent
    - Creates configuration files with proper paths
    - Sets up daily cron job
-   - Generates helper scripts
+   - Generates enhanced helper scripts with diagnostics
 
 2. **Manual Installation**:
    ```bash
    # Install dependencies
-   pip3 install paramiko requests jinja2
+   pip3 install paramiko requests jinja2 pywinrm
    
    # Copy script to desired location
    chmod +x lab-documenter.py
@@ -71,11 +85,14 @@ A comprehensive home lab documentation system that automatically discovers and d
 ### Basic Usage
 
 ```bash
-# Scan your networks and create local documentation
+# Scan your networks and create local documentation (all platforms)
 ./lab-documenter.py --scan
 
 # Only scan servers listed in CSV file
 ./lab-documenter.py --csv-only
+
+# Use existing data without re-scanning (offline mode)
+./lab-documenter.py --use-existing-data --update-wiki
 
 # Scan networks and also update MediaWiki pages  
 ./lab-documenter.py --scan --update-wiki
@@ -96,7 +113,7 @@ A comprehensive home lab documentation system that automatically discovers and d
 
 ```json
 {
-    "ssh_user": "your_admin_user",
+    "ssh_user": "your_linux_admin_user",
     "ssh_key_path": "./.ssh/homelab_key",
     "network_ranges": [
         "192.168.1.0/24",
@@ -107,6 +124,10 @@ A comprehensive home lab documentation system that automatically discovers and d
     "max_workers": 5,
     "output_file": "./inventory.json",
     "csv_file": "./servers.csv",
+    "windows_user": "administrator",
+    "windows_password": "your_windows_password",
+    "nas_user": "admin",
+    "nas_password": "your_nas_password",
     "mediawiki_api": "https://wiki.example.com/api.php",
     "mediawiki_user": "documentation_bot",
     "mediawiki_password": "your_bot_password",
@@ -114,15 +135,26 @@ A comprehensive home lab documentation system that automatically discovers and d
 }
 ```
 
+### Multi-Platform Authentication
+
+The system uses a cascade authentication approach for mixed environments:
+
+1. **Windows Systems**: WinRM with username/password (port 5985)
+2. **NAS Systems**: SSH with username/password (typically admin accounts)
+3. **Linux Systems**: SSH with key-based authentication (most secure)
+
 ### Server List (`servers.csv`)
 
-Optional file to specify servers manually:
+Optional file to specify servers manually across all platforms:
 
 ```csv
 hostname,description,role,location
 server1.homelab.local,Main file server,NAS,Rack 1
 k8s-master.homelab.local,Kubernetes master node,K8s Master,Rack 1
 proxmox1.homelab.local,Proxmox hypervisor,Virtualization,Rack 2
+windows-server.local,Windows Server 2022,Windows Server,Rack 1
+synology-nas.local,Synology NAS,Storage,Rack 2
+truenas.local,TrueNAS Scale system,FreeBSD NAS,Rack 2
 192.168.1.100,Docker host,Container Host,Rack 1
 ubuntu-vm1,Development VM,Development,Virtual
 ```
@@ -135,64 +167,63 @@ Skip problematic hosts that will never be reachable:
 IP or hostname,notes about the device
 192.168.1.1,Router management interface  
 192.168.1.50,Broken server that never responds
-printer.local,Network printer without SSH
+printer.local,Network printer without SSH/WinRM
 old-server.local,Decommissioned equipment
 # 192.168.1.200,This line is commented out
 ```
 
-## Template System
+## Platform Setup
 
-Lab Documenter uses Jinja2 templates for flexible documentation generation. Templates are organized in a structured hierarchy:
+### Windows Systems
 
-### Template Structure
-```
-templates/
-├── base/
-│   ├── macros.j2                 # Reusable macros
-│   └── server_base.md.j2         # Base Markdown template
-├── components/
-│   ├── services.md.j2            # Services section
-│   ├── kubernetes.md.j2          # Kubernetes section
-│   ├── proxmox.md.j2            # Proxmox section
-│   ├── memory_modules.md.j2      # Memory information
-│   ├── docker_containers.md.j2   # Docker containers
-│   └── listening_ports.md.j2     # Network ports
-└── pages/
-    ├── server.md.j2              # Main server page (Markdown)
-    ├── server.wiki.j2            # Main server page (MediaWiki)
-    ├── index.md.j2               # Markdown index
-    └── index.wiki.j2             # MediaWiki index
-```
+1. **Enable WinRM** on target Windows systems:
+   ```cmd
+   winrm quickconfig
+   winrm set winrm/config/service @{AllowUnencrypted="true"}
+   ```
 
-### Template Features
-- **Variable Substitution**: `{{ hostname }}`, `{{ os_release.pretty_name }}`
-- **Conditionals**: `{% if kubernetes_info %}...{% endif %}`
-- **Loops**: `{% for service in services %}...{% endfor %}`
-- **Includes**: `{% include 'components/kubernetes.md.j2' %}`
-- **Macros**: Reusable formatting functions with parameters
-- **Filters**: Built-in and custom data transformation functions
+2. **Configure Windows credentials** in `config.json`:
+   - Use local administrator or domain account
+   - NTLM authentication is preferred for security
 
-### Customizing Templates
+3. **Firewall**: Ensure port 5985 is open for WinRM
 
-Templates can be modified to change output formatting without touching Python code:
+### Linux Systems
 
-```jinja2
-{# Example: Customize service display #}
-{% for service in services %}
-- **{{ service.display_name }}** ({{ service.status }})
-  {%- if service.description %} - {{ service.description }}{% endif %}
-{% endfor %}
-```
+1. **Distribute SSH keys** to Linux servers:
+   ```bash
+   ./distribute-key.sh user@192.168.1.100 ubuntu@server.local
+   ```
 
-### Template Fallback
+2. **SSH key setup** is handled by the installer automatically
 
-If Jinja2 is not available or templates are missing, the system automatically falls back to basic content generation with appropriate warnings.
+3. **Test connectivity**:
+   ```bash
+   ./distribute-key.sh --diagnose 192.168.1.100
+   ```
+
+### NAS Systems
+
+1. **Enable SSH** on your NAS (typically in admin panel)
+
+2. **Configure NAS credentials** in `config.json`:
+   - Usually `admin` user with admin password
+   - Some systems may require enabling SSH in settings
+
+3. **Supported NAS platforms**:
+   - Synology DSM
+   - QNAP QTS  
+   - Asustor ADM
+   - Buffalo TeraStation
+   - Netgear ReadyNAS
+   - TrueNAS Core/Scale
 
 ## Command Line Options
 
 ### Operation Modes
-- `--scan` - Scan network(s) for live hosts and collect data
+- `--scan` - Scan network(s) for live hosts and collect data (multi-platform)
 - `--csv-only` - Only scan hosts listed in CSV file (skip network scan)
+- `--use-existing-data` - Use existing inventory.json without re-scanning (offline mode)
 - `--update-wiki` - Update MediaWiki pages with collected data
 - `--update-wiki-index` - Create or update the wiki server index page
 - `--clean` - Delete all files in ./documentation and ./logs directories
@@ -207,12 +238,18 @@ If Jinja2 is not available or templates are missing, the system automatically fa
 - `--network RANGES` - Network range(s) to scan:
   - Single: `--network 192.168.1.0/24`
   - Multiple: `--network "192.168.1.0/24,10.0.0.0/24,172.16.0.0/16"`
-- `--ssh-user USER` - SSH username for server connections
+- `--ssh-user USER` - SSH username for Linux server connections
 - `--ssh-key FILE` - SSH private key file path
 - `--ssh-timeout SECONDS` - SSH connection timeout
 
 ### Performance Settings
 - `--workers N` - Number of concurrent workers for scanning
+
+### Multi-Platform Settings
+- `--windows-user USER` - Windows username for WinRM connections
+- `--windows-password PASS` - Windows password for WinRM connections
+- `--nas-user USER` - NAS username for SSH password connections
+- `--nas-password PASS` - NAS password for SSH password connections
 
 ### MediaWiki Settings
 - `--wiki-api URL` - MediaWiki API URL
@@ -226,19 +263,43 @@ If Jinja2 is not available or templates are missing, the system automatically fa
 
 ## Usage Examples
 
-### Basic Operations
+### Multi-Platform Operations
 ```bash
-# Simple network scan with local documentation
-./lab-documenter.py --scan
+# Scan mixed environment with all platform types
+./lab-documenter.py --scan --verbose
 
-# Scan only CSV hosts with verbose output
-./lab-documenter.py --csv-only --verbose
+# Offline mode - process existing data quickly
+./lab-documenter.py --use-existing-data --update-wiki
 
-# Test configuration without making changes
-./lab-documenter.py --dry-run --scan --update-wiki
+# Test Windows connectivity
+./lab-documenter.py --csv-only --dry-run --verbose
 
-# Clean old files and create fresh documentation
+# Clean and rebuild everything
 ./lab-documenter.py --clean --scan --update-wiki
+```
+
+### Platform-Specific Operations
+```bash
+# Test Windows systems only (specify in CSV)
+./lab-documenter.py --csv windows-servers.csv --csv-only
+
+# NAS systems with extended timeout
+./lab-documenter.py --ssh-timeout 30 --scan
+
+# Linux systems with custom key
+./lab-documenter.py --ssh-key ~/.ssh/custom_key --scan
+```
+
+### SSH Diagnostics
+```bash
+# Diagnose connectivity issues
+./distribute-key.sh --diagnose 192.168.1.100
+
+# Distribute keys to multiple Linux systems
+./distribute-key.sh admin@192.168.1.100 ubuntu@192.168.1.101 root@192.168.1.102
+
+# Test SSH connectivity after key distribution
+ssh -i .ssh/homelab_key admin@192.168.1.100
 ```
 
 ### MediaWiki Operations
@@ -247,7 +308,7 @@ If Jinja2 is not available or templates are missing, the system automatically fa
 ./lab-documenter.py --scan --update-wiki
 
 # Update only the wiki index page from existing data
-./lab-documenter.py --update-wiki-index
+./lab-documenter.py --use-existing-data --update-wiki-index
 
 # Use custom wiki index page title
 ./lab-documenter.py --update-wiki-index --wiki-index-page "My Lab Servers"
@@ -265,18 +326,6 @@ If Jinja2 is not available or templates are missing, the system automatically fa
 ./lab-documenter.py --scan  # Uses network_ranges from config.json
 ```
 
-### Custom Configuration
-```bash
-# Use custom configuration file
-./lab-documenter.py --config production.json --scan
-
-# Override CSV file location
-./lab-documenter.py --csv /tmp/test-servers.csv --csv-only
-
-# Save output to custom location with timestamp
-./lab-documenter.py --output inventory-$(date +%Y%m%d).json --scan
-```
-
 ### Performance Tuning
 ```bash
 # High-performance scanning for large networks
@@ -285,6 +334,34 @@ If Jinja2 is not available or templates are missing, the system automatically fa
 # Conservative scanning with longer timeouts
 ./lab-documenter.py --ssh-timeout 30 --workers 5 --scan
 ```
+
+## Platform-Specific Features
+
+### Windows Detection
+- **Edition Detection**: Distinguishes Server vs Desktop/Client editions
+- **Features Enumeration**: Server roles/features and optional features
+- **Service Discovery**: Windows services with proper categorization
+- **System Information**: Hardware, memory, disk, and network details
+- **Update Information**: Last installed updates and patch levels
+
+### NAS Platform Detection
+- **Automatic Identification**: Detects Synology, QNAP, Asustor, Buffalo, etc.
+- **Storage Information**: Volumes, shares, storage pools, and RAID arrays
+- **Disk Health**: SMART status monitoring where available
+- **Package Information**: Installed applications and services
+- **Network Shares**: SMB/CIFS and NFS export enumeration
+
+### TrueNAS Support
+- **FreeBSD Detection**: Proper identification of TrueNAS Core/Scale systems
+- **ZFS Integration**: Pool status, dataset information, and health monitoring
+- **Jail Information**: Container/jail enumeration on Core systems
+- **Service Status**: TrueNAS-specific service monitoring
+
+### Linux Enhanced Detection
+- **Distribution Identification**: Detailed OS release information
+- **Container Platforms**: Docker and Kubernetes integration
+- **Virtualization**: Proxmox hypervisor detection and VM enumeration
+- **Service Database**: Auto-learning service categorization
 
 ## MediaWiki Integration
 
@@ -302,15 +379,17 @@ If Jinja2 is not available or templates are missing, the system automatically fa
 ### Wiki Output Features
 
 **Individual Server Pages**: Creates `Server:hostname` pages containing:
-- System information (OS, kernel, hardware, uptime)
+- Platform-specific system information (Windows, Linux, NAS)
 - Resource usage (memory, disk, CPU load)
 - Network configuration and listening ports
 - Running services with descriptions
+- Platform-specific features (Windows roles, NAS shares, etc.)
 - Docker containers and Kubernetes information
 - Proxmox VM/container lists
 
 **Server Index Page**: Creates a configurable main index page featuring:
 - Quick statistics (total servers, reachable/unreachable counts)
+- Platform breakdown (Windows, Linux, NAS counts)
 - Operating system breakdown
 - Special services summary (Kubernetes, Docker, Proxmox)
 - Sortable table of all active servers with links
@@ -333,7 +412,8 @@ The script creates a `documentation/` folder containing:
 ```markdown
 # server1.homelab.local
 
-**Last Updated:** 2025-08-29T10:30:00
+**Last Updated:** 2025-01-06T10:30:00
+**Platform:** Linux (Ubuntu 24.04.3 LTS)
 
 ## System Information
 - **OS:** Ubuntu 24.04.3 LTS
@@ -350,14 +430,23 @@ The script creates a `documentation/` folder containing:
 ## Services
 - **OpenSSH Server** (active) - *system* - Secure shell server for remote access
 - **Docker Engine** (active) - *containers* - Container runtime and management platform
+
+## Windows Features (Windows only)
+- **IIS-WebServerRole** - Internet Information Services
+- **RSAT-AD-PowerShell** - Active Directory PowerShell module
+
+## NAS Information (NAS only)
+- **Type:** Synology DSM 7.2
+- **Storage Pools:** 2 RAID arrays
+- **Shares:** 8 SMB shares, 3 NFS exports
 ```
 
 **Master Index**: `documentation/index.md` with server summaries and status
 **Individual JSON Files**: `documentation/server1.homelab.local.json` for each server
 
-### 2. Connection Failure Analysis
+### 2. Enhanced Connection Failure Analysis
 
-Detailed failure categorization at the end of each run:
+Detailed failure categorization with reverse DNS lookup at the end of each run:
 
 ```
 ============================================================
@@ -365,14 +454,16 @@ CONNECTION SUMMARY
 ============================================================
 Failed to connect to 5 devices:
 
-• Connection timeout (waited 10s) (3 devices):
-  - 192.168.1.131
+• Windows authentication failed (check Windows credentials) (2 devices):
+  - 192.168.1.131 (hostname: windows-server.local)
   - 192.168.1.92  
-  - 192.168.1.7
 
-• Connection refused (SSH service may not be running) (2 devices):
+• SSH connection timeout (waited 10s) (2 devices):
+  - 192.168.1.7 (hostname: nas-backup.local)
+  - 10.0.0.100
+
+• SSH connection refused (service may not be running) (1 devices):
   - 192.168.1.50 (hostname: old-server.local)
-  - 10.0.0.100 (hostname: printer.local)
 ============================================================
 ```
 
@@ -392,8 +483,10 @@ Comprehensive raw data saved to inventory file:
 {
   "server1.homelab.local": {
     "hostname": "server1.homelab.local", 
-    "timestamp": "2025-08-29T10:30:00",
+    "timestamp": "2025-01-06T10:30:00",
     "reachable": true,
+    "platform_type": "linux",
+    "connection_type": "ssh_key",
     "os_release": {
       "name": "Ubuntu",
       "version": "24.04.3 LTS", 
@@ -403,6 +496,17 @@ Comprehensive raw data saved to inventory file:
     "docker_containers": [...],
     "kubernetes_info": {...},
     "listening_ports": [...]
+  },
+  "windows-server.local": {
+    "hostname": "windows-server.local",
+    "platform_type": "windows",
+    "connection_type": "winrm",
+    "windows_info": {
+      "os_release": {...},
+      "system_info": {...},
+      "features": [...],
+      "services": [...]
+    }
   }
 }
 ```
@@ -420,7 +524,11 @@ lab-documenter/
 │   ├── __init__.py           # Package initialization
 │   ├── config.py             # Configuration management
 │   ├── network.py            # Network scanning functionality
-│   ├── system.py             # SSH connections and data collection
+│   ├── system.py             # Multi-platform connections and data collection
+│   ├── system_windows.py     # Windows-specific collection via WinRM
+│   ├── system_nas.py         # NAS-specific collection (all NAS types)
+│   ├── system_kubernetes.py  # Kubernetes cluster information
+│   ├── system_proxmox.py     # Proxmox VE information
 │   ├── services.py           # Service database management
 │   ├── inventory.py          # Host data aggregation
 │   ├── documentation.py      # Jinja2 template-based generation
@@ -446,33 +554,34 @@ lab-documenter/
 1. **Configuration Loading**: Loads settings from JSON and command line
 2. **Network Discovery**: Scans multiple CIDR ranges for live hosts
 3. **Host Filtering**: Applies ignore.csv exclusions
-4. **SSH Data Collection**: Concurrent connections to gather system information
-5. **Service Enhancement**: Uses intelligent database to categorize services
-6. **Template Rendering**: Processes Jinja2 templates with collected data
-7. **Documentation Generation**: Creates local Markdown files and JSON data
-8. **MediaWiki Updates**: Creates/updates individual server pages and index page
-9. **Failure Analysis**: Categorizes and reports connection issues
+4. **Multi-Platform Connection**: Cascade authentication (Windows → NAS → Linux)
+5. **Platform Detection**: Identifies and refines platform type (especially TrueNAS)
+6. **Data Collection**: Platform-specific information gathering
+7. **Service Enhancement**: Uses intelligent database to categorize services
+8. **Template Rendering**: Processes Jinja2 templates with collected data
+9. **Documentation Generation**: Creates local Markdown files and JSON data
+10. **MediaWiki Updates**: Creates/updates individual server pages and index page
+11. **Failure Analysis**: Categorizes and reports connection issues with reverse DNS
 
 ## Advanced Features
 
-### Multiple Network Support
+### Multi-Platform Connection Cascade
 
-Configure multiple networks in `config.json`:
-```json
-{
-    "network_ranges": [
-        "192.168.1.0/24",      // Main LAN
-        "10.100.100.0/24",     // DMZ network  
-        "172.16.0.0/12",       // Container network
-        "10.200.200.0/24"      // Lab network
-    ]
-}
-```
+The system intelligently tries connection methods in priority order:
+1. **Windows (WinRM)** - Tries NTLM, Kerberos, then Basic authentication
+2. **NAS (SSH Password)** - For systems requiring password authentication
+3. **Linux (SSH Keys)** - Most secure method for Linux systems
 
-Or specify from command line:
-```bash
-./lab-documenter.py --network "192.168.1.0/24,10.0.0.0/8" --scan
-```
+Platform detection is refined after connection to identify systems like TrueNAS that might initially appear as generic Linux.
+
+### Enhanced SSH Diagnostics
+
+The `distribute-key.sh` script provides comprehensive connectivity diagnostics:
+- **Ping Tests**: Basic network reachability
+- **Port Scanning**: SSH service detection on standard and alternative ports
+- **Banner Detection**: SSH service identification
+- **Alternative Port Discovery**: Scans common SSH ports (22, 2222, 2200, etc.)
+- **Key Distribution**: Automated SSH key deployment with verification
 
 ### Intelligent Service Discovery
 
@@ -497,23 +606,33 @@ Unknown services are auto-added and can be manually edited for better descriptio
 
 Detailed categorization helps troubleshoot connectivity issues:
 
-- **Connection timeout** - Host doesn't respond within timeout period
-- **Connection refused** - Host responds but SSH service not running  
-- **Authentication failed** - SSH key or credential issues
+- **Windows authentication failed** - Check WinRM credentials and service status
+- **SSH connection timeout** - Host doesn't respond within timeout period
+- **SSH connection refused** - Host responds but SSH service not running  
+- **SSH authentication failed** - SSH key or credential issues
 - **DNS resolution failed** - Hostname cannot be resolved
 - **Network unreachable** - Routing issues
-- **SSH key compatibility** - Key format problems (DSA, etc.)
+- **WinRM connection refused** - WinRM service not running or port blocked
 
 ### Template Customization
 
 Templates support advanced features for customizable output:
 
 ```jinja2
-{# Collapsible sections with smart thresholds #}
-{% from 'base/macros.j2' import collapsible_list_md %}
-{% call collapsible_list_md(services, "Services", 5) %}
-- {{ format_service(this) }}
-{% endcall %}
+{# Platform-specific sections #}
+{% if platform_type == 'windows' %}
+### Windows Features
+{% for feature in windows_info.features %}
+- **{{ feature }}**
+{% endfor %}
+{% endif %}
+
+{% if platform_type == 'nas' %}
+### Storage Information
+{% for pool in nas_info.storage_pools %}
+- **{{ pool.name }}** ({{ pool.type }}) - {{ pool.state }}
+{% endfor %}
+{% endif %}
 
 {# Conditional content based on data presence #}
 {% if kubernetes_info and kubernetes_info.pods %}
@@ -544,96 +663,129 @@ tail -f ./logs/cron.log
 ### Helper Scripts (Created by Installer)
 
 - **`setup-ssh-agent.sh`**: Adds SSH key to ssh-agent
-- **`distribute-key.sh`**: Copies SSH key to multiple servers
+- **`distribute-key.sh`**: Enhanced SSH key distribution with diagnostics
 - **`run-lab-documenter.sh`**: Runs with proper environment
 
 ## Security
 
-### SSH Configuration
+### Multi-Platform Security
 
-The installer creates dedicated SSH keys for secure access:
+The system uses appropriate authentication methods for each platform:
 
-```bash
-# Distribute key to servers
-./distribute-key.sh admin@192.168.1.100 ubuntu@server.local
+**Windows Systems**:
+- WinRM over HTTP with NTLM/Kerberos authentication
+- Support for domain and local accounts
+- Encrypted authentication even over HTTP
 
-# Or manually copy to individual servers
-ssh-copy-id -i .ssh/homelab_key.pub user@server
-```
+**Linux Systems**:
+- SSH public key authentication (most secure)
+- Dedicated SSH keys for lab documentation
+- No password authentication for Linux hosts
+
+**NAS Systems**:
+- SSH password authentication (admin accounts)
+- Typically required for embedded NAS systems
+- Credentials stored securely in config.json
 
 ### Best Practices
 
 - Use dedicated SSH keys (not personal keys)
 - Restrict SSH key access to read-only operations where possible
-- Store MediaWiki credentials securely
+- Store sensitive credentials in environment variables when possible
 - Use firewall rules to restrict network access
 - Regularly rotate SSH keys and passwords
-- Keep sensitive configuration files secure
+- Keep sensitive configuration files secure (config.json permissions set to 600)
 
 ## Troubleshooting
 
-### Common Issues
+### Multi-Platform Connection Issues
+
+**Windows WinRM Failures**:
+```bash
+# Test WinRM connectivity manually
+Test-WSMan -ComputerName server-name
+
+# Check WinRM service status
+Get-Service WinRM
+
+# Verify WinRM configuration
+winrm get winrm/config
+```
 
 **SSH Connection Failures**:
 ```bash
+# Use enhanced diagnostics
+./distribute-key.sh --diagnose 192.168.1.100
+
 # Test SSH connectivity manually
 ssh -i .ssh/homelab_key user@server
 
 # Check SSH key permissions
 chmod 600 .ssh/homelab_key
 chmod 644 .ssh/homelab_key.pub
-
-# Add key to ssh-agent
-./setup-ssh-agent.sh
 ```
 
-**Network Discovery Issues**:
+**NAS Connection Issues**:
 ```bash
-# Test with verbose output and dry run
-./lab-documenter.py --verbose --dry-run --scan
+# Test SSH password authentication
+ssh admin@nas-system.local
 
-# Check specific network connectivity
-ping -c 1 192.168.1.1
+# Check if SSH is enabled on NAS
+# (varies by NAS system - check admin panel)
 ```
 
-**MediaWiki Update Failures**:
-```bash
-# Test MediaWiki API connectivity
-curl -X POST "https://your-wiki.com/api.php" \
-     -d "action=query&meta=siteinfo&format=json"
+### Platform Detection Issues
 
-# Verify bot permissions in MediaWiki user management
-# Check API is enabled in LocalSettings.php
+**TrueNAS Detection**:
+```bash
+# Verify TrueNAS detection with verbose output
+./lab-documenter.py --verbose --csv truenas-only.csv --csv-only
+
+# Check FreeBSD detection
+ssh admin@truenas "uname -a"
 ```
 
-**Template Errors**:
+**Windows Feature Detection**:
 ```bash
-# Check template syntax with dry run
-./lab-documenter.py --dry-run --verbose --scan
+# Test Windows feature commands manually
+powershell "Get-WindowsFeature | Where-Object {$_.InstallState -eq 'Installed'}"
 
-# Verify Jinja2 installation
-python3 -c "import jinja2; print(jinja2.__version__)"
-```
-
-**JSON Configuration Errors**:
-```bash
-# Validate JSON syntax
-python3 -m json.tool config.json
-
-# Common issues: missing commas, unquoted keys, extra trailing commas
+# For Windows 10/11 clients
+powershell "Get-WindowsOptionalFeature -Online | Where-Object {$_.State -eq 'Enabled'}"
 ```
 
 ### Debug Mode
 
 ```bash
-# Maximum verbosity
-./lab-documenter.py --verbose --scan
+# Maximum verbosity with offline mode for quick testing
+./lab-documenter.py --use-existing-data --verbose --update-wiki --dry-run
 
 # Check what would be done without changes
 ./lab-documenter.py --dry-run --scan --update-wiki
 
 # View logs
 tail -f ./logs/lab-documenter.log
+```
+
+### Common Issues
+
+**Mixed Environment Authentication**:
+- Ensure Windows credentials are properly configured for WinRM
+- Verify NAS credentials are set for SSH password authentication
+- Check that Linux SSH keys are properly distributed
+
+**Network Discovery**:
+- Test with single network first: `--network 192.168.1.0/24`
+- Check firewall settings on scanning host
+- Verify ping responses from target hosts
+
+**Template Errors**:
+```bash
+# Check template syntax with dry run
+./lab-documenter.py --dry-run --verbose --use-existing-data
+
+# Verify Jinja2 installation
+python3 -c "import jinja2; print(jinja2.__version__)"
 ```
 
 ## Requirements
@@ -649,12 +801,24 @@ tail -f ./logs/lab-documenter.log
 - `paramiko>=2.11.0` - SSH connections
 - `requests>=2.28.0` - HTTP/MediaWiki API
 - `jinja2>=3.0.0` - Template processing
+- `pywinrm>=0.4.3` - Windows WinRM connections
 
 ### Target Host Requirements
+
+**Windows Systems**:
+- WinRM service enabled
+- Port 5985 accessible
+- Local or domain user account with appropriate permissions
+
+**Linux Systems**:
 - SSH server running
 - SSH key-based authentication configured  
-- Linux operating system (Ubuntu, Debian, CentOS, RHEL, etc.)
 - Standard command-line tools (ps, df, free, etc.)
+
+**NAS Systems**:
+- SSH service enabled (admin panel setting)
+- Admin account access
+- Basic Unix-like command set available
 
 ### Optional Requirements
 - `kubectl` - For Kubernetes cluster information
@@ -669,7 +833,8 @@ tail -f ./logs/lab-documenter.log
 4. Add appropriate logging and error handling
 5. Update documentation and help text
 6. Test with `--dry-run` and `--verbose` modes
-7. Submit a pull request
+7. Test across multiple platforms (Windows, Linux, NAS)
+8. Submit a pull request
 
 ## License
 
@@ -682,6 +847,7 @@ For issues, questions, or contributions:
 - Check the troubleshooting section
 - Review configuration with: `./lab-documenter.py --dry-run`
 - Enable debug mode for detailed analysis
+- Use SSH diagnostics: `./distribute-key.sh --diagnose <host>`
 
 ## Changelog
 
@@ -695,7 +861,7 @@ For issues, questions, or contributions:
 - **Multi-Platform Authentication**: SSH keys, SSH passwords, and WinRM support
 - **TrueNAS Support**: Full Core and Scale detection with FreeBSD compatibility
 
-### v1.0.9 (Current)
+### v1.0.9
 - **Template System**: Integrated Jinja2-based template engine for customizable output generation
 - **Modular Templates**: Organized templates into reusable components (base, components, pages)
 - **Template Fallback**: Graceful degradation when Jinja2 unavailable or templates missing
@@ -717,4 +883,3 @@ For issues, questions, or contributions:
 - **Error Handling**: SSH connection retry logic and error classification
 - **Individual JSON Files**: Separate JSON output per server for analysis tools
 - **Flexible Configuration**: Support for both single and multiple network configurations
-
