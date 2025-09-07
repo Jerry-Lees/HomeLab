@@ -105,7 +105,7 @@ class SystemCollector:
         logger.warning(f"All connection methods failed for {self.hostname}")
         return False, 'unreachable'
     
-    def refine_platform_detection(self) -> str:
+    def refine_platform_detection(self) -> Optional[str]:
         """After successful connection, refine platform detection (especially for TrueNAS)"""
         if self.platform_type != 'linux':
             return self.platform_type
@@ -113,7 +113,7 @@ class SystemCollector:
         # Check if this Linux system is actually a NAS
         if HAS_NAS_COLLECTOR and self.connection_type in ['ssh_key', 'ssh_password']:
             # Create a temporary NAS collector to test detection
-            temp_nas_collector = NASCollector(self.run_command)
+            temp_nas_collector = NASCollector(self.run_command) # type: ignore
             nas_type = temp_nas_collector.detect_nas_type()
             
             if nas_type:
@@ -143,7 +143,7 @@ class SystemCollector:
             
             # Try NTLM first (most secure for domain/local users)
             try:
-                session = winrm.Session(winrm_url, auth=(windows_user, windows_password), transport='ntlm')
+                session = winrm.Session(winrm_url, auth=(windows_user, windows_password), transport='ntlm') # type: ignore
                 result = session.run_cmd('echo test')
                 if result.status_code == 0:
                     self.winrm_session = session
@@ -157,7 +157,7 @@ class SystemCollector:
             
             # Fallback to Kerberos if in domain environment
             try:
-                session = winrm.Session(winrm_url, auth=(windows_user, windows_password), transport='kerberos')
+                session = winrm.Session(winrm_url, auth=(windows_user, windows_password), transport='kerberos') # type: ignore
                 result = session.run_cmd('echo test')
                 if result.status_code == 0:
                     self.winrm_session = session
@@ -171,7 +171,7 @@ class SystemCollector:
             
             # Last resort: basic auth (only if others fail)
             try:
-                session = winrm.Session(winrm_url, auth=(windows_user, windows_password), transport='basic')
+                session = winrm.Session(winrm_url, auth=(windows_user, windows_password), transport='basic') # type: ignore
                 result = session.run_cmd('echo test')
                 if result.status_code == 0:
                     self.winrm_session = session
@@ -345,10 +345,10 @@ class SystemCollector:
             if command.startswith('powershell'):
                 # Execute PowerShell command
                 ps_command = command.replace('powershell -Command "', '').rstrip('"')
-                result = self.winrm_session.run_ps(ps_command)
+                result = self.winrm_session.run_ps(ps_command) # type: ignore
             else:
                 # Execute regular command
-                result = self.winrm_session.run_cmd(command)
+                result = self.winrm_session.run_cmd(command) # type: ignore
             
             if result.status_code == 0:
                 return result.std_out.decode('utf-8').strip()
@@ -367,10 +367,10 @@ class SystemCollector:
             if command.startswith('powershell'):
                 # Execute PowerShell command
                 ps_command = command.replace('powershell -Command "', '').rstrip('"')
-                result = self.winrm_session.run_ps(ps_command)
+                result = self.winrm_session.run_ps(ps_command) # type: ignore
             else:
                 # Execute regular command
-                result = self.winrm_session.run_cmd(command)
+                result = self.winrm_session.run_cmd(command) # type: ignore
             
             if result.status_code == 0:
                 return result.std_out.decode('utf-8').strip()
@@ -384,7 +384,7 @@ class SystemCollector:
     def run_ssh_command(self, command: str) -> Optional[str]:
         """Execute command over SSH"""
         try:
-            stdin, stdout, stderr = self.ssh_client.exec_command(command)
+            stdin, stdout, stderr = self.ssh_client.exec_command(command) # type: ignore
             return stdout.read().decode('utf-8').strip()
         except Exception as e:
             if not self.in_detection_mode:
@@ -435,11 +435,11 @@ class SystemCollector:
             
             if HAS_WINDOWS_COLLECTOR and self.connection_type == 'winrm':
                 # Create Windows collector with silent command runner for feature detection
-                self.windows_collector = WindowsCollector(self.run_winrm_command_silent)
+                self.windows_collector = WindowsCollector(self.run_winrm_command_silent) # type: ignore
             
             # NAS collector might already be initialized in refine_platform_detection
             if HAS_NAS_COLLECTOR and final_platform_type == 'nas' and not self.nas_collector:
-                self.nas_collector = NASCollector(self.run_command)
+                self.nas_collector = NASCollector(self.run_command) # type: ignore
             
             # Get actual hostname
             actual_hostname = self.get_actual_hostname()
@@ -457,9 +457,9 @@ class SystemCollector:
             # Always try to collect Kubernetes and Proxmox info (Linux/NAS only)
             if final_platform_type in ['linux', 'nas']:
                 logger.debug(f"Checking for Kubernetes")
-                info['kubernetes_info'] = self.kubernetes_collector.collect_kubernetes_info()
+                info['kubernetes_info'] = self.kubernetes_collector.collect_kubernetes_info() # type: ignore
                 logger.debug(f"Checking for Proxmox")
-                info['proxmox_info'] = self.proxmox_collector.collect_proxmox_info()
+                info['proxmox_info'] = self.proxmox_collector.collect_proxmox_info() # type: ignore
             
             # Clean up connections
             self.cleanup_connections()
