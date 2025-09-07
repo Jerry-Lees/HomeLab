@@ -217,18 +217,33 @@ class SystemCollector:
                     logger.debug(f"SSH key not found: {ssh_key_path}")
                 return False
             
-            # Try SSH connection with key
-            self.ssh_client = paramiko.SSHClient()
-            self.ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            self.ssh_client.connect(
-                self.hostname,
-                username=ssh_user,
-                key_filename=ssh_key_path,
-                timeout=ssh_timeout
-            )
+            # Suppress paramiko logging during detection
+            paramiko_logger = None
+            original_level = None
+            if self.in_detection_mode:
+                paramiko_logger = logging.getLogger('paramiko.transport')
+                original_level = paramiko_logger.level
+                paramiko_logger.setLevel(logging.WARNING)
             
-            self.connection_type = 'ssh_key'
-            return True
+            try:
+                # Try SSH connection with key
+                self.ssh_client = paramiko.SSHClient()
+                self.ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                self.ssh_client.connect(
+                    self.hostname,
+                    username=ssh_user,
+                    key_filename=ssh_key_path,
+                    timeout=ssh_timeout,
+                    look_for_keys=False,  # Only use the specific key we provided
+                    allow_agent=False     # Don't try ssh-agent keys
+                )
+                
+                self.connection_type = 'ssh_key'
+                return True
+            finally:
+                # Restore paramiko logging level
+                if paramiko_logger and original_level is not None:
+                    paramiko_logger.setLevel(original_level)
             
         except Exception as e:
             if not self.in_detection_mode:
@@ -251,18 +266,33 @@ class SystemCollector:
                     logger.debug(f"NAS credentials not configured for {self.hostname}")
                 return False
             
-            # Try SSH connection with password
-            self.ssh_client = paramiko.SSHClient()
-            self.ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            self.ssh_client.connect(
-                self.hostname,
-                username=nas_user,
-                password=nas_password,
-                timeout=ssh_timeout
-            )
+            # Suppress paramiko logging during detection to avoid multiple key attempt messages
+            paramiko_logger = None
+            original_level = None
+            if self.in_detection_mode:
+                paramiko_logger = logging.getLogger('paramiko.transport')
+                original_level = paramiko_logger.level
+                paramiko_logger.setLevel(logging.WARNING)
             
-            self.connection_type = 'ssh_password'
-            return True
+            try:
+                # Try SSH connection with password
+                self.ssh_client = paramiko.SSHClient()
+                self.ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                self.ssh_client.connect(
+                    self.hostname,
+                    username=nas_user,
+                    password=nas_password,
+                    timeout=ssh_timeout,
+                    look_for_keys=False,  # Don't try keys when doing password auth
+                    allow_agent=False     # Don't try ssh-agent keys
+                )
+                
+                self.connection_type = 'ssh_password'
+                return True
+            finally:
+                # Restore paramiko logging level
+                if paramiko_logger and original_level is not None:
+                    paramiko_logger.setLevel(original_level)
             
         except Exception as e:
             # Always categorize the failure for connection summary
@@ -293,11 +323,9 @@ class SystemCollector:
         elif 'permission denied' in error_str:
             self.connection_failure_reason = "SSH permission denied (check credentials/key permissions)"
         else:
-            # Normalize error message
+            # Normalize error message but don't truncate
             import re
             normalized_error = re.sub(r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b', 'X.X.X.X', str(exception))
-            if len(normalized_error) > 80:
-                normalized_error = normalized_error[:80] + "..."
             self.connection_failure_reason = f"SSH error: {normalized_error}"
     
     def run_command(self, command: str) -> Optional[str]:
@@ -601,9 +629,6 @@ class SystemCollector:
             # WinRM sessions don't need explicit cleanup
             self.winrm_session = None
     
-    # Include all the existing methods from the previous system.py
-    # (parse_os_release, get_memory_modules, etc. - keeping them unchanged)
-    
     def parse_os_release(self, os_release_content: str) -> Dict:
         """Parse /etc/os-release content into structured data"""
         os_info = {}
@@ -635,26 +660,61 @@ class SystemCollector:
     
     def get_memory_modules(self) -> dict:
         """Get detailed memory module information as structured data"""
-        # [Keep existing implementation]
         logger.debug(f"Trying lshw command on {self.hostname}")
         memory_info = self.run_command('lshw -c memory 2>/dev/null')
         if memory_info and 'command not found' not in memory_info.lower() and len(memory_info.strip()) > 10:
             logger.debug(f"lshw successful on {self.hostname}")
             return self.parse_lshw_memory_output(memory_info)
         
-        # [Keep all existing fallback methods]
         return {'bios_info': {}, 'memory_banks': [], 'cache_info': [], 'system_memory': {}, 'error': 'Memory module information not available'}
     
     def parse_lshw_memory_output(self, lshw_output: str) -> dict:
         """Parse lshw memory output into structured data"""
-        # [Keep existing implementation - no changes needed]
         memory_data = {
             'bios_info': {},
             'memory_banks': [],
             'cache_info': [],
             'system_memory': {}
         }
-        # ... rest of existing implementation
+        
+        lines = lshw_output.split('\n')
+        current_section = None
+        current_bank = {}
+        
+        for line in lines:
+            line = line.strip()
+            
+            if '*-firmware' in line or '*-bios' in line:
+                current_section = 'bios'
+                continue
+            elif '*-memory' in line and 'UNCLAIMED' not in line:
+                if current_bank:
+                    memory_data['memory_banks'].append(current_bank)
+                current_bank = {}
+                current_section = 'memory'
+                continue
+            elif '*-cache' in line:
+                current_section = 'cache'
+                continue
+            
+            if ':' in line and current_section:
+                key, value = line.split(':', 1)
+                key = key.strip()
+                value = value.strip()
+                
+                if current_section == 'bios':
+                    memory_data['bios_info'][key] = value
+                elif current_section == 'memory':
+                    current_bank[key] = value
+                elif current_section == 'cache':
+                    if 'cache_info' not in memory_data:
+                        memory_data['cache_info'] = []
+                    cache_entry = {key: value}
+                    memory_data['cache_info'].append(cache_entry)
+        
+        if current_bank:
+            memory_data['memory_banks'].append(current_bank)
+        
         return memory_data
     
     def get_services(self) -> List[Dict]:

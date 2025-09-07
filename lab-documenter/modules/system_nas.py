@@ -238,6 +238,7 @@ class NASCollector:
             for line in df_output.split('\n'):
                 if line.strip():
                     parts = line.split()
+                    # Ensure we have enough parts before accessing indices
                     if len(parts) >= 6:
                         volumes.append({
                             'device': parts[0],
@@ -304,6 +305,7 @@ class NASCollector:
             for line in df_output.split('\n'):
                 if line.strip() and not line.startswith('Filesystem'):
                     parts = line.split()
+                    # Ensure we have enough parts before accessing indices
                     if len(parts) >= 6:
                         volumes.append({
                             'device': parts[0],
@@ -408,19 +410,14 @@ class NASCollector:
         """Get disk health information"""
         disks = []
         
-        # Different commands for different platforms
-        if self.nas_type == 'truenas':
-            # FreeBSD disk listing
-            disk_list = self.run_command('geom disk status 2>/dev/null | grep -v "Geom" | awk \'{print $1, $3}\'')
-        else:
-            # Linux disk listing
-            disk_list = self.run_command('lsblk -d -o NAME,SIZE,MODEL | grep -v "NAME"')
-        
+        # Get list of physical disks - add error handling for different output formats
+        disk_list = self.run_command('lsblk -d -o NAME,SIZE,MODEL | grep -v "NAME"')
         if disk_list:
             for line in disk_list.split('\n'):
                 if line.strip():
                     parts = line.split()
-                    if len(parts) >= 2:
+                    # Ensure we have at least the disk name before proceeding
+                    if len(parts) >= 1:
                         disk_name = parts[0]
                         
                         # Try to get SMART status
@@ -432,14 +429,45 @@ class NASCollector:
                             elif 'FAILED' in smart_status:
                                 health = 'FAILED'
                         
-                        disks.append({
+                        disk_info = {
                             'device': disk_name,
                             'size': parts[1] if len(parts) > 1 else 'Unknown',
                             'model': ' '.join(parts[2:]) if len(parts) > 2 else 'Unknown',
                             'health': health
-                        })
+                        }
+                        disks.append(disk_info)
         
         return disks[:8]  # Limit for display
+    
+    def get_network_interfaces(self) -> List[Dict[str, str]]:
+        """Get network interface information"""
+        interfaces = []
+        
+        # Handle both Linux and FreeBSD interface listing
+        if self.nas_type == 'truenas':
+            # FreeBSD interface listing
+            ifconfig_output = self.run_command('ifconfig | grep "^[a-z]" | grep "flags=" | awk \'{print $1}\' | tr -d ":"')
+        else:
+            # Linux interface listing - more robust parsing
+            ifconfig_output = self.run_command('ip addr show | grep "state UP" | awk \'{print $2}\' | tr -d ":"')
+        
+        if ifconfig_output:
+            for iface_name in ifconfig_output.split('\n'):
+                if iface_name.strip():
+                    # Get IP address for interface with better error handling
+                    if self.nas_type == 'truenas':
+                        ip_addr = self.run_command(f'ifconfig {iface_name.strip()} | grep "inet " | awk \'{{print $2}}\'')
+                    else:
+                        ip_addr = self.run_command(f'ip addr show {iface_name.strip()} | grep "inet " | awk \'{{print $2}}\'')
+                    
+                    interface_info = {
+                        'name': iface_name.strip(),
+                        'state': 'UP',
+                        'ip_address': ip_addr.strip() if ip_addr else 'No IP'
+                    }
+                    interfaces.append(interface_info)
+        
+        return interfaces
     
     def get_network_interfaces(self) -> List[Dict[str, str]]:
         """Get network interface information"""
@@ -474,43 +502,48 @@ class NASCollector:
         """Get installed packages/applications"""
         packages = []
         
-        if self.nas_type == 'synology':
-            # Check for Synology packages
-            pkg_output = self.run_command('synopkg list 2>/dev/null')
-            if pkg_output:
-                packages = [line.strip() for line in pkg_output.split('\n') if line.strip()]
-        elif self.nas_type == 'qnap':
-            # Check for QNAP applications
-            app_output = self.run_command('ls /share/CACHEDEV*_DATA/.qpkg/ 2>/dev/null')
-            if app_output:
-                packages = [app.strip() for app in app_output.split('\n') if app.strip()]
-        elif self.nas_type == 'truenas':
-            # TrueNAS plugins/jails
-            jail_output = self.run_command('jls name 2>/dev/null | grep -v "NAME"')
-            if jail_output:
-                packages.extend([f"Jail: {jail.strip()}" for jail in jail_output.split('\n') if jail.strip()])
-            
-            # FreeBSD packages
-            pkg_output = self.run_command('pkg info 2>/dev/null | head -20 | awk \'{print $1}\'')
-            if pkg_output:
-                packages.extend([pkg.strip() for pkg in pkg_output.split('\n') if pkg.strip()])
-        else:
-            # Generic package detection
-            if self.run_command('which dpkg 2>/dev/null'):
-                pkg_output = self.run_command('dpkg -l | grep "^ii" | head -20')
+        try:
+            if self.nas_type == 'synology':
+                # Check for Synology packages
+                pkg_output = self.run_command('synopkg list 2>/dev/null')
                 if pkg_output:
-                    for line in pkg_output.split('\n'):
-                        if line.strip():
-                            parts = line.split()
-                            if len(parts) >= 2:
-                                packages.append(parts[1])
-            elif self.run_command('which rpm 2>/dev/null'):
-                pkg_output = self.run_command('rpm -qa | head -20')
+                    packages = [line.strip() for line in pkg_output.split('\n') if line.strip()]
+            elif self.nas_type == 'qnap':
+                # Check for QNAP applications - handle different directory structures
+                app_output = self.run_command('ls /share/CACHEDEV*_DATA/.qpkg/ 2>/dev/null || ls /share/*/.qpkg/ 2>/dev/null')
+                if app_output:
+                    packages = [app.strip() for app in app_output.split('\n') if app.strip()]
+            elif self.nas_type == 'truenas':
+                # TrueNAS plugins/jails
+                jail_output = self.run_command('jls name 2>/dev/null | grep -v "NAME"')
+                if jail_output:
+                    packages.extend([f"Jail: {jail.strip()}" for jail in jail_output.split('\n') if jail.strip()])
+                
+                # FreeBSD packages
+                pkg_output = self.run_command('pkg info 2>/dev/null | head -20 | awk \'{print $1}\'')
                 if pkg_output:
-                    packages = [pkg.strip() for pkg in pkg_output.split('\n') if pkg.strip()]
+                    packages.extend([pkg.strip() for pkg in pkg_output.split('\n') if pkg.strip()])
+            else:
+                # Generic package detection with better error handling
+                if self.run_command('which dpkg 2>/dev/null'):
+                    pkg_output = self.run_command('dpkg -l | grep "^ii" | head -20')
+                    if pkg_output:
+                        for line in pkg_output.split('\n'):
+                            if line.strip():
+                                parts = line.split()
+                                # Ensure we have enough parts before accessing index 1
+                                if len(parts) >= 2:
+                                    packages.append(parts[1])
+                elif self.run_command('which rpm 2>/dev/null'):
+                    pkg_output = self.run_command('rpm -qa | head -20')
+                    if pkg_output:
+                        packages = [pkg.strip() for pkg in pkg_output.split('\n') if pkg.strip()]
+        except Exception as e:
+            logger.debug(f"Error getting installed packages: {e}")
+            packages = ["Error retrieving package list"]
         
         return packages[:10]  # Limit for display
-    
+        
     def get_system_status(self) -> Dict[str, str]:
         """Get overall system status"""
         status = {}
