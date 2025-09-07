@@ -2,7 +2,7 @@
 set -e
 
 # Lab Documenter Installation Script
-# This script sets up the complete lab documentation system in the current directory
+# This script sets up the complete multi-platform lab documentation system in the current directory
 
 # Colors for output
 RED='\033[0;31m'
@@ -147,7 +147,7 @@ install_python_deps() {
     ./venv/bin/python -c "import requests; print('✓ requests installed')" || print_error "requests installation failed"
     ./venv/bin/python -c "import jinja2; print('✓ jinja2 installed')" || print_error "jinja2 installation failed"
     
-    # Test WinRM specifically
+    # Test WinRM specifically for Windows support
     if ./venv/bin/python -c "import winrm; print('✓ pywinrm installed successfully')" 2>/dev/null; then
         print_info "WinRM support available for Windows systems"
     else
@@ -167,7 +167,7 @@ create_config_files() {
 {
     "ssh_user": "$SERVICE_USER",
     "ssh_key_path": "$INSTALL_DIR/.ssh/homelab_key",
-    "network_range": "192.168.1.0/24",
+    "network_ranges": ["192.168.1.0/24"],
     "ssh_timeout": 10,
     "max_workers": 5,
     "output_file": "$INSTALL_DIR/inventory.json",
@@ -219,6 +219,7 @@ hostname,description,role,location
 # proxmox1.homelab.local,Proxmox hypervisor,Virtualization,Rack 2
 # windows-server.local,Windows Server 2022,Windows Server,Rack 1
 # synology-nas.local,Synology NAS,Storage,Rack 2
+# truenas.local,TrueNAS Scale system,FreeBSD NAS,Rack 2
 # 192.168.1.100,Docker host,Container Host,Rack 1
 EOF
         print_info "Created sample servers.csv with multi-platform examples"
@@ -301,9 +302,9 @@ setup_ssh_key() {
         print_info "No ssh-agent running, key not added"
     fi
     
-    print_warning "IMPORTANT: You need to copy the public key to your Linux/NAS servers:"
+    print_warning "IMPORTANT: You need to copy the public key to your Linux servers:"
     print_info "Public key location: $SSH_KEY_PATH.pub"
-    print_info "Copy this key to ~/.ssh/authorized_keys on each Linux/NAS server"
+    print_info "Copy this key to ~/.ssh/authorized_keys on each Linux server"
     echo
     print_info "Quick copy commands:"
     echo "  ssh-copy-id -i $SSH_KEY_PATH.pub user@your-server"
@@ -312,7 +313,7 @@ setup_ssh_key() {
 }
 
 create_helper_scripts() {
-    print_step "Creating helper scripts..."
+    print_step "Creating enhanced helper scripts with diagnostics..."
     
     # Create ssh-agent setup script
     cat > setup-ssh-agent.sh << 'EOF'
@@ -350,10 +351,10 @@ EOF
     
     chmod +x setup-ssh-agent.sh
     
-    # Create key distribution helper
+    # Create enhanced key distribution helper with diagnostics
     cat > distribute-key.sh << 'EOF'
 #!/bin/bash
-# Helper script to distribute SSH key to servers
+# Enhanced helper script to distribute SSH key to servers with diagnostics
 
 CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SSH_KEY_PUB="$CURRENT_DIR/.ssh/homelab_key.pub"
@@ -369,19 +370,133 @@ if [ $# -eq 0 ]; then
     echo ""
     echo "For Windows systems: Configure WinRM and update config.json"
     echo "For NAS systems: Use SSH password authentication via config.json"
+    echo ""
+    echo "Diagnostics mode: $0 --diagnose <host>"
     exit 1
+fi
+
+# Diagnostic function
+diagnose_host() {
+    local host="$1"
+    local ip_only="${host##*@}"  # Remove user@ if present
+    
+    echo "=== Diagnosing SSH connectivity to $ip_only ==="
+    
+    # Test basic connectivity
+    echo -n "Testing ping... "
+    if ping -c 1 -W 2 "$ip_only" &>/dev/null; then
+        echo "✓ Host is reachable"
+    else
+        echo "✗ Host is not reachable via ping"
+        return 1
+    fi
+    
+    # Test SSH port
+    echo -n "Testing SSH port 22... "
+    if timeout 5 bash -c "</dev/tcp/$ip_only/22" &>/dev/null; then
+        echo "✓ Port 22 is open"
+        
+        # Try to get SSH banner
+        echo -n "Getting SSH banner... "
+        banner=$(timeout 3 ssh -o ConnectTimeout=2 -o BatchMode=yes "$ip_only" 2>&1 | head -1)
+        if [[ "$banner" == *"OpenSSH"* ]]; then
+            echo "✓ SSH service detected: $banner"
+        else
+            echo "? Unknown response: $banner"
+        fi
+    else
+        echo "✗ Port 22 is closed or filtered"
+        
+        # Scan for SSH on other common ports
+        echo "Scanning for SSH on alternative ports..."
+        for port in 2222 2200 22000 22022; do
+            echo -n "  Checking port $port... "
+            if timeout 3 bash -c "</dev/tcp/$ip_only/$port" &>/dev/null; then
+                echo "✓ Port $port is open"
+                # Try to get banner on this port
+                banner=$(timeout 3 ssh -o ConnectTimeout=2 -o BatchMode=yes -p "$port" "$ip_only" 2>&1 | head -1)
+                if [[ "$banner" == *"OpenSSH"* ]]; then
+                    echo "    SSH service found on port $port: $banner"
+                fi
+            else
+                echo "✗ Closed"
+            fi
+        done
+    fi
+    
+    # Check if nmap is available for more detailed scan
+    if command -v nmap &>/dev/null; then
+        echo "Running nmap service detection..."
+        nmap_result=$(nmap -p 22,2222,2200,22000,22022 -sV "$ip_only" 2>/dev/null | grep -E "(22|ssh)")
+        if [ -n "$nmap_result" ]; then
+            echo "$nmap_result"
+        fi
+    fi
+    
+    echo "=== End diagnosis ==="
+}
+
+# Handle diagnostics mode
+if [ "$1" == "--diagnose" ] && [ -n "$2" ]; then
+    diagnose_host "$2"
+    exit 0
 fi
 
 echo "Distributing SSH key to Linux servers..."
 for server in "$@"; do
     echo "Copying key to: $server"
-    ssh-copy-id -i "$SSH_KEY_PUB" "$server"
-    if [ $? -eq 0 ]; then
+    
+    # Extract just the IP/hostname for diagnostics
+    ip_only="${server##*@}"
+    
+    # Quick connectivity check
+    if ! ping -c 1 -W 2 "$ip_only" &>/dev/null; then
+        echo "✗ Host $ip_only is not reachable via ping"
+        echo "  Run: $0 --diagnose $ip_only"
+        continue
+    fi
+    
+    # Quick SSH port check
+    if ! timeout 3 bash -c "</dev/tcp/$ip_only/22" &>/dev/null; then
+        echo "✗ SSH port 22 is not accessible on $ip_only"
+        echo "  Run: $0 --diagnose $ip_only"
+        continue
+    fi
+    
+    # Attempt key distribution
+    if ssh-copy-id -i "$SSH_KEY_PUB" "$server"; then
         echo "✓ Successfully copied key to $server"
+        
+        # Test the connection
+        echo -n "Testing key-based authentication... "
+        user="${server%@*}"
+        if [[ "$server" == *"@"* ]]; then
+            if ssh -o ConnectTimeout=5 -o BatchMode=yes -o PasswordAuthentication=no "$server" "echo 'Key authentication successful'" 2>/dev/null; then
+                echo "✓ Key authentication works"
+            else
+                echo "⚠ Key authentication may have issues"
+            fi
+        else
+            echo "? Cannot test (no username specified)"
+        fi
     else
         echo "✗ Failed to copy key to $server"
+        echo "  Possible issues:"
+        echo "    - Wrong username"
+        echo "    - Password authentication disabled"
+        echo "    - SSH server configuration restricts key copying"
+        echo "    - User's home directory permissions"
+        echo "  Run: $0 --diagnose $server"
     fi
+    echo ""
 done
+
+echo ""
+echo "Troubleshooting tips:"
+echo "1. For connection refused: Run '$0 --diagnose <host>' to check SSH service"
+echo "2. For permission denied: Ensure the user exists and has proper permissions"
+echo "3. For timeout: Check firewall settings and network connectivity"
+echo "4. For key issues: Verify SSH server allows public key authentication"
 EOF
     
     chmod +x distribute-key.sh
@@ -406,9 +521,9 @@ EOF
     
     chmod +x run-lab-documenter.sh
     
-    print_info "Created helper scripts:"
+    print_info "Created enhanced helper scripts:"
     print_info "  ./setup-ssh-agent.sh       # Add SSH key to ssh-agent"
-    print_info "  ./distribute-key.sh        # Copy SSH key to Linux/NAS servers"
+    print_info "  ./distribute-key.sh        # Enhanced SSH key distribution with diagnostics"
     print_info "  ./run-lab-documenter.sh    # Run with proper environment"
 }
 
@@ -501,12 +616,17 @@ print_post_install() {
     echo "  ./run-lab-documenter.sh --scan              # Scan network and create local docs"
     echo "  ./run-lab-documenter.sh --csv-only          # Only scan servers from CSV"
     echo "  ./run-lab-documenter.sh --scan --update-wiki # Scan and update MediaWiki"
+    echo "  ./run-lab-documenter.sh --use-existing-data # Use existing data (offline mode)"
     echo "  ./run-lab-documenter.sh --dry-run --verbose # Test without changes"
     echo
     print_step "Windows System Setup:"
     echo "On your Windows systems, ensure WinRM is enabled:"
     echo "  winrm quickconfig"
     echo "  winrm set winrm/config/service @{AllowUnencrypted=\"true\"}"
+    echo
+    print_step "Enhanced SSH Diagnostics:"
+    echo "  ./distribute-key.sh --diagnose <host>       # Comprehensive connectivity testing"
+    echo "  ./distribute-key.sh user@host1 user@host2  # Distribute keys with verification"
     echo
     print_step "Generated files:"
     echo "  ./inventory.json             # Raw data (JSON)"
@@ -523,6 +643,12 @@ print_post_install() {
     echo "  - config.json contains passwords (permissions set to 600)"
     echo "  - Consider using environment variables for sensitive data"
     echo "  - SSH keys are stored in .ssh/homelab_key"
+    echo "  - WinRM uses encrypted authentication even over HTTP"
+    echo
+    print_step "Multi-Platform Authentication Priority:"
+    echo "  1. Windows systems: WinRM (port 5985)"
+    echo "  2. NAS systems: SSH with password"
+    echo "  3. Linux systems: SSH with key authentication"
     echo
 }
 
@@ -596,6 +722,7 @@ case "${1:-}" in
         echo "  • Linux systems (SSH with keys)"
         echo "  • Windows systems (WinRM with credentials)" 
         echo "  • NAS systems (SSH with credentials)"
+        echo "  • Enhanced SSH diagnostics and troubleshooting"
         echo
         echo "Run from the directory where you want to install it."
         ;;
