@@ -851,15 +851,25 @@ For issues, questions, or contributions:
 
 ## Changelog
 
-### v1.1.0 (Current)
-- **Enhanced SSH Diagnostics**: Comprehensive connectivity troubleshooting with distribute-key.sh
-- **Platform Detection Improvements**: Better Windows, NAS, and TrueNAS detection
+### v1.1.1 (Current)
+- **Connection Logging Optimization**: Eliminated paramiko authentication noise during detection
+- **MAC Address Lookup**: Failed devices now show MAC addresses in connection summary
+- **Vendor Identification**: Automatic device manufacturer lookup using MAC address APIs
+- **Grouped Device Logging**: Fixed interlaced log messages between concurrent device scans
+- **QNAP Compatibility**: Fixed parsing errors on QNAP NAS systems
+- **Full Error Messages**: Removed error message truncation for better troubleshooting
+- **Single Host Scanning**: Added `--network IP/32` support for scanning individual devices
+- **Connection Context**: Device-specific logging prevents message mixing between hosts
+
+### v1.1.0
+- **SSH Diagnostics**: Connectivity troubleshooting with distribute-key.sh
+- **Platform Detection**: Windows, NAS, and TrueNAS detection and refinement
 - **Offline Mode**: `--use-existing-data` for fast iterative testing
-- **Enhanced Logging**: Clear device boundaries and connection summaries
+- **Device Logging**: Clear device boundaries and connection summaries
 - **Reverse DNS Lookups**: Identify failed devices by hostname in connection summary
-- **Windows Features Fix**: Proper Server vs Client feature detection
+- **Windows Features**: Server vs Client feature detection
 - **Multi-Platform Authentication**: SSH keys, SSH passwords, and WinRM support
-- **TrueNAS Support**: Full Core and Scale detection with FreeBSD compatibility
+- **TrueNAS Support**: Core and Scale detection with FreeBSD compatibility
 
 ### v1.0.9
 - **Template System**: Integrated Jinja2-based template engine for customizable output generation
@@ -867,19 +877,20 @@ For issues, questions, or contributions:
 - **Template Fallback**: Graceful degradation when Jinja2 unavailable or templates missing
 - **Backward Compatibility**: Maintained existing function signatures and behavior
 - **Code Reduction**: Replaced 1,350+ lines of string concatenation with maintainable templates
-- **Enhanced Customization**: Non-programmers can modify output by editing template files
-- **Improved Architecture**: Clean separation of data processing and presentation logic
+- **Customization**: Non-programmers can modify output by editing template files
+- **Architecture**: Clean separation of data processing and presentation logic
 
 ### v1.0.0 
-- **Clean Architecture**: Separation into focused modules
+- **Modular Architecture**: Separation into focused modules
 - **Multiple Network Support**: Scan across multiple CIDR ranges simultaneously  
-- **Intelligent Service Discovery**: Auto-learning database with service categorization
-- **Connection Failure Analysis**: Detailed error categorization and reporting
+- **Service Discovery**: Auto-learning database with service categorization
+- **Connection Failure Analysis**: Error categorization and reporting
 - **Host Filtering**: ignore.csv support for skipping problematic hosts
-- **Clean Operation**: Easy cleanup of generated files with --clean option
-- **Local Documentation**: Always-generated Markdown files with comprehensive indexing
+- **Clean Operation**: Cleanup of generated files with --clean option
+- **Local Documentation**: Always-generated Markdown files with indexing
 - **MediaWiki Integration**: Automatic server page creation with configurable index page
 - **Beep Notification**: Audio completion signal for long-running operations
 - **Error Handling**: SSH connection retry logic and error classification
 - **Individual JSON Files**: Separate JSON output per server for analysis tools
-- **Flexible Configuration**: Support for both single and multiple network configurations
+- **Configuration**: Support for both single and multiple network configurations
+
