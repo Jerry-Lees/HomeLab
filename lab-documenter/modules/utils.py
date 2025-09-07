@@ -7,6 +7,7 @@ Contains shared helper functions and utilities.
 import logging
 import os
 import sys
+import socket
 from typing import Optional, List, Tuple, Dict, Union
 
 def setup_logging(log_dir: str = 'logs', verbose: bool = False, quiet: bool = False) -> logging.Logger:
@@ -185,6 +186,39 @@ def filter_ignored_hosts(hosts: List[str], ignore_dict: Dict[str, str]) -> Tuple
     
     return filtered_hosts, ignored_hosts
 
+def reverse_dns_lookup(ip_address: str, timeout: float = 2.0) -> Optional[str]:
+    """Perform reverse DNS lookup with timeout"""
+    try:
+        # Set socket timeout for DNS lookup
+        socket.setdefaulttimeout(timeout)
+        hostname, _, _ = socket.gethostbyaddr(ip_address)
+        return hostname
+    except (socket.herror, socket.gaierror, socket.timeout, OSError):
+        # All these exceptions indicate DNS lookup failed
+        return None
+    finally:
+        # Reset socket timeout to default
+        socket.setdefaulttimeout(None)
+
+def format_host_with_dns(host: str) -> str:
+    """Format host with reverse DNS lookup if it's an IP address"""
+    # Check if the host looks like an IP address
+    import re
+    ip_pattern = r'^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$'
+    
+    if re.match(ip_pattern, host):
+        # It's an IP address, try reverse DNS
+        hostname = reverse_dns_lookup(host)
+        if hostname and hostname != host:
+            # Got a hostname, format as "IP (hostname)"
+            return f"{host} ({hostname})"
+        else:
+            # No hostname found or same as IP, just return IP
+            return host
+    else:
+        # Not an IP address, return as-is
+        return host
+
 def print_connection_summary(connection_failures: List[Dict[str, str]]) -> None:
     """Print a summary of connection failures at the end of execution"""
     logger = logging.getLogger(__name__)
@@ -215,10 +249,13 @@ def print_connection_summary(connection_failures: List[Dict[str, str]]) -> None:
             original_host = failure['original_host']
             actual_hostname = failure.get('actual_hostname')
             
+            # Format the host with reverse DNS lookup
+            formatted_host = format_host_with_dns(original_host)
+            
             if actual_hostname and actual_hostname != original_host:
-                logger.info(f"  - {original_host} (hostname: {actual_hostname})")
+                logger.info(f"  - {formatted_host} (hostname: {actual_hostname})")
             else:
-                logger.info(f"  - {original_host}")
+                logger.info(f"  - {formatted_host}")
         logger.info("")
     
     logger.info(f"{'='*60}")
