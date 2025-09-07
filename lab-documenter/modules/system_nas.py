@@ -469,35 +469,6 @@ class NASCollector:
         
         return interfaces
     
-    def get_network_interfaces(self) -> List[Dict[str, str]]:
-        """Get network interface information"""
-        interfaces = []
-        
-        # Handle both Linux and FreeBSD interface listing
-        if self.nas_type == 'truenas':
-            # FreeBSD interface listing
-            ifconfig_output = self.run_command('ifconfig | grep "^[a-z]" | grep "flags=" | awk \'{print $1}\' | tr -d ":"')
-        else:
-            # Linux interface listing
-            ifconfig_output = self.run_command('ip addr show | grep "state UP" | awk \'{print $2}\' | tr -d ":"')
-        
-        if ifconfig_output:
-            for iface_name in ifconfig_output.split('\n'):
-                if iface_name.strip():
-                    # Get IP address for interface
-                    if self.nas_type == 'truenas':
-                        ip_addr = self.run_command(f'ifconfig {iface_name.strip()} | grep "inet " | awk \'{{print $2}}\'')
-                    else:
-                        ip_addr = self.run_command(f'ip addr show {iface_name.strip()} | grep "inet " | awk \'{{print $2}}\'')
-                    
-                    interfaces.append({
-                        'name': iface_name.strip(),
-                        'state': 'UP',
-                        'ip_address': ip_addr.strip() if ip_addr else 'No IP'
-                    })
-        
-        return interfaces
-    
     def get_installed_packages(self) -> List[str]:
         """Get installed packages/applications"""
         packages = []
