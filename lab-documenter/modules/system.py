@@ -690,23 +690,42 @@ class SystemCollector:
         lines = lshw_output.split('\n')
         current_section = None
         current_bank = {}
+        in_memory_section = False
         
         for line in lines:
             line = line.strip()
             
+            # Detect main sections
             if '*-firmware' in line or '*-bios' in line:
                 current_section = 'bios'
+                in_memory_section = False
                 continue
             elif '*-memory' in line and 'UNCLAIMED' not in line:
-                if current_bank:
-                    memory_data['memory_banks'].append(current_bank)
-                current_bank = {}
-                current_section = 'memory'
+                current_section = 'system_memory'
+                in_memory_section = True
                 continue
             elif '*-cache' in line:
                 current_section = 'cache'
+                in_memory_section = False
+                continue
+            elif line.startswith('*-bank:') or line.startswith('*-slot:') or line.startswith('*-dimm:'):
+                # Found an individual memory bank/slot
+                if current_bank:
+                    memory_data['memory_banks'].append(current_bank)
+                current_bank = {}
+                current_section = 'memory_bank'
+                in_memory_section = True
+                continue
+            elif line.startswith('*-') and in_memory_section:
+                # Another section started while in memory, save current bank
+                if current_bank and current_section == 'memory_bank':
+                    memory_data['memory_banks'].append(current_bank)
+                    current_bank = {}
+                current_section = None
+                in_memory_section = False
                 continue
             
+            # Parse key-value pairs
             if ':' in line and current_section:
                 key, value = line.split(':', 1)
                 key = key.strip()
@@ -714,19 +733,26 @@ class SystemCollector:
                 
                 if current_section == 'bios':
                     memory_data['bios_info'][key] = value
-                elif current_section == 'memory':
+                elif current_section == 'system_memory':
+                    memory_data['system_memory'][key] = value
+                elif current_section == 'memory_bank':
                     current_bank[key] = value
                 elif current_section == 'cache':
-                    if 'cache_info' not in memory_data:
-                        memory_data['cache_info'] = []
-                    cache_entry = {key: value}
-                    memory_data['cache_info'].append(cache_entry)
+                    # Handle cache as a list of entries
+                    if not memory_data['cache_info']:
+                        memory_data['cache_info'] = [{}]
+                    if key in memory_data['cache_info'][-1]:
+                        # Start a new cache entry if key already exists
+                        memory_data['cache_info'].append({key: value})
+                    else:
+                        memory_data['cache_info'][-1][key] = value
         
-        if current_bank:
+        # Don't forget the last memory bank
+        if current_bank and current_section == 'memory_bank':
             memory_data['memory_banks'].append(current_bank)
         
-        return memory_data
-    
+        return memory_data 
+     
     def get_services(self) -> List[Dict]:
         """Get systemd services with enhanced information and auto-updating database"""
         services = []
