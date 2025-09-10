@@ -10,6 +10,8 @@
 {% endif %}
 {% endif %}
 
+[← Back to Server Index]({{ index_page_link or 'index.md' }})
+
 ## System Information
 - **OS:** {{ os_release.pretty_name or os_release.name or 'Unknown' }}
 - **Version:** {{ os_release.version or 'Unknown' }}
@@ -65,3 +67,6 @@
 {# Include NAS-specific information #}
 {% include 'components/nas.md.j2' %}
 
+---
+
+[← Back to Server Index]({{ index_page_link or 'index.md' }})

@@ -163,31 +163,42 @@ class DocumentationManager:
             return self._generate_fallback_index_content(inventory)
     
     def _prepare_context(self, host_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Prepare template context from host data"""
-        # Use actual hostname if available, otherwise fall back to original
-        display_hostname = host_data.get('actual_hostname', host_data.get('hostname', 'Unknown Host'))
-        
-        context = host_data.copy()
-        context['display_hostname'] = display_hostname
-        
-        # Ensure nested objects exist even if empty to prevent template errors
-        defaults = {
-            'os_release': {},
-            'memory_modules': {},
-            'services': [],
-            'listening_ports': [],
-            'docker_containers': [],
-            'kubernetes_info': {},
-            'proxmox_info': {},
-            'bios_info': {}
-        }
-        
-        for key, default_value in defaults.items():
-            if key not in context:
-                context[key] = default_value
-        
-        return context
-    
+            """Prepare template context from host data"""
+            # Use actual hostname if available, otherwise fall back to original
+            display_hostname = host_data.get('actual_hostname', host_data.get('hostname', 'Unknown Host'))
+            
+            context = host_data.copy()
+            context['display_hostname'] = display_hostname
+            
+            # Add navigation context for index page links
+            # Try to get from global CONFIG first, then fallback to defaults
+            try:
+                from modules.config import CONFIG
+                index_page_title = CONFIG.get('mediawiki_index_page', 'Server Documentation')
+            except (ImportError, AttributeError):
+                index_page_title = 'Server Documentation'
+            
+            context['index_page_title'] = index_page_title
+            context['index_page_link'] = 'index.md'  # For Markdown templates
+            
+            # Ensure nested objects exist even if empty to prevent template errors
+            defaults = {
+                'os_release': {},
+                'memory_modules': {},
+                'services': [],
+                'listening_ports': [],
+                'docker_containers': [],
+                'kubernetes_info': {},
+                'proxmox_info': {},
+                'bios_info': {}
+            }
+            
+            for key, default_value in defaults.items():
+                if key not in context:
+                    context[key] = default_value
+            
+            return context
+
     def _prepare_index_context(self, inventory: Dict[str, Any]) -> Dict[str, Any]:
         """Prepare template context for index page"""
         # Separate reachable and unreachable hosts

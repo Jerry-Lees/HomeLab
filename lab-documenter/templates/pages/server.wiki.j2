@@ -1,0 +1,70 @@
+= {{ display_hostname }} =
+
+'''Last Updated:''' {{ timestamp }}
+
+{% if platform_type %}
+'''Platform Type:''' {{ platform_type | title }}
+{% if platform_detection and platform_detection.detection_method %}
+'''Detection Method:''' {{ platform_detection.detection_method }}
+{% endif %}
+
+{% endif %}
+
+[[ {{ index_page_title or 'Server Documentation' }} | ← Back to Server Index ]]
+
+== System Information ==
+* '''OS:''' {{ os_release.pretty_name or os_release.name or 'Unknown' }}
+* '''Version:''' {{ os_release.version or 'Unknown' }}
+* '''Distribution:''' {{ (os_release.id or 'unknown') | title }}
+* '''Kernel:''' {{ kernel or 'Unknown' }}
+* '''Architecture:''' {{ architecture or 'Unknown' }}
+* '''Uptime:''' {{ uptime or 'Unknown' }}
+* '''CPU:''' {{ cpu_info or 'Unknown' }} ({{ cpu_cores or 'Unknown' }} cores)
+
+{% if bios_info %}
+=== BIOS Information ===
+{% if bios_info.vendor %}
+* '''Vendor:''' {{ bios_info.vendor }}
+{% endif %}
+{% if bios_info.version %}
+* '''Version:''' {{ bios_info.version }}
+{% endif %}
+{% if bios_info.date %}
+* '''Date:''' {{ bios_info.date }}
+{% endif %}
+{% if bios_info.capabilities %}
+* '''Capabilities:''' {{ bios_info.capabilities }}
+{% endif %}
+
+{% endif %}
+== Resources ==
+* '''Memory:''' {{ memory_used or 'Unknown' }} / {{ memory_total or 'Unknown' }}
+
+{% include 'components/memory_modules.wiki.j2' %}
+
+* '''Disk Usage:''' {{ disk_usage or 'Unknown' }}
+* '''Load Average:''' {{ load_average or 'Unknown' }}
+
+== Network ==
+* '''IP Addresses:'''
+<pre>
+{{ ip_addresses or 'Unknown' }}
+</pre>
+
+{% include 'components/services.wiki.j2' %}
+
+{% include 'components/listening_ports.wiki.j2' %}
+
+{% include 'components/docker_containers.wiki.j2' %}
+
+{% include 'components/kubernetes.wiki.j2' %}
+
+{% include 'components/proxmox.wiki.j2' %}
+
+{% include 'components/windows.wiki.j2' %}
+
+{% include 'components/nas.wiki.j2' %}
+
+----
+
+[[ {{ index_page_title or 'Server Documentation' }} | ← Back to Server Index ]]
