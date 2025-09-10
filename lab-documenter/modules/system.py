@@ -629,8 +629,6 @@ class SystemCollector:
         
         return info
     
-    
-    
     def cleanup_connections(self):
         """Clean up all connections"""
         if self.ssh_client:
@@ -730,21 +728,236 @@ class SystemCollector:
         return memory_data
     
     def get_services(self) -> List[Dict]:
-        """Get systemd services with enhanced information"""
+        """Get systemd services with enhanced information and auto-updating database"""
         services = []
+        
+        # Get list of active services
         result = self.run_command(
             "systemctl list-units --type=service --state=active --no-pager --plain | "
             "awk '{print $1}' | grep -v '^UNIT' | head -20"
         )
-        if result:
-            for service in result.split('\n'):
-                if service.strip():
-                    enhanced_service = self.services_db.enhance_service(
-                        service.strip(), 
-                        'active'
-                    )
-                    services.append(enhanced_service)
+        
+        if not result:
+            return services
+        
+        for service in result.split('\n'):
+            if not service.strip():
+                continue
+                
+            service_name = service.strip()
+            logger.debug(f"Collecting enhanced data for service: {service_name}")
+            
+            # Collect enhanced service data
+            enhanced_data = self._collect_service_enhanced_data(service_name)
+            
+            # Use enhanced service database with auto-updating
+            enhanced_service = self.services_db.enhance_service(
+                service_name, 
+                'active',
+                enhanced_data
+            )
+            services.append(enhanced_service)
+        
         return services
+    
+    def _collect_service_enhanced_data(self, service_name: str) -> Dict[str, Any]:
+        """Collect comprehensive service metadata"""
+        enhanced_data = {}
+        
+        # Get detailed service information using systemctl show
+        show_result = self.run_command(f"systemctl show {service_name} --no-pager")
+        if show_result:
+            show_data = self._parse_systemctl_show(show_result)
+            enhanced_data.update(show_data)
+        
+        # Get process information for running services
+        process_data = self._get_service_process_info(service_name)
+        if process_data:
+            enhanced_data.update(process_data)
+        
+        # Get package information
+        if enhanced_data.get('binary_path'):
+            package_data = self._get_package_info(enhanced_data['binary_path'])
+            if package_data:
+                enhanced_data.update(package_data)
+        
+        # Get configuration file paths
+        config_files = self._get_service_config_files(service_name, enhanced_data.get('unit_file_path'))
+        if config_files:
+            enhanced_data['config_files'] = config_files
+        
+        return enhanced_data
+    
+    def _parse_systemctl_show(self, show_output: str) -> Dict[str, Any]:
+        """Parse systemctl show output for service metadata"""
+        data = {}
+        
+        for line in show_output.split('\n'):
+            if '=' not in line:
+                continue
+                
+            key, value = line.split('=', 1)
+            key = key.strip()
+            value = value.strip()
+            
+            # Map systemctl properties to our enhanced data structure
+            if key == 'Type':
+                data['service_type'] = value
+            elif key == 'UnitFileState':
+                data['auto_start'] = value
+            elif key == 'FragmentPath':
+                data['unit_file_path'] = value
+            elif key == 'Requires':
+                if value:
+                    data['dependencies'] = [dep.strip() for dep in value.split() if dep.strip()]
+            elif key == 'Wants':
+                # Combine with existing dependencies
+                wants = [dep.strip() for dep in value.split() if dep.strip()]
+                if wants:
+                    existing_deps = data.get('dependencies', [])
+                    data['dependencies'] = list(set(existing_deps + wants))
+        
+        return data
+    
+    def _get_service_process_info(self, service_name: str) -> Dict[str, Any]:
+        """Get process information for a running service"""
+        data = {}
+        
+        # Get main PID
+        pid_result = self.run_command(f"systemctl show {service_name} --property=MainPID --value")
+        if not pid_result or pid_result.strip() == '0':
+            return data
+        
+        pid = pid_result.strip()
+        
+        # Get process information from /proc
+        proc_data = self._get_proc_info(pid)
+        if proc_data:
+            data.update(proc_data)
+        
+        # Get process information from ps
+        ps_result = self.run_command(f"ps -p {pid} -o pid,user,cmd --no-headers 2>/dev/null")
+        if ps_result:
+            ps_parts = ps_result.strip().split(None, 2)
+            if len(ps_parts) >= 3:
+                data['user_context'] = ps_parts[1]
+                if not data.get('command_line'):  # Only set if not already set from /proc
+                    data['command_line'] = ps_parts[2]
+        
+        return data
+    
+    def _get_proc_info(self, pid: str) -> Dict[str, Any]:
+        """Get process information from /proc filesystem"""
+        data = {}
+        
+        try:
+            # Get command line
+            cmdline_result = self.run_command(f"cat /proc/{pid}/cmdline 2>/dev/null | tr '\\0' ' '")
+            if cmdline_result:
+                data['command_line'] = cmdline_result.strip()
+                
+                # Extract binary path (first argument)
+                cmd_parts = cmdline_result.strip().split()
+                if cmd_parts:
+                    data['binary_path'] = cmd_parts[0]
+            
+            # Get working directory
+            cwd_result = self.run_command(f"readlink /proc/{pid}/cwd 2>/dev/null")
+            if cwd_result:
+                data['working_directory'] = cwd_result.strip()
+                
+        except Exception as e:
+            logger.debug(f"Error reading /proc info for PID {pid}: {e}")
+        
+        return data
+    
+    def _get_package_info(self, binary_path: str) -> Dict[str, Any]:
+        """Get package information for a binary"""
+        data = {}
+        
+        # Try different package managers
+        package_commands = [
+            # RPM-based systems
+            f"rpm -qf {binary_path} 2>/dev/null",
+            # Debian-based systems  
+            f"dpkg -S {binary_path} 2>/dev/null | cut -d: -f1",
+            # Arch-based systems
+            f"pacman -Qo {binary_path} 2>/dev/null | awk '{{print $5}}'"
+        ]
+        
+        for cmd in package_commands:
+            result = self.run_command(cmd)
+            if result and result.strip() and 'not found' not in result.lower():
+                package_name = result.strip().split('\n')[0]
+                
+                # Clean up package name
+                if ':' in package_name:
+                    package_name = package_name.split(':')[0]
+                
+                data['package_name'] = package_name
+                
+                # Try to get version
+                version = self._get_package_version(package_name)
+                if version:
+                    data['version'] = version
+                
+                break
+        
+        return data
+    
+    def _get_package_version(self, package_name: str) -> Optional[str]:
+        """Get package version"""
+        version_commands = [
+            # RPM-based
+            f"rpm -q {package_name} --queryformat '%{{VERSION}}-%{{RELEASE}}' 2>/dev/null",
+            # Debian-based
+            f"dpkg -l {package_name} 2>/dev/null | grep '^ii' | awk '{{print $3}}'",
+            # Arch-based
+            f"pacman -Q {package_name} 2>/dev/null | awk '{{print $2}}'"
+        ]
+        
+        for cmd in version_commands:
+            result = self.run_command(cmd)
+            if result and result.strip() and 'not found' not in result.lower():
+                return result.strip()
+        
+        return None
+    
+    def _get_service_config_files(self, service_name: str, unit_file_path: Optional[str]) -> List[str]:
+        """Get configuration files associated with a service"""
+        config_files = []
+        
+        # Add unit file if available
+        if unit_file_path:
+            config_files.append(unit_file_path)
+        
+        # Look for common config file patterns
+        service_base = service_name.replace('.service', '')
+        
+        config_patterns = [
+            f"/etc/{service_base}.conf",
+            f"/etc/{service_base}/{service_base}.conf", 
+            f"/etc/{service_base}/config",
+            f"/etc/default/{service_base}",
+            f"/etc/sysconfig/{service_base}",
+            f"/usr/lib/systemd/system/{service_name}",
+            f"/etc/systemd/system/{service_name}",
+            f"/etc/{service_base}/*.conf"
+        ]
+        
+        for pattern in config_patterns:
+            # Check if files exist (handle wildcards)
+            if '*' in pattern:
+                result = self.run_command(f"ls {pattern} 2>/dev/null")
+                if result:
+                    config_files.extend([f.strip() for f in result.split('\n') if f.strip()])
+            else:
+                result = self.run_command(f"test -f {pattern} && echo {pattern}")
+                if result and result.strip():
+                    config_files.append(result.strip())
+        
+        # Remove duplicates and return
+        return list(set(config_files))
     
     def get_docker_containers(self) -> List[Dict]:
         """Get Docker containers if Docker is installed"""
@@ -784,7 +997,10 @@ class SystemCollector:
                             except:
                                 pass
                         
-                        service_info = self.services_db.get_service_info(process_name, process_info)
+                        service_info = self.services_db.get_service_info(process_name, {
+                            'process_info': process_info,
+                            'process_name': process_name
+                        })
                         
                         port_info = {
                             'port': parts[3],
