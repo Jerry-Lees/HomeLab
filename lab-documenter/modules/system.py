@@ -8,6 +8,7 @@ import paramiko
 import logging
 import os
 import json
+import re
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Any
 from modules.services import ServiceDatabase
@@ -323,11 +324,10 @@ class SystemCollector:
         elif 'permission denied' in error_str:
             self.connection_failure_reason = "SSH permission denied (check credentials/key permissions)"
         else:
-            # Normalize error message but don't truncate
-            import re
-            normalized_error = re.sub(r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b', 'X.X.X.X', str(exception))
-            self.connection_failure_reason = f"SSH error: {normalized_error}"
-    
+            # Include the actual hostname in error message since we already have it
+            # Remove any IP addresses from the exception message since we log hostname separately
+            error_msg = re.sub(r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b', self.hostname, str(exception))
+            self.connection_failure_reason = f"SSH error: {error_msg}"
     def run_command(self, command: str) -> Optional[str]:
         """Execute command using appropriate connection method"""
         if self.connection_type == 'winrm' and self.winrm_session:
