@@ -1,0 +1,777 @@
+{
+  "000272": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "ASUSTek"
+  },
+  "00036B": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Cisco"
+  },
+  "0003BA": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Sun Microsystems"
+  },
+  "0003FF": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Microsoft"
+  },
+  "000423": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "HP"
+  },
+  "000569": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "VMware"
+  },
+  "0007EB": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Cisco"
+  },
+  "000B46": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Cisco"
+  },
+  "000B97": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Intel"
+  },
+  "000C29": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "VMware"
+  },
+  "000C76": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Micro-Star International"
+  },
+  "000C85": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Cisco"
+  },
+  "000D3A": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Microsoft"
+  },
+  "000D93": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "000EA6": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "ASUSTek"
+  },
+  "000FE2": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Cisco"
+  },
+  "001124": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Synology"
+  },
+  "001132": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Synology"
+  },
+  "001143": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Dell"
+  },
+  "0011D8": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Synology"
+  },
+  "0013C4": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Cisco"
+  },
+  "0013CE": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Intel"
+  },
+  "0013D4": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "ASUSTek"
+  },
+  "0014C2": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Dell"
+  },
+  "001517": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Intel"
+  },
+  "00155D": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Microsoft"
+  },
+  "001560": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "ASUSTek"
+  },
+  "001643": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Cisco"
+  },
+  "0016E6": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Intel"
+  },
+  "001743": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Synology"
+  },
+  "0017FA": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Microsoft"
+  },
+  "00188B": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Dell"
+  },
+  "0018DD": {
+    "date_added": "2025-11-08",
+    "source": "api",
+    "vendor": "Silicondust Engineering Ltd"
+  },
+  "001A4B": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "HP"
+  },
+  "001B0C": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "HP"
+  },
+  "001B21": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Intel"
+  },
+  "001B2F": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "WD"
+  },
+  "001B44": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Microsoft"
+  },
+  "001B63": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "001B78": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "HP"
+  },
+  "001C14": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "VMware"
+  },
+  "001CC4": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "HP"
+  },
+  "001CF0": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "WD"
+  },
+  "001D60": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "ASUSTek"
+  },
+  "001DD8": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Microsoft"
+  },
+  "001E0B": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "HP"
+  },
+  "001E58": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "WD"
+  },
+  "001E68": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Intel"
+  },
+  "001EA6": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "ASUSTek"
+  },
+  "001EC2": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "001EC9": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Dell"
+  },
+  "001EF7": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "QNAP"
+  },
+  "001F3F": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "ASUSTek"
+  },
+  "002186": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Intel"
+  },
+  "0021F6": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Intel"
+  },
+  "002219": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Dell"
+  },
+  "002241": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Intel"
+  },
+  "002264": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "HP"
+  },
+  "002332": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "002436": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "0024A8": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "HP"
+  },
+  "0024D7": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Intel"
+  },
+  "0024E8": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Dell"
+  },
+  "002500": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "002522": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "ASUSTek"
+  },
+  "0025B3": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "HP"
+  },
+  "0025BC": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "0025D3": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "002608": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "0026B6": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "ASUSTek"
+  },
+  "0026BB": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "005056": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "VMware"
+  },
+  "0050C2": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "VMware"
+  },
+  "0050E4": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "006171": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "009027": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "HP"
+  },
+  "0090A9": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Western Digital"
+  },
+  "00D0C0": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Cisco"
+  },
+  "080027": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "VirtualBox"
+  },
+  "0836C9": {
+    "date_added": "2025-11-08",
+    "source": "api",
+    "vendor": "NETGEAR"
+  },
+  "0A0027": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "VirtualBox"
+  },
+  "0C0267": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "VirtualBox"
+  },
+  "0E8E68": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Synology"
+  },
+  "24587C": {
+    "date_added": "2025-11-08",
+    "source": "api",
+    "vendor": "Espressif Inc."
+  },
+  "245EBE": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "QNAP"
+  },
+  "24F5AA": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "QNAP"
+  },
+  "28AD18": {
+    "date_added": "2025-11-08",
+    "source": "api",
+    "vendor": "Hui Zhou Gaoshengda Technology Co.,LTD"
+  },
+  "2C59E5": {
+    "date_added": "2025-11-08",
+    "source": "api",
+    "vendor": "Hewlett Packard"
+  },
+  "34159E": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Dell"
+  },
+  "3C3786": {
+    "date_added": "2025-11-08",
+    "source": "api",
+    "vendor": "NETGEAR"
+  },
+  "3C970E": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Microsoft"
+  },
+  "4C32CC": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "5467E6": {
+    "date_added": "2025-11-08",
+    "source": "api",
+    "vendor": "SHENZHEN MTC CO LTD"
+  },
+  "5C59D6": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "68A86D": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "6CBB13": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "70F395": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "ASUSTek"
+  },
+  "787264": {
+    "date_added": "2025-11-08",
+    "source": "api",
+    "vendor": "Asustor Inc."
+  },
+  "7C1E52": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Microsoft"
+  },
+  "7CD1C3": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Intel"
+  },
+  "843835": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "84B153": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "84EAED": {
+    "date_added": "2025-11-08",
+    "source": "api",
+    "vendor": "Roku, Inc"
+  },
+  "8857EE": {
+    "date_added": "2025-11-08",
+    "source": "api",
+    "vendor": "BUFFALO.INC"
+  },
+  "8C7712": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "9027E4": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "90840D": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "9803D8": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "A4C361": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "A81B5A": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "AC3C0B": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "B0838F": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Dell"
+  },
+  "B09FBA": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "B4F0AB": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "BC2411": {
+    "date_added": "2025-11-08",
+    "source": "api",
+    "vendor": "Proxmox Server Solutions GmbH"
+  },
+  "BCE143": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "C0D012": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "C42AD0": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "C4618B": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "C83DDC": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "CC25EF": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "D022BE": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "D02598": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "D0929E": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "D4619D": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "D4910F": {
+    "date_added": "2025-11-08",
+    "source": "api",
+    "vendor": "Amazon Technologies Inc."
+  },
+  "D49A20": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "D4ADFC": {
+    "date_added": "2025-11-08",
+    "source": "api",
+    "vendor": "Shenzhen Intellirocks Tech. Co. Ltd."
+  },
+  "D8CF9C": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "DC2B2A": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "DCFB02": {
+    "date_added": "2025-11-08",
+    "source": "api",
+    "vendor": "BUFFALO.INC"
+  },
+  "E0B52D": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "E425E7": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "E48B7F": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "E498D1": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "E49A79": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "E4B318": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Intel"
+  },
+  "E4C63D": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "E8040B": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "EC3586": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "EC8892": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "F07960": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "F0AD4E": {
+    "date_added": "2025-11-08",
+    "source": "api",
+    "vendor": "Globalscale Technologies, Inc."
+  },
+  "F0F61C": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "F40F24": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "F41BA1": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "F45FD4": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "F4D108": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "F4E2C6": {
+    "date_added": "2025-11-08",
+    "source": "api",
+    "vendor": "Ubiquiti Inc"
+  },
+  "F4F15A": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "F4F951": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "F82793": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "F86214": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "F86FC1": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  },
+  "FC253F": {
+    "date_added": "2025-11-08",
+    "source": "initial_import",
+    "vendor": "Apple"
+  }
+}
