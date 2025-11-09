@@ -2088,6 +2088,7 @@
     "discovered_date": "2025-11-08",
     "display_name": "Expressvpn-Daem",
     "documentation_url": null,
+    "last_seen": "2025-11-08",
     "last_updated": "2025-11-08",
     "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
     "ports": [],
@@ -2112,6 +2113,7 @@
     "discovered_date": "2025-11-08",
     "display_name": "Expressvpn-Service",
     "documentation_url": null,
+    "last_seen": "2025-11-08",
     "last_updated": "2025-11-08",
     "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
     "ports": [],
@@ -2354,7 +2356,13 @@
     "command_line": "/usr/libexec/fwupd/fwupd",
     "config_files": [
       "/etc/fwupd/fwupd.conf",
-      "/usr/lib/systemd/system/fwupd.service"
+      "/usr/lib/systemd/system/fwupd.service",
+      "/etc/fwupd/uefi_capsule.conf",
+      "/etc/fwupd/daemon.conf",
+      "/etc/fwupd/redfish.conf",
+      "/etc/fwupd/msr.conf",
+      "/etc/fwupd/thunderbolt.conf",
+      "/lib/systemd/system/fwupd.service"
     ],
     "dependencies": [
       "tmp.mount",
@@ -2367,8 +2375,8 @@
     "discovered_date": "2025-09-12",
     "display_name": "Fwupd",
     "documentation_url": null,
-    "last_seen": "2025-09-12",
-    "last_updated": "2025-09-12",
+    "last_seen": "2025-11-08",
+    "last_updated": "2025-11-08",
     "notes": "AUTO-GENERATED: This service was automatically discovered. Please update with actual service information.",
     "package_name": "fwupd",
     "ports": [],
