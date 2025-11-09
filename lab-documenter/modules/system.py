@@ -8,11 +8,10 @@ import paramiko
 import logging
 import os
 import json
-import re
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Any
 from modules.services import ServiceDatabase
-from modules.utils import bytes_to_gb, convert_uptime_seconds
+from modules.utils import bytes_to_gb, convert_uptime_seconds, check_port_open
 from modules.system_kubernetes import KubernetesCollector
 from modules.system_proxmox import ProxmoxCollector
 
@@ -84,6 +83,14 @@ class SystemCollector:
                 self.platform_info['detection_method'] = 'WinRM connection successful'
                 self.in_detection_mode = False
                 return True, 'windows'
+        
+        # Quick port 22 check before attempting SSH methods (saves time on hosts without SSH)
+        if not check_port_open(self.hostname, port=22, timeout=2.0):
+            logger.debug(f"Port 22 not open on {self.hostname}, skipping SSH attempts")
+            # Set a specific failure reason for port closed
+            self.connection_failure_reason = "SSH port 22 not accessible (connection refused or filtered)"
+            self.in_detection_mode = False
+            return False, 'unreachable'
         
         # Method 2: Try NAS (SSH with password) - moved before generic Linux
         if HAS_NAS_COLLECTOR:
@@ -324,10 +331,11 @@ class SystemCollector:
         elif 'permission denied' in error_str:
             self.connection_failure_reason = "SSH permission denied (check credentials/key permissions)"
         else:
-            # Include the actual hostname in error message since we already have it
-            # Remove any IP addresses from the exception message since we log hostname separately
-            error_msg = re.sub(r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b', self.hostname, str(exception))
-            self.connection_failure_reason = f"SSH error: {error_msg}"
+            # Normalize error message but don't truncate
+            import re
+            normalized_error = re.sub(r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b', 'X.X.X.X', str(exception))
+            self.connection_failure_reason = f"SSH error: {normalized_error}"
+    
     def run_command(self, command: str) -> Optional[str]:
         """Execute command using appropriate connection method"""
         if self.connection_type == 'winrm' and self.winrm_session:

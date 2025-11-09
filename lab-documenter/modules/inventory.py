@@ -9,9 +9,11 @@ import json
 import os
 import logging
 import concurrent.futures
+import threading
 from datetime import datetime
 from typing import Dict, List
 from modules.system import SystemCollector
+from modules.utils import BufferedLoggingHandler
 
 logger = logging.getLogger(__name__)
 
@@ -160,52 +162,75 @@ class InventoryManager:
             return "Unknown System"
     
     def collect_all_data(self, hosts: List[str], config: Dict, max_workers: int = 10):
-        """Collect data from all hosts using cascade connection approach"""
+        """Collect data from all hosts using cascade connection approach with buffered logging"""
         logger.info(f"Collecting data from {len(hosts)} hosts")
-    
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {
-                executor.submit(self.collect_host_data, host, config): host 
-                for host in hosts
-            }
         
-            for future in concurrent.futures.as_completed(futures):
-                original_host = futures[future]
-                try:
-                    data = future.result()
-                
-                    # Track connection failures
-                    if not data.get('reachable'):
+        # Set up buffered logging handler for cleaner output
+        buffered_handler = BufferedLoggingHandler()
+        root_logger = logging.getLogger()
+        root_logger.addHandler(buffered_handler)
+        
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # Submit all tasks with thread ID tracking
+                future_to_host = {}
+                for host in hosts:
+                    future = executor.submit(self._collect_host_with_buffering, host, config, buffered_handler)
+                    future_to_host[future] = host
+            
+                # Process completed tasks
+                for future in concurrent.futures.as_completed(future_to_host):
+                    original_host = future_to_host[future]
+                    try:
+                        data, thread_id = future.result()
+                        
+                        # Flush the buffered logs for this thread now that collection is complete
+                        buffered_handler.flush_thread_buffer(thread_id)
+                    
+                        # Track connection failures
+                        if not data.get('reachable'):
+                            failure_info = {
+                                'original_host': original_host,
+                                'actual_hostname': data.get('actual_hostname'),
+                                'failure_reason': data.get('connection_failure_reason', 'Unknown failure'),
+                                'timestamp': data.get('timestamp')
+                            }
+                            self.connection_failures.append(failure_info)
+                    
+                        # Determine the best key to use for this host
+                        if data.get('reachable') and data.get('actual_hostname'):
+                            # Use the actual hostname from the system
+                            best_key = data['actual_hostname']
+                            logger.info(f"Using hostname '{best_key}' instead of IP '{original_host}'")
+                        else:
+                            # Fall back to the original (IP or hostname from CSV)
+                            best_key = original_host
+                    
+                        self.inventory[best_key] = data
+                        logger.info(f"Collected data for {best_key} (platform: {data.get('platform_type', 'unknown')})")
+                    
+                    except Exception as e:
+                        # Track exceptions as failures too
                         failure_info = {
                             'original_host': original_host,
-                            'actual_hostname': data.get('actual_hostname'),
-                            'failure_reason': data.get('connection_failure_reason', 'Unknown failure'),
-                            'timestamp': data.get('timestamp')
+                            'actual_hostname': None,
+                            'failure_reason': f"Collection exception: {str(e)}",
+                            'timestamp': datetime.now().isoformat()
                         }
                         self.connection_failures.append(failure_info)
-                
-                    # Determine the best key to use for this host
-                    if data.get('reachable') and data.get('actual_hostname'):
-                        # Use the actual hostname from the system
-                        best_key = data['actual_hostname']
-                        logger.info(f"Using hostname '{best_key}' instead of IP '{original_host}'")
-                    else:
-                        # Fall back to the original (IP or hostname from CSV)
-                        best_key = original_host
-                
-                    self.inventory[best_key] = data
-                    logger.info(f"Collected data for {best_key} (platform: {data.get('platform_type', 'unknown')})")
-                
-                except Exception as e:
-                    # Track exceptions as failures too - no truncation
-                    failure_info = {
-                        'original_host': original_host,
-                        'actual_hostname': None,
-                        'failure_reason': f"Collection exception: {str(e)}",
-                        'timestamp': datetime.now().isoformat()
-                    }
-                    self.connection_failures.append(failure_info)
-                    logger.error(f"Failed to collect data for {original_host}: {e}")
+                        logger.error(f"Failed to collect data for {original_host}: {e}")
+        finally:
+            # Remove the buffered handler when done
+            root_logger.removeHandler(buffered_handler)
+    
+    def _collect_host_with_buffering(self, host: str, config: Dict, buffered_handler: BufferedLoggingHandler) -> tuple:
+        """
+        Wrapper for collect_host_data that tracks thread ID for buffered logging.
+        Returns tuple of (data, thread_id) for proper log flushing.
+        """
+        thread_id = threading.current_thread().ident
+        data = self.collect_host_data(host, config)
+        return data, thread_id
     
     def collect_host_data(self, host: str, config: Dict) -> Dict:
         """Collect data from a single host using new cascade approach"""
@@ -226,4 +251,3 @@ class InventoryManager:
             logger.info(f"Inventory saved to {filename}")
         except Exception as e:
             logger.error(f"Failed to save inventory: {e}")
-

@@ -14,6 +14,8 @@ import requests
 import json
 import time
 import threading
+from modules.networking_info import MACVendorDatabase
+
 _thread_local = threading.local()
 
 def set_device_context(hostname: str):
@@ -40,8 +42,95 @@ class DeviceContextFilter(logging.Filter):
                 record.msg = f"[{device}] {record.msg}"
         return True
 
-# Cache for MAC vendor lookups to avoid repeated API calls
-_mac_vendor_cache = {}
+class BufferedLoggingHandler(logging.Handler):
+    """
+    A logging handler that buffers log records in memory per thread.
+    Allows collection of logs and flushing them all at once to prevent interleaving.
+    """
+    
+    def __init__(self, target_logger_name: str = None):
+        super().__init__()
+        self.target_logger_name = target_logger_name
+        self._thread_buffers = {}
+        self._lock = threading.Lock()
+    
+    def emit(self, record):
+        """Store the log record in the thread-local buffer"""
+        thread_id = threading.current_thread().ident
+        
+        with self._lock:
+            if thread_id not in self._thread_buffers:
+                self._thread_buffers[thread_id] = []
+            self._thread_buffers[thread_id].append(record)
+    
+    def flush_thread_buffer(self, thread_id: int = None):
+        """
+        Flush all buffered log records for a specific thread to the actual logger.
+        If thread_id is None, uses the current thread.
+        """
+        if thread_id is None:
+            thread_id = threading.current_thread().ident
+        
+        with self._lock:
+            if thread_id in self._thread_buffers:
+                records = self._thread_buffers.pop(thread_id)
+                
+                # Get the root logger or specified logger
+                if self.target_logger_name:
+                    target_logger = logging.getLogger(self.target_logger_name)
+                else:
+                    target_logger = logging.getLogger()
+                
+                # Emit all buffered records to the actual logger
+                # We need to find the original handlers (not this buffered one)
+                for record in records:
+                    # Call handle() on the logger which will go through all handlers except this one
+                    for handler in target_logger.handlers:
+                        if handler is not self and not isinstance(handler, BufferedLoggingHandler):
+                            handler.handle(record)
+    
+    def clear_thread_buffer(self, thread_id: int = None):
+        """Clear the buffer for a specific thread without flushing"""
+        if thread_id is None:
+            thread_id = threading.current_thread().ident
+        
+        with self._lock:
+            if thread_id in self._thread_buffers:
+                del self._thread_buffers[thread_id]
+
+def check_port_open(host: str, port: int = 22, timeout: float = 2.0) -> bool:
+    """
+    Quick check if a port is open on a host.
+    Much faster than waiting for SSH timeout.
+    
+    Args:
+        host: Hostname or IP address
+        port: Port number to check (default 22 for SSH)
+        timeout: Connection timeout in seconds (default 2.0)
+    
+    Returns:
+        True if port is open, False otherwise
+    """
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        result = sock.connect_ex((host, port))
+        sock.close()
+        return result == 0
+    except (socket.error, socket.gaierror, socket.timeout):
+        return False
+    except Exception:
+        return False
+
+# Global MAC vendor database instance (initialized on first use)
+_mac_vendor_db = None
+
+def _get_mac_vendor_db() -> MACVendorDatabase:
+    """Get or create the global MAC vendor database instance"""
+    global _mac_vendor_db
+    if _mac_vendor_db is None:
+        _mac_vendor_db = MACVendorDatabase()
+    return _mac_vendor_db
 
 def get_mac_address(ip_address: str) -> Optional[str]:
     """Get MAC address for an IP address using ARP table"""
@@ -78,7 +167,7 @@ def get_mac_address(ip_address: str) -> Optional[str]:
 
 def lookup_mac_vendor(mac_address: str, use_api: bool = True) -> Dict[str, str]:
     """
-    Look up MAC address vendor information
+    Look up MAC address vendor information using the MAC vendor database
     
     Args:
         mac_address: MAC address in XX:XX:XX:XX:XX:XX format
@@ -90,315 +179,146 @@ def lookup_mac_vendor(mac_address: str, use_api: bool = True) -> Dict[str, str]:
     if not mac_address:
         return {'vendor': 'Unknown', 'source': 'unknown'}
     
-    # Check cache first
-    if mac_address in _mac_vendor_cache:
-        return _mac_vendor_cache[mac_address]
-    
-    vendor_info = {'vendor': 'Unknown', 'source': 'unknown'}
-    
-    # Extract OUI (first 3 octets)
-    oui = mac_address[:8].replace(':', '').upper()
-    
-    # Try local OUI lookup first (basic common vendors)
-    local_vendor = _get_local_vendor(oui)
-    if local_vendor:
-        vendor_info = {'vendor': local_vendor, 'source': 'local'}
-    
-    # Try API lookup if enabled and no local match
-    if use_api and vendor_info['vendor'] == 'Unknown':
-        api_vendor = _api_vendor_lookup(mac_address)
-        if api_vendor:
-            vendor_info = {'vendor': api_vendor, 'source': 'api'}
-    
-    # Cache the result
-    _mac_vendor_cache[mac_address] = vendor_info
-    return vendor_info
+    db = _get_mac_vendor_db()
+    return db.lookup_vendor(mac_address, use_api=use_api)
 
-def _get_local_vendor(oui: str) -> Optional[str]:
-    """Get vendor from local OUI database (common vendors only)"""
-    # Common OUI mappings - you can expand this
-    local_ouis = {
-        '000D93': 'Apple',
-        '001B63': 'Apple', 
-        '001EC2': 'Apple',
-        '002608': 'Apple',
-        '002332': 'Apple',
-        '002436': 'Apple',
-        '002500': 'Apple',
-        '0025BC': 'Apple',
-        '0026BB': 'Apple',
-        'F0F61C': 'Apple',
-        'F82793': 'Apple',
-        '001F3F': 'Apple',
-        '0050E4': 'Apple',
-        '006171': 'Apple',
-        '0003BA': 'Sun Microsystems',
-        '080027': 'VirtualBox',
-        '0C0267': 'VirtualBox', 
-        '005056': 'VMware',
-        '000C29': 'VMware',
-        '001C14': 'VMware',
-        '0003FF': 'Microsoft',
-        '000D3A': 'Microsoft',
-        '001DD8': 'Microsoft',
-        '0017FA': 'Microsoft',
-        '7C1E52': 'Microsoft',
-        '001B44': 'Microsoft',
-        '00155D': 'Microsoft',
-        '3C970E': 'Microsoft',
-        '000B97': 'Intel',
-        '001B21': 'Intel',
-        '0013CE': 'Intel',
-        '001517': 'Intel',
-        '0016E6': 'Intel',
-        '001E68': 'Intel',
-        '0021F6': 'Intel',
-        '002186': 'Intel',
-        '002241': 'Intel',
-        '0024D7': 'Intel',
-        'E4B318': 'Intel',
-        '7CD1C3': 'Intel',
-        '000C76': 'Micro-Star International',
-        '001E58': 'WD',
-        '001B2F': 'WD',
-        '0090A9': 'Western Digital',
-        '001CF0': 'WD',
-        '001143': 'Dell',
-        '0014C2': 'Dell',
-        '00188B': 'Dell',
-        '001EC9': 'Dell',
-        '002219': 'Dell',
-        '0024E8': 'Dell',
-        '34159E': 'Dell',
-        'B0838F': 'Dell',
-        '001E0B': 'Cisco',
-        '00036B': 'Cisco',
-        '0007EB': 'Cisco',
-        '000B46': 'Cisco',
-        '000C85': 'Cisco',
-        '000FE2': 'Cisco',
-        '0013C4': 'Cisco',
-        '001643': 'Cisco',
-        '00D0C0': 'Cisco',
-        '001B0C': 'HP',
-        '001CC4': 'HP',
-        '001E0B': 'HP',
-        '002264': 'HP',
-        '0024A8': 'HP',
-        '0025B3': 'HP',
-        '001A4B': 'HP',
-        '009027': 'HP',
-        '001B78': 'HP',
-        '000423': 'HP',
-        '001560': 'ASUSTek',
-        '0013D4': 'ASUSTek',
-        '001EA6': 'ASUSTek',
-        '002522': 'ASUSTek',
-        '0026B6': 'ASUSTek',
-        '001F3F': 'ASUSTek',
-        '001D60': 'ASUSTek',
-        '000272': 'ASUSTek',
-        '000EA6': 'ASUSTek',
-        '70F395': 'ASUSTek',
-        '0025D3': 'Apple',
-        '68A86D': 'Apple',
-        'A81B5A': 'Apple',
-        'D49A20': 'Apple',
-        'E48B7F': 'Apple',
-        'F07960': 'Apple',
-        'F4F15A': 'Apple',
-        'F86214': 'Apple',
-        '4C32CC': 'Apple',
-        '5C59D6': 'Apple',
-        '6CBB13': 'Apple',
-        '84B153': 'Apple',
-        '843835': 'Apple',
-        '8C7712': 'Apple',
-        '90840D': 'Apple',
-        '9027E4': 'Apple',
-        '9803D8': 'Apple',
-        'A4C361': 'Apple',
-        'AC3C0B': 'Apple',
-        'B09FBA': 'Apple',
-        'B4F0AB': 'Apple',
-        'BCE143': 'Apple',
-        'C0D012': 'Apple',
-        'C42AD0': 'Apple',
-        'C4618B': 'Apple',
-        'C83DDC': 'Apple',
-        'CC25EF': 'Apple',
-        'D022BE': 'Apple',
-        'D02598': 'Apple',
-        'D0929E': 'Apple',
-        'D4619D': 'Apple',
-        'D8CF9C': 'Apple',
-        'DC2B2A': 'Apple',
-        'E0B52D': 'Apple',
-        'E425E7': 'Apple',
-        'E49A79': 'Apple',
-        'E498D1': 'Apple',
-        'E4C63D': 'Apple',
-        'E8040B': 'Apple',
-        'EC3586': 'Apple',
-        'EC8892': 'Apple',
-        'F40F24': 'Apple',
-        'F41BA1': 'Apple',
-        'F45FD4': 'Apple',
-        'F4D108': 'Apple',
-        'F4F951': 'Apple',
-        'F86FC1': 'Apple',
-        'FC253F': 'Apple',
-        '001124': 'Synology',
-        '001132': 'Synology',
-        '001743': 'Synology',
-        '0011D8': 'Synology',
-        '0E8E68': 'Synology',
-        '001EF7': 'QNAP',
-        '245EBE': 'QNAP',
-        '24F5AA': 'QNAP',
-        '000C29': 'VMware',
-        '005056': 'VMware',
-        '001C14': 'VMware',
-        '000569': 'VMware',
-        '0050C2': 'VMware',
-        '0A0027': 'VirtualBox'
-    }
+def finalize_mac_vendor_db():
+    """
+    Finalize the MAC vendor database (save if modified).
+    Should be called at the end of processing.
+    """
+    global _mac_vendor_db
+    if _mac_vendor_db is not None:
+        _mac_vendor_db.finalize()
+
+def setup_logging(log_file: str = 'logs/lab-documenter.log', verbose: bool = False, quiet: bool = False):
+    """Set up logging configuration"""
+    os.makedirs(os.path.dirname(log_file), exist_ok=True)
     
-    return local_ouis.get(oui[:6])  # Use first 6 chars (3 octets)
-
-def _api_vendor_lookup(mac_address: str) -> Optional[str]:
-    """Look up vendor using online API"""
-    try:
-        # Use macvendors.com API (free, no rate limit mentioned)
-        url = f"https://api.macvendors.com/{mac_address}"
-        
-        # Add a small delay to be respectful
-        time.sleep(0.1)
-        
-        response = requests.get(url, timeout=3)
-        if response.status_code == 200:
-            vendor = response.text.strip()
-            if vendor and vendor != "Not Found":
-                return vendor
-        elif response.status_code == 429:  # Rate limited
-            time.sleep(1)  # Wait a bit longer
-            
-    except (requests.RequestException, requests.Timeout):
-        pass
-    
-    return None
-
-def format_device_summary_with_mac(host: str, failure_reason: str, use_mac_lookup: bool = True) -> str:
-    """Format device summary with MAC address and vendor info"""
-    formatted_host = format_host_with_dns(host)
-    
-    if use_mac_lookup:
-        mac_address = get_mac_address(host.split('@')[-1] if '@' in host else host)
-        if mac_address:
-            vendor_info = lookup_mac_vendor(mac_address, use_api=True)
-            vendor_text = f" [{vendor_info['vendor']}]" if vendor_info['vendor'] != 'Unknown' else ''
-            return f"{formatted_host} (MAC: {mac_address}{vendor_text})"
-        else:
-            return f"{formatted_host} (MAC: Unknown)"
-    else:
-        return formatted_host
-
-def setup_logging(log_dir: str = 'logs', verbose: bool = False, quiet: bool = False) -> logging.Logger:
-    """Set up logging configuration after potential clean operations"""
-    os.makedirs(log_dir, exist_ok=True)
-
+    # Determine log level
     if quiet:
-        level = logging.ERROR
+        console_level = logging.ERROR
     elif verbose:
-        level = logging.DEBUG
+        console_level = logging.DEBUG
     else:
-        level = logging.INFO
-
-    logging.basicConfig(
-        level=level,
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(os.path.join(log_dir, 'lab-documenter.log')),
-            logging.StreamHandler()
-        ]
+        console_level = logging.INFO
+    
+    # Create formatters
+    detailed_formatter = logging.Formatter(
+        '%(asctime)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
     )
+    
+    # File handler - always detailed, always DEBUG level
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(detailed_formatter)
+    
+    # Console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(console_level)
+    console_handler.setFormatter(detailed_formatter)
+    
+    # Configure root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)
+    root_logger.handlers = []  # Clear existing handlers
+    root_logger.addHandler(file_handler)
+    root_logger.addHandler(console_handler)
+    
+    # Suppress paramiko INFO and DEBUG messages
+    logging.getLogger('paramiko').setLevel(logging.WARNING)
+    logging.getLogger('paramiko.transport').setLevel(logging.WARNING)
+    
+    # Return a logger for the caller to use
+    return logging.getLogger(__name__)
     
     return logging.getLogger(__name__)
 
-def validate_ssh_configuration(config: Dict[str, Union[str, int, List[str]]]) -> None:
-    """Validate SSH configuration parameters and exit on failure"""
-    logger = logging.getLogger(__name__)
-    
-    if not config.get('ssh_user'):
-        logger.error("SSH user not configured. Set it in config file or use --ssh-user")
-        sys.exit(1)
-    
-    ssh_key_path = os.path.expanduser(str(config['ssh_key_path']))
-    if not os.path.exists(ssh_key_path):
-        logger.error(f"SSH key not found: {config['ssh_key_path']}")
-        sys.exit(1)
-
-def validate_mediawiki_configuration(config: Dict[str, Union[str, int, List[str]]]) -> None:
-    """Validate MediaWiki configuration parameters and exit on failure"""
-    logger = logging.getLogger(__name__)
-    
-    if not config.get('mediawiki_api'):
-        logger.error("MediaWiki API URL not configured")
-        sys.exit(1)
-        
-    if not all([config.get('mediawiki_user'), config.get('mediawiki_password')]):
-        logger.error("MediaWiki credentials not configured")
-        sys.exit(1)
-
 def get_unique_hosts(hosts: List[str]) -> List[str]:
-    """Remove duplicates from host list while preserving order"""
+    """Return unique hosts while preserving order"""
     seen = set()
-    unique_hosts = []
-    
+    unique = []
     for host in hosts:
         if host not in seen:
             seen.add(host)
-            unique_hosts.append(host)
-    
-    return unique_hosts
+            unique.append(host)
+    return unique
 
-def clean_directories(directories_to_clean: Optional[List[str]] = None, dry_run: bool = False) -> None:
-    """Clean files from specified directories"""
+def validate_ssh_configuration(config: Dict) -> None:
+    """Validate SSH configuration settings"""
     logger = logging.getLogger(__name__)
     
-    if directories_to_clean is None:
-        directories_to_clean = ['./documentation', './logs']
+    # Check SSH key configuration
+    if 'ssh_key_path' in config and config['ssh_key_path']:
+        ssh_key_path = os.path.expanduser(config['ssh_key_path'])
+        if not os.path.exists(ssh_key_path):
+            logger.error(f"SSH key file not found: {ssh_key_path}")
+            logger.error("Please ensure the SSH key exists or update ssh_key_path in config.json")
+            sys.exit(1)
     
-    for directory in directories_to_clean:
-        if not os.path.exists(directory):
-            logger.info(f"Directory {directory} does not exist, skipping")
-            continue
-            
+    # Check SSH user is configured
+    if not config.get('ssh_user'):
+        logger.error("SSH user not configured in config.json")
+        logger.error("Please set ssh_user in config.json")
+        sys.exit(1)
+
+def validate_mediawiki_configuration(config: Dict) -> None:
+    """Validate MediaWiki configuration settings"""
+    logger = logging.getLogger(__name__)
+    
+    required_fields = ['mediawiki_api', 'mediawiki_user', 'mediawiki_password']
+    missing_fields = [field for field in required_fields if not config.get(field)]
+    
+    if missing_fields:
+        logger.error(f"MediaWiki configuration incomplete. Missing: {', '.join(missing_fields)}")
+        logger.error("Please configure these settings in config.json:")
+        for field in missing_fields:
+            logger.error(f"  - {field}")
+        sys.exit(1)
+
+def clean_directories(directories: Optional[List[str]] = None, dry_run: bool = False):
+    """Clean specified directories by deleting all files"""
+    logger = logging.getLogger(__name__)
+    
+    # Use default directories if none specified
+    if directories is None:
+        directories = ['documentation', 'logs']
+    
+    if dry_run:
+        logger.info("DRY RUN: Would clean the following directories:")
+        for directory in directories:
+            if os.path.exists(directory):
+                files = [f for f in os.listdir(directory) if os.path.isfile(os.path.join(directory, f))]
+                logger.info(f"  {directory}: {len(files)} files")
+        return
+    
+    logger.info("Cleaning documentation and logs directories...")
+    
+    for directory in directories:
         try:
+            if not os.path.exists(directory):
+                logger.debug(f"Directory does not exist: {directory}")
+                continue
+                
             files = [f for f in os.listdir(directory) if os.path.isfile(os.path.join(directory, f))]
             
             if not files:
-                logger.info(f"No files found in {directory}")
+                logger.debug(f"No files to delete in {directory}")
                 continue
                 
-            if dry_run:
-                logger.info(f"Would delete {len(files)} files from {directory}:")
-                for file in files:
-                    logger.info(f"  - {os.path.join(directory, file)}")
-            else:
-                logger.info(f"Deleting {len(files)} files from {directory}")
-                deleted_count = 0
-                for file in files:
-                    file_path = os.path.join(directory, file)
-                    try:
-                        os.remove(file_path)
-                        deleted_count += 1
-                        logger.debug(f"Deleted: {file_path}")
-                    except Exception as e:
-                        logger.error(f"Failed to delete {file_path}: {e}")
-                
-                logger.info(f"Successfully deleted {deleted_count}/{len(files)} files from {directory}")
-                
+            deleted_count = 0
+            for filename in files:
+                file_path = os.path.join(directory, filename)
+                try:
+                    os.remove(file_path)
+                    deleted_count += 1
+                    logger.debug(f"Deleted: {file_path}")
+                except Exception as e:
+                    logger.error(f"Failed to delete {file_path}: {e}")
+            
+            logger.info(f"Successfully deleted {deleted_count}/{len(files)} files from {directory}")
+            
         except Exception as e:
             logger.error(f"Error processing directory {directory}: {e}")
 
@@ -569,6 +489,9 @@ def print_connection_summary(connection_failures: List[Dict[str, str]]) -> None:
         logger.info("")
     
     logger.info(f"{'='*60}")
+    
+    # Finalize MAC vendor database (save any new OUIs discovered)
+    finalize_mac_vendor_db()
 
 def bytes_to_gb(bytes_str: str) -> str:
     """Convert bytes string to GB with appropriate formatting"""
@@ -610,4 +533,3 @@ def convert_uptime_seconds(uptime_seconds: Union[str, int, float]) -> str:
         
     except (ValueError, TypeError):
         return str(uptime_seconds)  # Return original if conversion fails
-
