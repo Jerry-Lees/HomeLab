@@ -12,6 +12,8 @@ A comprehensive home lab documentation system that automatically discovers and d
 - **CSV Auto-Update**: Automatically add successfully documented network-discovered hosts to CSV inventory
 - **Clean Architecture**: Separation of concerns with dedicated modules for different functions
 - **Template System**: Jinja2-based templates for customizable documentation output
+- **Port Pre-Check**: Quick port availability check before attempting SSH connections
+- **Buffered Logging**: Thread-safe log output prevents message interleaving during concurrent operations
 
 ### Supported Platforms
 - **Windows Systems**: Windows Server and Desktop editions via WinRM
@@ -33,7 +35,8 @@ A comprehensive home lab documentation system that automatically discovers and d
 
 ### Advanced Features  
 - **Smart Service Discovery**: Auto-learning database that categorizes unknown services
-- **Connection Failure Analysis**: Detailed categorization of connection failures with reverse DNS
+- **MAC Vendor Database**: Auto-learning OUI database with 139 pre-seeded vendors
+- **Connection Failure Analysis**: Detailed categorization of connection failures with reverse DNS and MAC vendor identification
 - **Host Filtering**: ignore.csv support to skip problematic or irrelevant hosts
 - **Multiple Network Ranges**: Scan across different subnets in a single run
 - **Clean Operation**: Easy cleanup of generated documentation and logs
@@ -51,6 +54,8 @@ A comprehensive home lab documentation system that automatically discovers and d
 
 ### Performance & Reliability
 - **Concurrent Processing**: Multi-threaded scanning for faster execution
+- **Port Pre-Check**: 2-second port check before SSH attempts reduces time spent on unreachable hosts
+- **Buffered Thread Logging**: Clean, sequential log output even with concurrent operations
 - **Multi-Platform Security**: WinRM for Windows, SSH keys for Linux, SSH passwords for NAS
 - **Comprehensive Logging**: Detailed logs with intelligent error categorization
 - **Flexible Configuration**: JSON config files with command-line overrides
@@ -148,6 +153,8 @@ The system uses a cascade authentication approach for mixed environments:
 2. **NAS Systems**: SSH with username/password (typically admin accounts)
 3. **Linux Systems**: SSH with key-based authentication (most secure)
 
+Each host is tested with all methods in priority order. Port 22 is checked before attempting SSH methods to avoid timeout delays on hosts without SSH enabled.
+
 ### Server List (`servers.csv`)
 
 Optional file to specify servers manually across all platforms:
@@ -213,15 +220,35 @@ old-server.local,Decommissioned equipment
 
 2. **Configure NAS credentials** in `config.json`:
    - Usually `admin` user with admin password
-   - Some systems may require enabling SSH in settings
+   - Some NAS systems require enabling SSH password authentication
 
-3. **Supported NAS platforms**:
+3. **Test connection**:
+   ```bash
+   ssh admin@nas-system.local
+   ```
+
+4. **Supported NAS platforms**:
    - Synology DSM
    - QNAP QTS  
    - Asustor ADM
    - Buffalo TeraStation
    - Netgear ReadyNAS
    - TrueNAS Core/Scale
+
+### Proxmox Hypervisors
+
+Proxmox systems are detected automatically when connected via SSH key authentication. The system collects:
+- Hypervisor information
+- Running VMs (QEMU/KVM)
+- Containers (LXC)
+
+### Kubernetes Clusters
+
+For Kubernetes cluster documentation:
+
+1. **Kubectl must be installed** on the scanning host
+2. **Kubeconfig** must be accessible from the Linux account running the scan
+3. **Cluster access** is detected automatically on systems with kubectl configured
 
 ## Command Line Options
 
@@ -345,6 +372,9 @@ ssh -i .ssh/homelab_key admin@192.168.1.100
 
 # Use config file with multiple network ranges
 ./lab-documenter.py --scan  # Uses network_ranges from config.json
+
+# Scan single host (using /32 notation)
+./lab-documenter.py --scan --network 192.168.1.100/32
 ```
 
 ### Performance Tuning
@@ -581,6 +611,118 @@ Comprehensive raw data saved to inventory file:
 }
 ```
 
+## Project Structure
+
+```
+lab-documenter/
+├── lab-documenter.py          # Main entry point
+├── config.json                # Configuration file
+├── servers.csv                # Optional server list
+├── ignore.csv                 # Optional ignore list
+├── services.json              # Auto-learning service database
+├── mac-ouis.json              # Auto-learning MAC vendor database
+├── modules/
+│   ├── system.py              # System data collection
+│   ├── system_windows.py      # Windows-specific collection
+│   ├── system_nas.py          # NAS-specific collection
+│   ├── system_kubernetes.py   # Kubernetes integration
+│   ├── system_proxmox.py      # Proxmox integration
+│   ├── inventory.py           # Inventory management
+│   ├── scanner.py             # Network scanning
+│   ├── services.py            # Service database
+│   ├── networking_info.py     # MAC vendor database and future networking features
+│   ├── mediawiki.py           # MediaWiki integration
+│   ├── templates.py           # Template processing
+│   └── utils.py               # Utility functions
+├── templates/
+│   ├── base/                  # Base templates
+│   ├── components/            # Reusable components
+│   └── pages/                 # Full page templates
+├── documentation/             # Generated Markdown files
+└── logs/                      # Log files
+```
+
+## Auto-Learning Databases
+
+### Service Database (`services.json`)
+
+The system maintains an auto-learning database of services:
+- Unknown services are automatically added with timestamp
+- Services are categorized by type (web, database, monitoring, etc.)
+- Additional fields can be manually populated (URLs, access info, etc.)
+- Database is updated during each scan with new discoveries
+
+### MAC Vendor Database (`mac-ouis.json`)
+
+The system maintains an auto-learning database of MAC address vendors:
+- Pre-seeded with 139 common vendor OUIs (Organizational Unique Identifiers)
+- Unknown MAC addresses trigger API lookup to macvendors.com
+- Successful API lookups are automatically added to local database
+- Reduces API calls over time as database grows
+- Database structure: `{"OUI": {"vendor": "Name", "date_added": "YYYY-MM-DD", "source": "api/import"}}`
+
+## Advanced Usage
+
+### Network Scanning Options
+
+```bash
+# Scan multiple networks
+./lab-documenter.py --scan --network 192.168.1.0/24 --network 10.0.0.0/24
+
+# Scan single host (using /32 notation)
+./lab-documenter.py --scan --network 192.168.1.100/32
+
+# Combine network scan with CSV hosts
+./lab-documenter.py --scan --csv servers.csv
+```
+
+### Template Customization
+
+Templates are located in the `templates/` directory and use Jinja2 syntax:
+
+```bash
+# Custom server page template
+templates/pages/server_page.md.j2
+
+# Custom components
+templates/components/system_info.md.j2
+templates/components/services_table.md.j2
+
+# Base layout
+templates/base/base.md.j2
+```
+
+Modify templates to change output format, add sections, or customize styling.
+
+### Offline Development Mode
+
+```bash
+# Process existing data without scanning
+./lab-documenter.py --use-existing-data
+
+# Test wiki updates without rescanning
+./lab-documenter.py --use-existing-data --update-wiki --dry-run
+
+# Test templates with existing data
+./lab-documenter.py --use-existing-data --verbose
+```
+
+### Debug and Troubleshooting
+
+```bash
+# Verbose output
+./lab-documenter.py --verbose --scan
+
+# Dry run mode (no changes made)
+./lab-documenter.py --dry-run --scan --update-wiki
+
+# Check what would be cleaned
+./lab-documenter.py --clean --dry-run
+
+# Diagnose SSH connection issues
+./distribute-key.sh --diagnose 192.168.1.100
+```
+
 ## Architecture
 
 ### Module Organization
@@ -600,6 +742,7 @@ lab-documenter/
 │   ├── system_kubernetes.py  # Kubernetes cluster information
 │   ├── system_proxmox.py     # Proxmox VE information
 │   ├── services.py           # Service database management
+│   ├── networking_info.py    # MAC vendor database and network utilities
 │   ├── inventory.py          # Host data aggregation
 │   ├── documentation.py      # Jinja2 template-based generation
 │   ├── wiki.py              # MediaWiki API integration
@@ -612,6 +755,7 @@ lab-documenter/
 ├── servers.csv              # Optional server list
 ├── ignore.csv               # Optional ignore list
 ├── services.json            # Auto-learning services database
+├── mac-ouis.json            # Auto-learning MAC vendor database
 ├── requirements.txt         # Python dependencies
 └── documentation/           # Generated documentation
     ├── index.md            # Master server index
@@ -624,15 +768,17 @@ lab-documenter/
 1. **Configuration Loading**: Loads settings from JSON and command line
 2. **Network Discovery**: Scans multiple CIDR ranges for live hosts
 3. **Host Filtering**: Applies ignore.csv exclusions
-4. **Multi-Platform Connection**: Cascade authentication (Windows → NAS → Linux)
-5. **Platform Detection**: Identifies and refines platform type (especially TrueNAS)
-6. **Data Collection**: Platform-specific information gathering
-7. **Service Enhancement**: Uses intelligent database to categorize services
-8. **Template Rendering**: Processes Jinja2 templates with collected data
-9. **Documentation Generation**: Creates local Markdown files and JSON data
-10. **CSV Auto-Update**: Adds newly discovered hosts to CSV inventory (if enabled)
-11. **MediaWiki Updates**: Creates/updates individual server pages and index page
-12. **Failure Analysis**: Categorizes and reports connection issues with reverse DNS
+4. **Port Pre-Check**: Quick 2-second check for SSH port 22 availability
+5. **Multi-Platform Connection**: Cascade authentication (Windows → NAS → Linux)
+6. **Platform Detection**: Identifies and refines platform type (especially TrueNAS)
+7. **Data Collection**: Platform-specific information gathering
+8. **Service Enhancement**: Uses intelligent database to categorize services
+9. **MAC Vendor Lookup**: Identifies device manufacturers for failed connections
+10. **Template Rendering**: Processes Jinja2 templates with collected data
+11. **Documentation Generation**: Creates local Markdown files and JSON data
+12. **CSV Auto-Update**: Adds newly discovered hosts to CSV inventory (if enabled)
+13. **MediaWiki Updates**: Creates/updates individual server pages and index page
+14. **Failure Analysis**: Categorizes and reports connection issues with reverse DNS and MAC vendors
 
 ## Advanced Features
 
@@ -643,7 +789,7 @@ The system intelligently tries connection methods in priority order:
 2. **NAS (SSH Password)** - For systems requiring password authentication
 3. **Linux (SSH Keys)** - Most secure method for Linux systems
 
-Platform detection is refined after connection to identify systems like TrueNAS that might initially appear as generic Linux.
+Port 22 is checked before SSH attempts to reduce timeout delays. Platform detection is refined after connection to identify systems like TrueNAS that might initially appear as generic Linux.
 
 ### Enhanced SSH Diagnostics
 
@@ -673,6 +819,15 @@ The `services.json` database automatically learns about services:
 
 Unknown services are auto-added and can be manually edited for better descriptions.
 
+### MAC Vendor Identification
+
+The `mac-ouis.json` database identifies device manufacturers:
+- Pre-seeded with 139 common vendors (Cisco, HP, Dell, Ubiquiti, etc.)
+- API lookups for unknown vendors (macvendors.com)
+- 0.5 second delay between API calls to respect rate limits
+- Automatic database growth over time
+- Helps identify failed devices by manufacturer
+
 ### Connection Failure Analysis
 
 Detailed categorization helps troubleshoot connectivity issues:
@@ -684,6 +839,7 @@ Detailed categorization helps troubleshoot connectivity issues:
 - **DNS resolution failed** - Hostname cannot be resolved
 - **Network unreachable** - Routing issues
 - **WinRM connection refused** - WinRM service not running or port blocked
+- **Port 22 not accessible** - SSH port check failed (2-second timeout)
 
 ### Template Customization
 
@@ -713,6 +869,20 @@ Templates support advanced features for customizable output:
 {% endfor %}
 {% endif %}
 ```
+
+### Performance Optimization
+
+**Port Pre-Check System**:
+- Quick 2-second check for SSH port 22 before attempting full connection
+- Reduces wasted time on hosts without SSH enabled
+- Prevents unnecessary 10-second SSH timeouts
+- Significantly improves scan performance on large networks
+
+**Buffered Thread Logging**:
+- Thread-safe sequential log output
+- Each host's logs appear as a complete block
+- Prevents message interleaving during concurrent operations
+- Cleaner, more readable log files
 
 ## Automation
 
@@ -805,6 +975,15 @@ ssh admin@nas-system.local
 # (varies by NAS system - check admin panel)
 ```
 
+**Port 22 Accessibility**:
+```bash
+# Test if port 22 is open
+nc -zv 192.168.1.100 22
+
+# Check firewall on target host
+# Host will be skipped if port 22 is not accessible
+```
+
 ### Platform Detection Issues
 
 **TrueNAS Detection**:
@@ -852,6 +1031,37 @@ nano servers.csv
 ./lab-documenter.py --scan --csv servers.csv --csv-update --dry-run
 ```
 
+### MAC Vendor Lookup Issues
+
+**MAC Vendor Database Not Growing**:
+```bash
+# Check if mac-ouis.json exists and is writable
+ls -la mac-ouis.json
+
+# Verify API connectivity
+curl https://api.macvendors.com/00:00:00:00:00:00
+
+# Check logs for vendor lookup errors
+grep "MAC vendor" logs/lab-documenter.log
+```
+
+**Rate Limiting from API**:
+- The system includes 0.5 second delays between API calls
+- Pre-seeded database contains 139 common vendors
+- Local lookups do not count against rate limits
+
+### Performance Issues
+
+**Slow Scanning**:
+- Adjust `max_workers` in config.json (default: 5)
+- Use ignore.csv to skip hosts that timeout
+- Port 22 pre-check reduces time on hosts without SSH (2 seconds vs 10 second SSH timeout)
+
+**Log Output Interleaving**:
+- Buffered logging prevents message mixing
+- Each host's logs appear as a complete block
+- Check logs/lab-documenter.log for complete sequential output
+
 ### Debug Mode
 
 ```bash
@@ -897,7 +1107,7 @@ python3 -c "import jinja2; print(jinja2.__version__)"
 
 ### Python Dependencies
 - `paramiko>=2.11.0` - SSH connections
-- `requests>=2.28.0` - HTTP/MediaWiki API
+- `requests>=2.28.0` - HTTP/MediaWiki API and MAC vendor lookups
 - `jinja2>=3.0.0` - Template processing
 - `pywinrm>=0.4.3` - Windows WinRM connections
 
@@ -909,7 +1119,7 @@ python3 -c "import jinja2; print(jinja2.__version__)"
 - Local or domain user account with appropriate permissions
 
 **Linux Systems**:
-- SSH server running
+- SSH server running (port 22)
 - SSH key-based authentication configured  
 - Standard command-line tools (ps, df, free, etc.)
 
@@ -949,7 +1159,17 @@ For issues, questions, or contributions:
 
 ## Changelog
 
-### v1.1.2 (Current)
+### v1.2.0 (Current)
+- **Port Pre-Check**: SSH port 22 availability check (2-second timeout) before authentication attempts
+- **Buffered Logging**: Thread-safe sequential log output prevents message interleaving during concurrent operations
+- **MAC Vendor Database**: Auto-learning OUI database with 139 pre-seeded vendors
+- **Networking Info Module**: New `modules/networking_info.py` with MACVendorDatabase class
+- **Performance**: Faster scanning by skipping SSH attempts on hosts without port 22 accessible
+- **Database Auto-Growth**: MAC vendor database automatically grows via API lookups
+- **Cleaner Output**: Each host's logs appear as complete sequential blocks
+- **Future Ready**: Networking module includes documented expansion possibilities (DNS cache, device fingerprinting, etc.)
+
+### v1.1.2
 - **CSV Auto-Discovery**: Added `--csv-update` flag to automatically add successfully documented network-discovered hosts to CSV file
 - **Intelligent CSV Entries**: Auto-generated entries include smart role and description suggestions based on detected platform and OS
 - **CSV Structure Preservation**: Maintains existing CSV file format and field structure when adding new entries
@@ -998,3 +1218,4 @@ For issues, questions, or contributions:
 - **Error Handling**: SSH connection retry logic and error classification
 - **Individual JSON Files**: Separate JSON output per server for analysis tools
 - **Configuration**: Support for both single and multiple network configurations
+
