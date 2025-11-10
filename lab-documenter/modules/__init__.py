@@ -13,6 +13,7 @@ from modules.wiki import MediaWikiUpdater
 from modules.documentation import DocumentationManager, generate_mediawiki_content
 from modules.system_kubernetes import KubernetesCollector
 from modules.system_proxmox import ProxmoxCollector
+from modules.cacti import CactiExporter, export_cacti_format
 
 # Import new collectors with fallback handling
 try:
@@ -46,6 +47,8 @@ __all__ = [
     'ProxmoxCollector',
     'WindowsCollector',
     'NASCollector',
+    'CactiExporter',
+    'export_cacti_format',
     'setup_logging',
     'clean_directories',
     'validate_ssh_configuration',
@@ -58,5 +61,4 @@ __all__ = [
     'convert_uptime_seconds'
 ]
 
-__version__ = 'v1.2.0'
-
+__version__ = 'v1.2.1'
