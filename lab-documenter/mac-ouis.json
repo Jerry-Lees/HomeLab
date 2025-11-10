@@ -414,6 +414,11 @@
     "source": "initial_import",
     "vendor": "Synology"
   },
+  "109693": {
+    "date_added": "2025-11-09",
+    "source": "api",
+    "vendor": "Amazon Technologies Inc."
+  },
   "24587C": {
     "date_added": "2025-11-08",
     "source": "api",
@@ -434,6 +439,11 @@
     "source": "api",
     "vendor": "Hui Zhou Gaoshengda Technology Co.,LTD"
   },
+  "28D0EA": {
+    "date_added": "2025-11-09",
+    "source": "api",
+    "vendor": "Intel Corporate"
+  },
   "2C59E5": {
     "date_added": "2025-11-08",
     "source": "api",
@@ -449,10 +459,25 @@
     "source": "api",
     "vendor": "NETGEAR"
   },
+  "3C8D20": {
+    "date_added": "2025-11-09",
+    "source": "api",
+    "vendor": "Google, Inc."
+  },
   "3C970E": {
     "date_added": "2025-11-08",
     "source": "initial_import",
     "vendor": "Microsoft"
+  },
+  "3CFA06": {
+    "date_added": "2025-11-09",
+    "source": "api",
+    "vendor": "Microsoft Corporation"
+  },
+  "48E1E9": {
+    "date_added": "2025-11-09",
+    "source": "api",
+    "vendor": "Chengdu Meross Technology Co., Ltd."
   },
   "4C32CC": {
     "date_added": "2025-11-08",
@@ -584,6 +609,11 @@
     "source": "initial_import",
     "vendor": "Apple"
   },
+  "C0D2F3": {
+    "date_added": "2025-11-09",
+    "source": "api",
+    "vendor": "Hui Zhou Gaoshengda Technology Co.,LTD"
+  },
   "C42AD0": {
     "date_added": "2025-11-08",
     "source": "initial_import",
@@ -639,6 +669,11 @@
     "source": "api",
     "vendor": "Shenzhen Intellirocks Tech. Co. Ltd."
   },
+  "D83ADD": {
+    "date_added": "2025-11-09",
+    "source": "api",
+    "vendor": "Raspberry Pi Trading Ltd"
+  },
   "D8CF9C": {
     "date_added": "2025-11-08",
     "source": "initial_import",
@@ -663,6 +698,11 @@
     "date_added": "2025-11-08",
     "source": "initial_import",
     "vendor": "Apple"
+  },
+  "E45F01": {
+    "date_added": "2025-11-09",
+    "source": "api",
+    "vendor": "Raspberry Pi Trading Ltd"
   },
   "E48B7F": {
     "date_added": "2025-11-08",
