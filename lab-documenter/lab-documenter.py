@@ -19,6 +19,7 @@ from modules.wiki import MediaWikiUpdater
 
 from modules.documentation import DocumentationManager, generate_mediawiki_content, generate_wiki_index_content
 from modules.utils import setup_logging, clean_directories, print_connection_summary, load_ignore_list, filter_ignored_hosts, get_unique_hosts, validate_ssh_configuration, validate_mediawiki_configuration
+from modules.cacti import export_cacti_format
 
 def setup_device_context_logging():
     """Set up device context logging to prevent interlaced messages"""
@@ -55,6 +56,7 @@ Examples:
   %(prog)s --ssh-user admin --scan            Use specific SSH username
   %(prog)s --workers 20 --scan                Use 20 concurrent workers for faster scanning
   %(prog)s --scan --csv servers.csv --csv-update  Scan network and auto-add new systems to CSV
+  %(prog)s --export-cacti                      Export inventory to Cacti format (requires existing inventory.json)
 
 Configuration:
   The script looks for config.json in the current directory by default.
@@ -121,6 +123,17 @@ Configuration:
                            help='MediaWiki password')
     wiki_group.add_argument('--wiki-index-page', metavar='TITLE', default=None,
                            help='Title for the wiki server index page')
+    
+    # Export settings
+    export_group = parser.add_argument_group('Export Settings')
+    export_group.add_argument('--export-cacti', action='store_true',
+                             help='Export inventory to Cacti-compatible format (bash script + CSV)')
+    export_group.add_argument('--cacti-path', metavar='PATH', default='/usr/share/cacti/cli',
+                             help='Path to Cacti CLI directory (default: /usr/share/cacti/cli)')
+    export_group.add_argument('--snmp-community', metavar='STRING', default='public',
+                             help='SNMP community string for Cacti devices (default: public)')
+    export_group.add_argument('--snmp-version', metavar='VERSION', type=int, default=2, choices=[1, 2, 3],
+                             help='SNMP version for Cacti devices (default: 2)')
     
     # Output settings
     output_group = parser.add_argument_group('Output Settings')
@@ -426,7 +439,41 @@ Configuration:
                 logger.error(f"Failed to update wiki index page: {index_page_title}")
         except SystemExit:
             logger.warning("MediaWiki index update skipped due to configuration issues")
-    
+
+    # Export to Cacti format if requested
+    if args.export_cacti:
+        logger.info("Exporting inventory to Cacti format...")
+        
+        # Check if inventory file exists
+        if not os.path.exists(config['output_file']):
+            logger.error(f"Cannot export to Cacti - inventory file not found: {config['output_file']}")
+            logger.info("Run a scan first to generate inventory.json")
+            sys.exit(1)
+        
+        try:
+            results = export_cacti_format(
+                inventory_file=config['output_file'],
+                output_dir='documentation',
+                cacti_path=args.cacti_path,
+                snmp_community=args.snmp_community,
+                snmp_version=args.snmp_version
+            )
+            
+            if results:
+                logger.info("Cacti export completed successfully:")
+                if 'bash_script' in results:
+                    logger.info(f"  Bash script: {results['bash_script']}")
+                    print(f"\nCacti import script generated: {results['bash_script']}")
+                    print(f"Run it on your Cacti server: sudo bash {results['bash_script']}")
+                if 'csv' in results:
+                    logger.info(f"  CSV reference: {results['csv']}")
+                    print(f"CSV reference file: {results['csv']}")
+            else:
+                logger.error("Cacti export failed - check logs for details")
+        except Exception as e:
+            logger.error(f"Error exporting to Cacti format: {e}")
+            sys.exit(1)
+
     # Print connection summary at the end (only if we actually scanned)
     if not args.use_existing_data:
         print_connection_summary(inventory_manager.connection_failures)
