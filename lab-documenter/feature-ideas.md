@@ -4,6 +4,13 @@ This document contains potential future features for Lab Documenter, organized b
 
 ---
 
+## In progress features
+
+These features are currently operatioinal, but are a Work In Progress.
+
+- **Cacti Config Generation** - Export inventory.json as Cacti-compatible configuration (XML/SQL) for automatic device addition
+
+
 ## Easy Features
 
 ### Change Detection & Alerting
@@ -71,7 +78,6 @@ This document contains potential future features for Lab Documenter, organized b
 ### External Integrations
 - **Prometheus Integration** - Query Prometheus for metrics, incorporate into documentation
 - **Grafana Dashboard Links** - Auto-discover and link to relevant Grafana dashboards
-- **Cacti Config Generation** - Export inventory.json as Cacti-compatible configuration (XML/SQL) for automatic device addition
 - **Zabbix Host Import** - Generate Zabbix host definitions from discovered infrastructure
 - **Nagios/Icinga Configuration** - Export monitoring configurations for Nagios-compatible systems
 - **Git Version Control** - Commit documentation to Git repository automatically after each run

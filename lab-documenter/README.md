@@ -14,6 +14,7 @@ A comprehensive home lab documentation system that automatically discovers and d
 - **Template System**: Jinja2-based templates for customizable documentation output
 - **Port Pre-Check**: Quick port availability check before attempting SSH connections
 - **Buffered Logging**: Thread-safe log output prevents message interleaving during concurrent operations
+- **Cacti Integration**: Direct SSH import with automatic device addition and updates
 
 ### Supported Platforms
 - **Windows Systems**: Windows Server and Desktop editions via WinRM
@@ -108,6 +109,9 @@ A comprehensive home lab documentation system that automatically discovers and d
 # Scan networks and also update MediaWiki pages  
 ./lab-documenter.py --scan --update-wiki
 
+# Scan and directly import to Cacti monitoring
+./lab-documenter.py --scan --export-cacti
+
 # Update only the wiki server index page
 ./lab-documenter.py --update-wiki-index
 
@@ -142,7 +146,27 @@ A comprehensive home lab documentation system that automatically discovers and d
     "mediawiki_api": "https://wiki.example.com/api.php",
     "mediawiki_user": "documentation_bot",
     "mediawiki_password": "your_bot_password",
-    "mediawiki_index_page": "Server Documentation"
+    "mediawiki_index_page": "Server Documentation",
+    "cacti": {
+        "host": "cacti.example.com",
+        "ssh_user": "root",
+        "ssh_key_path": "/home/user/.ssh/id_rsa",
+        "cli_path": "/var/www/html/cacti/cli",
+        "snmp_community": "public",
+        "snmp_version": 2,
+        "snmp_port": 161,
+        "snmp_timeout": 500,
+        "template_mapping": {
+            "linux": 18,
+            "windows": 26,
+            "nas": 25,
+            "freebsd": 22,
+            "proxmox": 18,
+            "kubernetes": 18,
+            "docker": 18,
+            "unknown": 16
+        }
+    }
 }
 ```
 
@@ -155,6 +179,25 @@ The system uses a cascade authentication approach for mixed environments:
 3. **Linux Systems**: SSH with key-based authentication (most secure)
 
 Each host is tested with all methods in priority order. Port 22 is checked before attempting SSH methods to avoid timeout delays on hosts without SSH enabled.
+
+### Cacti Configuration
+
+The Cacti section configures direct SSH import to Cacti monitoring:
+
+- **host**: Cacti server hostname or IP address (required for direct import)
+- **ssh_user**: SSH username for Cacti server (typically root)
+- **ssh_key_path**: Path to SSH private key (null to use SSH agent)
+- **cli_path**: Path to Cacti CLI scripts directory
+- **snmp_community**: SNMP community string for device polling
+- **snmp_version**: SNMP version (1, 2, or 3)
+- **snmp_port**: SNMP port (default: 161)
+- **snmp_timeout**: SNMP timeout in milliseconds
+- **template_mapping**: Maps platform types to Cacti template IDs
+
+To find your Cacti template IDs:
+```bash
+ssh root@cacti "php -q /var/www/html/cacti/cli/add_device.php --list-host-templates"
+```
 
 ### Server List (`servers.csv`)
 
@@ -171,6 +214,304 @@ truenas.local,TrueNAS Scale system,FreeBSD NAS,Rack 2
 192.168.1.100,Docker host,Container Host,Rack 1
 ubuntu-vm1,Development VM,Development,Virtual
 ```
+
+## Generated Files
+
+### Documentation Files
+```
+documentation/
+├── hostname1.md                  # Markdown documentation per host
+├── hostname1.json                # JSON data per host
+├── hostname2.md
+├── hostname2.json
+├── index.md                      # Master index of all servers
+└── [hostname].json files
+```
+
+### Inventory Files
+```
+inventory.json                    # Complete inventory with all collected data
+services.json                     # Auto-learning service database
+mac-ouis.json                     # Auto-learning MAC vendor database
+```
+
+### Cacti Export Files
+```
+documentation/
+├── cacti_import.sh              # Bash script for manual import
+├── cacti_devices.csv            # CSV reference file with device info
+└── cacti_export.json            # Structured JSON with complete device data
+```
+
+The Cacti export files are generated when using `--export-cacti`:
+
+- **cacti_import.sh**: Executable bash script containing `add_device.php` commands for each device. Can be manually copied to Cacti server and executed as backup method.
+- **cacti_devices.csv**: Human-readable CSV file listing all devices with their configurations for review and auditing.
+- **cacti_export.json**: Structured JSON containing complete device data, metadata, and settings for programmatic processing or future integrations.
+
+## Cacti Integration
+
+### Overview
+
+The Cacti integration provides direct SSH import of discovered devices into Cacti monitoring. When `--export-cacti` is used, the system automatically:
+
+1. Generates export files (bash script, CSV, JSON)
+2. Tests SSH connectivity to Cacti server
+3. Processes each device individually
+4. Attempts to add device using `add_device.php`
+5. Updates existing devices using `change_device.php` if already present
+6. Displays comprehensive import summary with results
+
+### Quick Start
+
+```bash
+# Scan network and import directly to Cacti
+./lab-documenter.py --scan --export-cacti --config config.json
+
+# Import existing inventory to Cacti
+./lab-documenter.py --use-existing-data --export-cacti --config config.json
+
+# Full workflow: scan, update wiki, import to Cacti
+./lab-documenter.py --scan --update-wiki --export-cacti --config config.json
+```
+
+### Prerequisites
+
+1. **SSH Access**: Ensure you can SSH to Cacti server:
+   ```bash
+   ssh root@cacti.example.com "echo test"
+   ```
+
+2. **SSH Key**: Configure SSH key authentication (no passwords in config):
+   ```bash
+   ssh-copy-id root@cacti.example.com
+   ```
+
+3. **SNMP Configuration**: Enable SNMP on target devices:
+   ```bash
+   # Ubuntu/Debian example
+   sudo apt-get install snmpd
+   sudo nano /etc/snmp/snmpd.conf
+   # Add: rocommunity public
+   sudo systemctl restart snmpd
+   ```
+
+4. **Firewall Rules**: Allow SNMP from Cacti server:
+   ```bash
+   sudo ufw allow from cacti_ip to any port 161 proto udp
+   ```
+
+### Import Behavior
+
+The direct import follows this logic for each device:
+
+1. **Add Attempt**: Tries to add device using `add_device.php`
+2. **Duplicate Detection**: If device already exists, automatically switches to update
+3. **Update Execution**: Uses `change_device.php` to update SNMP settings and template
+4. **Result Tracking**: Categorizes result as Added, Updated, Failed, Skipped, or Already Existed
+5. **Continue on Error**: Processes all devices even if some fail
+
+### Import Results
+
+After import completes, a summary displays:
+
+```
+============================================================
+Cacti Import Summary
+============================================================
+Added:           15 devices
+Updated:         12 devices
+Already Existed:  3 devices (no change)
+Failed:           2 devices
+Skipped:          1 device (unreachable)
+============================================================
+
+Failed Devices:
+------------------------------------------------------------
+  • device1.example.com
+    Error: SNMP timeout
+  • device2.example.com
+    Error: Template not found
+```
+
+### Configuration Options
+
+#### Override Command-Line Options
+
+Config file settings can be overridden via command-line:
+
+```bash
+# Override SNMP community
+./lab-documenter.py --export-cacti --snmp-community custom-string
+
+# Override Cacti CLI path
+./lab-documenter.py --export-cacti --cacti-path /custom/path/cli
+
+# Override SNMP version
+./lab-documenter.py --export-cacti --snmp-version 3
+```
+
+#### Template Mapping
+
+The `template_mapping` section maps platform types to Cacti template IDs. Update this based on your Cacti installation:
+
+```json
+"template_mapping": {
+    "linux": 18,        # Local Linux Machine
+    "windows": 26,      # Windows Device
+    "nas": 25,          # Synology NAS
+    "freebsd": 22,      # Net-SNMP Device
+    "proxmox": 18,      # Uses Linux template
+    "kubernetes": 18,   # Uses Linux template
+    "docker": 18,       # Uses Linux template
+    "unknown": 16       # Generic SNMP Device
+}
+```
+
+### Manual Import (Backup Method)
+
+If direct SSH import is not configured or fails, use the generated bash script:
+
+```bash
+# Copy script to Cacti server
+scp documentation/cacti_import.sh root@cacti:/tmp/
+
+# Execute on Cacti server
+ssh root@cacti "bash /tmp/cacti_import.sh"
+```
+
+The bash script includes:
+- Device-specific comments for reference
+- Platform and OS information
+- All necessary `add_device.php` parameters
+- Error checking and completion messages
+
+### Updating Existing Devices
+
+When devices already exist in Cacti, the system automatically updates them with current settings:
+
+- Updates SNMP community string
+- Updates SNMP version
+- Updates device template
+- Updates device description
+
+This ensures devices remain synchronized with your current configuration.
+
+### Export Files Reference
+
+#### cacti_export.json Structure
+
+```json
+{
+  "metadata": {
+    "generated_at": "2025-11-09T22:00:00.000000",
+    "generated_by": "Lab Documenter Cacti Exporter",
+    "version": "1.0",
+    "cacti_cli_path": "/var/www/html/cacti/cli",
+    "total_devices": 34,
+    "skipped_devices": 2
+  },
+  "cacti_settings": {
+    "cli_path": "/var/www/html/cacti/cli",
+    "snmp": {
+      "version": 2,
+      "community": "public",
+      "port": 161,
+      "timeout": 500
+    },
+    "template_mapping": { ... }
+  },
+  "devices": [
+    {
+      "hostname": "server.example.com",
+      "description": "Server Description",
+      "ip": "server.example.com",
+      "template_id": 18,
+      "template_name": "Local Linux Machine",
+      "platform_type": "linux",
+      "os_name": "Ubuntu 22.04 LTS",
+      "snmp": { ... },
+      "availability": { ... },
+      "metadata": {
+        "reachable": true,
+        "collected_at": "2025-11-09T22:00:00",
+        "primary_ip": "192.168.1.100"
+      }
+    }
+  ],
+  "skipped": [
+    {
+      "hostname": "offline-server.example.com",
+      "reason": "unreachable"
+    }
+  ]
+}
+```
+
+This JSON format enables:
+- Programmatic processing of export data
+- Custom reporting and analysis
+- Integration with other monitoring tools
+- Audit trails of import operations
+
+## Troubleshooting
+
+### Cacti Import Issues
+
+**Problem:** SSH connection to Cacti server fails
+
+**Solutions:**
+1. Test SSH manually: `ssh root@cacti "echo test"`
+2. Verify SSH key authentication works
+3. Check SSH key path in config.json is correct
+4. Ensure SSH key has proper permissions (600)
+5. Try with SSH agent: `ssh-add ~/.ssh/id_rsa`
+6. Review error in import summary
+
+**Problem:** Devices fail to add to Cacti
+
+**Solutions:**
+1. Verify SNMP is enabled on target devices
+2. Check SNMP community string matches
+3. Verify firewall allows SNMP (UDP port 161)
+4. Test SNMP manually: `snmpwalk -v2c -c public device_ip system`
+5. Check template IDs match your Cacti installation
+6. Review device-specific errors in import summary
+7. Check Cacti logs: `/var/www/html/cacti/log/cacti.log`
+
+**Problem:** Template not found errors
+
+**Solutions:**
+1. List available templates: `ssh root@cacti "php -q /var/www/html/cacti/cli/add_device.php --list-host-templates"`
+2. Update template_mapping in config.json with correct IDs
+3. Verify template exists in Cacti web interface
+4. Use generic template (16) as fallback
+
+**Problem:** Devices marked as "down" after import
+
+**Solutions:**
+1. Check SNMP service is running on device
+2. Verify SNMP community string is correct
+3. Test from Cacti server: `snmpwalk -v2c -c public device.example.com system`
+4. Check device firewall allows SNMP from Cacti server
+5. Increase SNMP timeout in config.json
+6. Verify device hostname resolves from Cacti server
+7. Check Cacti poller is running
+
+(See original README for additional troubleshooting sections: SSH Connection Issues, WinRM Connection Issues, Network Scanning Issues, MediaWiki Update Failures, Performance Issues, Permission Errors, Template Rendering Issues)
+
+## Best Practices
+
+### Cacti Specific
+- Test SSH connection before bulk imports
+- Start with small batches for initial setup
+- Verify template IDs match your installation
+- Monitor Cacti logs during imports
+- Keep generated bash scripts as backup
+- Document custom template mappings
+- Schedule regular synchronization
+
+(See original README for additional best practices: Security, Performance, Organization, Maintenance)
 
 ### Ignore List (`ignore.csv`)
 
@@ -612,35 +953,49 @@ Comprehensive raw data saved to inventory file:
 }
 ```
 
-## Project Structure
+## File Locations Reference
 
 ```
 lab-documenter/
-├── lab-documenter.py          # Main entry point
-├── config.json                # Configuration file
-├── servers.csv                # Optional server list
-├── ignore.csv                 # Optional ignore list
-├── services.json              # Auto-learning service database
-├── mac-ouis.json              # Auto-learning MAC vendor database
-├── modules/
-│   ├── system.py              # System data collection
-│   ├── system_windows.py      # Windows-specific collection
-│   ├── system_nas.py          # NAS-specific collection
-│   ├── system_kubernetes.py   # Kubernetes integration
-│   ├── system_proxmox.py      # Proxmox integration
-│   ├── inventory.py           # Inventory management
-│   ├── scanner.py             # Network scanning
-│   ├── services.py            # Service database
-│   ├── networking_info.py     # MAC vendor database and future networking features
-│   ├── mediawiki.py           # MediaWiki integration
-│   ├── templates.py           # Template processing
-│   └── utils.py               # Utility functions
-├── templates/
-│   ├── base/                  # Base templates
-│   ├── components/            # Reusable components
-│   └── pages/                 # Full page templates
-├── documentation/             # Generated Markdown files
-└── logs/                      # Log files
+├── lab-documenter.py              # Main script
+├── config.json                    # Default configuration
+├── config-my.json                 # User-specific config (gitignored)
+├── servers.csv                    # Host inventory
+├── ignore.csv                     # Hosts to skip
+├── inventory.json                 # Generated inventory
+├── services.json                  # Service database
+├── mac-ouis.json                  # MAC vendor database
+│
+├── modules/                       # Python modules
+│   ├── config.py                 # Configuration management
+│   ├── documentation.py          # Template rendering
+│   ├── inventory.py              # Data collection
+│   ├── network.py                # Network scanning
+│   ├── services.py               # Service discovery
+│   ├── system.py                 # System collection
+│   ├── windows.py                # Windows collector
+│   ├── linux.py                  # Linux collector
+│   ├── nas.py                    # NAS collector
+│   ├── mediawiki.py              # Wiki integration
+│   ├── cacti.py                  # Cacti integration
+│   ├── networking_info.py        # MAC vendor lookup
+│   └── utils.py                  # Utilities
+│
+├── templates/                     # Jinja2 templates
+│   ├── markdown_host.j2          # Markdown format
+│   ├── mediawiki_host.j2         # MediaWiki format
+│   └── mediawiki_index.j2        # Wiki index
+│
+├── documentation/                 # Generated files
+│   ├── *.md                      # Markdown per host
+│   ├── *.json                    # JSON per host
+│   ├── index.md                  # Master index
+│   ├── cacti_import.sh           # Cacti bash script
+│   ├── cacti_devices.csv         # Cacti CSV
+│   └── cacti_export.json         # Cacti JSON
+│
+└── logs/                          # Log files
+    └── lab-documenter.log
 ```
 
 ## Auto-Learning Databases
@@ -1508,7 +1863,18 @@ For issues, questions, or contributions:
 
 # Changelog
 
-## v1.2.0 (Current)
+## v1.2.1 (Current)
+- **Cacti Direct Import**: SSH-based automatic device import to Cacti monitoring
+- **Automatic Device Updates**: Uses change_device.php for existing devices
+- **Configurable Templates**: Template mapping in config.json for platform detection
+- **Import Result Tracking**: Per-device status (Added/Updated/Failed/Skipped)
+- **Multiple Export Formats**: JSON, CSV, and bash script generation
+- **FQDN Support**: Prefers DNS names over IP addresses for devices
+- **SSH Key Authentication**: Secure key-based access to Cacti server
+- **Comprehensive Reporting**: Detailed import summaries with error categorization
+- **Backup Methods**: Generates bash scripts for manual import fallback
+
+## v1.2.0 
 - **Port Pre-Check**: SSH port 22 availability check (2-second timeout) before authentication attempts
 - **Buffered Logging**: Thread-safe sequential log output prevents message interleaving during concurrent operations
 - **MAC Vendor Database**: Auto-learning OUI database with 139 pre-seeded vendors

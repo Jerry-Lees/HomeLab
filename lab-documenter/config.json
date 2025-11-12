@@ -13,6 +13,25 @@
     "mediawiki_api": "https://wiki.lees-family.io/api.php",
     "mediawiki_user": "documentation_bot",
     "mediawiki_password": "your_bot_password_here",
-    "mediawiki_index_page": "Server Documentation"
+    "mediawiki_index_page": "Server Documentation",
+    "cacti": {
+        "host": "cacti",
+        "user": "root",
+        "ssh_key_path": null,
+        "cli_path": "/var/www/html/cacti/cli",
+        "snmp_community": "public",
+        "snmp_version": 2,
+        "snmp_port": 161,
+        "snmp_timeout": 500,
+        "template_mapping": {
+            "linux": 18,
+            "windows": 26,
+            "nas": 25,
+            "freebsd": 22,
+            "proxmox": 18,
+            "kubernetes": 18,
+            "docker": 18,
+            "unknown": 16
+        }
+    }
 }
-

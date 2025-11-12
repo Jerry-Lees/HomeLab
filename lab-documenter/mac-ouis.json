@@ -684,6 +684,11 @@
     "source": "initial_import",
     "vendor": "Apple"
   },
+  "DCA632": {
+    "date_added": "2025-11-10",
+    "source": "api",
+    "vendor": "Raspberry Pi Trading Ltd"
+  },
   "DCFB02": {
     "date_added": "2025-11-08",
     "source": "api",
