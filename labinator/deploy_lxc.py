@@ -18,6 +18,12 @@ Requirements:
   sshpass (system package, needed for Ansible password auth)
 """
 
+# Auto-activate virtualenv so `python3 deploy_lxc.py` works without sourcing .venv
+import os, sys
+_venv = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".venv", "bin", "python3")
+if os.path.exists(_venv) and os.path.realpath(sys.executable) != os.path.realpath(_venv):
+    os.execv(_venv, [_venv] + sys.argv)
+
 import argparse
 import base64
 import os

@@ -19,10 +19,14 @@ Requirements:
   SSH key authorized on all Proxmox nodes (root@proxmoxXX)
 """
 
+# Auto-activate virtualenv so `python3 deploy_vm.py` works without sourcing .venv
+import os, sys
+_venv = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".venv", "bin", "python3")
+if os.path.exists(_venv) and os.path.realpath(sys.executable) != os.path.realpath(_venv):
+    os.execv(_venv, [_venv] + sys.argv)
+
 import argparse
-import os
 import socket
-import sys
 import time
 import subprocess
 import tempfile

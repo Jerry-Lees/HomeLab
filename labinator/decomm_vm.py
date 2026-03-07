@@ -11,11 +11,15 @@ PERMANENTLY destroys a QEMU VM and removes all traces:
 THIS IS IRREVERSIBLE. Use with extreme caution.
 """
 
+# Auto-activate virtualenv so `python3 decomm_vm.py` works without sourcing .venv
+import os, sys
+_venv = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".venv", "bin", "python3")
+if os.path.exists(_venv) and os.path.realpath(sys.executable) != os.path.realpath(_venv):
+    os.execv(_venv, [_venv] + sys.argv)
+
 import argparse
-import os
 import random
 import subprocess
-import sys
 import termios
 import time
 import tty
