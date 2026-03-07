@@ -1,0 +1,67 @@
+# ============================================================
+# Cloud Image Catalog for deploy_vm.py
+# ============================================================
+# Edit this file to add, remove, or update OS options without
+# touching deploy_vm.py.  All entries must be cloud-init
+# capable images (pre-installed OS, not installer ISOs).
+#
+# Fields:
+#   name:     Display name shown in the interactive prompt
+#   url:      Direct download URL for the cloud image
+#   filename: Local filename used for caching on Proxmox nodes
+#
+# Storage location:
+#   Images are downloaded to {storage_path}/cloud-images/ on the Proxmox node —
+#   NOT to template/iso/ — so they do NOT appear in the Proxmox GUI ISO picker
+#   and cannot be accidentally attached as a CD-ROM during manual VM creation.
+#   The cloud-images/ directory is created automatically on first download.
+#
+# Notes:
+#   - Ubuntu / Debian : .img files (raw with internal qcow2 layout)
+#   - Rocky / Alma    : .qcow2 files
+#   - Fedora          : .qcow2 files — URL is version-specific,
+#                       check https://fedoraproject.org/cloud/download
+#                       when upgrading to a new Fedora release
+#   - All listed distros support cloud-init natively
+#   - qm importdisk handles both .img and .qcow2 transparently
+# ============================================================
+
+cloud_images:
+
+  # ── Ubuntu ──────────────────────────────────────────────
+  - name: "Ubuntu 24.04 LTS (Noble Numbat)"
+    url: "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
+    filename: "noble-server-cloudimg-amd64.img"
+
+  - name: "Ubuntu 22.04 LTS (Jammy Jellyfish)"
+    url: "https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img"
+    filename: "jammy-server-cloudimg-amd64.img"
+
+  - name: "Ubuntu 20.04 LTS (Focal Fossa)"
+    url: "https://cloud-images.ubuntu.com/focal/current/focal-server-cloudimg-amd64.img"
+    filename: "focal-server-cloudimg-amd64.img"
+
+  # ── Debian ──────────────────────────────────────────────
+  - name: "Debian 12 (Bookworm)"
+    url: "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2"
+    filename: "debian-12-generic-amd64.qcow2"
+
+  - name: "Debian 11 (Bullseye)"
+    url: "https://cloud.debian.org/images/cloud/bullseye/latest/debian-11-generic-amd64.qcow2"
+    filename: "debian-11-generic-amd64.qcow2"
+
+  # ── RHEL-compatible ─────────────────────────────────────
+  - name: "Rocky Linux 9"
+    url: "https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud.latest.x86_64.qcow2"
+    filename: "Rocky-9-GenericCloud.latest.x86_64.qcow2"
+
+  - name: "AlmaLinux 9"
+    url: "https://repo.almalinux.org/almalinux/9/cloud/x86_64/images/AlmaLinux-9-GenericCloud-latest.x86_64.qcow2"
+    filename: "AlmaLinux-9-GenericCloud-latest.x86_64.qcow2"
+
+  # ── Fedora ──────────────────────────────────────────────
+  # NOTE: Fedora cloud image URLs are version-specific (no "latest" redirect).
+  # Check https://fedoraproject.org/cloud/download for the current build URL.
+  - name: "Fedora 41 (Cloud Base)"
+    url: "https://download.fedoraproject.org/pub/fedora/linux/releases/41/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-41-1.4.x86_64.qcow2"
+    filename: "Fedora-Cloud-Base-Generic-41-1.4.x86_64.qcow2"

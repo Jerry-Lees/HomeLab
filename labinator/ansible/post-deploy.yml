@@ -1,0 +1,284 @@
+---
+# ============================================================
+# Post-Deployment Configuration Playbook
+# Runs against a freshly created LXC container after SSH
+# has been bootstrapped via pct exec on the Proxmox node.
+# ============================================================
+# Usage (called automatically by deploy_lxc.py):
+#   ansible-playbook -i <IP>, post-deploy.yml \
+#     -e container_hostname=myhost \
+#     -e password=secret
+# ============================================================
+- name: Post-deploy LXC container configuration
+  hosts: all
+  gather_facts: false
+  become: true
+
+  vars:
+    container_hostname: "{{ container_hostname }}"
+    password: "{{ password }}"
+    deploy_date: "{{ ansible_date_time.date | default('unknown') }}"
+
+  tasks:
+    # --------------------------------------------------------
+    # Wait for SSH to be fully ready before doing anything
+    # --------------------------------------------------------
+    - name: Wait for SSH connection to be available
+      wait_for_connection:
+        delay: 5
+        timeout: 120
+
+    - name: Gather facts now that SSH is up
+      setup:
+
+    # --------------------------------------------------------
+    # Hostname
+    # --------------------------------------------------------
+    - name: Set system hostname
+      hostname:
+        name: "{{ container_hostname }}"
+
+    - name: Ensure /etc/hosts has 127.0.1.1 entry
+      lineinfile:
+        path: /etc/hosts
+        regexp: '^127\.0\.1\.1'
+        line: "127.0.1.1 {{ container_hostname }}"
+        state: present
+
+    # --------------------------------------------------------
+    # User: {{ addusername }} (same password as root)
+    # --------------------------------------------------------
+    - name: Create '{{ addusername }}' user
+      user:
+        name: "{{ addusername }}"
+        shell: /bin/bash
+        groups: sudo
+        append: true
+        create_home: true
+        state: present
+
+    - name: Set '{{ addusername }}' user password
+      shell: "echo '{{ addusername }}:{{ password }}' | chpasswd"
+      no_log: true
+
+    - name: Set root password (ensure it matches)
+      shell: "echo 'root:{{ password }}' | chpasswd"
+      no_log: true
+
+    # --------------------------------------------------------
+    # SSH Configuration
+    # --------------------------------------------------------
+    - name: Ensure openssh-server is installed
+      apt:
+        name: openssh-server
+        state: present
+        update_cache: true
+
+    - name: Allow root login via password in sshd_config
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PermitRootLogin'
+        line: 'PermitRootLogin yes'
+        backup: true
+
+    - name: Allow password authentication in sshd_config
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PasswordAuthentication'
+        line: 'PasswordAuthentication yes'
+        backup: true
+
+    - name: Restart SSH service to apply changes
+      service:
+        name: ssh
+        state: restarted
+        enabled: true
+
+    # --------------------------------------------------------
+    # Timezone
+    # --------------------------------------------------------
+    - name: Set timezone
+      timezone:
+        name: "{{ timezone }}"
+
+    # --------------------------------------------------------
+    # Install packages
+    # --------------------------------------------------------
+    - name: Update apt cache
+      apt:
+        update_cache: true
+        cache_valid_time: 0
+
+    - name: Install all standard tools and utilities
+      apt:
+        state: present
+        name:
+          # --- Network tools ---
+          - net-tools          # ifconfig, netstat, route, arp
+          - iproute2           # ip addr, ip route, ss, tc
+          - nmap               # port scanner
+          - iputils-ping       # ping, arping
+          - traceroute         # traceroute
+          - mtr                # combined ping+traceroute
+          - dnsutils           # dig, nslookup, host
+          - netcat-openbsd     # nc - network utility
+          - socat              # advanced netcat
+          - tcpdump            # packet capture
+          - iperf3             # network bandwidth testing
+          - fping              # fast parallel ping
+          - arp-scan           # ARP scanner
+          - ethtool            # ethernet settings
+          - iftop              # live bandwidth monitor
+          - nload              # network load monitor
+          - curl               # HTTP client
+          - wget               # HTTP/FTP download
+
+          # --- Text editors ---
+          - nano
+          - vim
+
+          # --- Data/JSON/YAML tools ---
+          - jq                 # JSON processor (also lints JSON)
+          - yamllint           # YAML linter
+          - python3-jsonschema  # JSON schema validation
+
+          # --- Shell/script linting ---
+          - shellcheck         # shell script linter
+
+          # --- Archive/compression tools ---
+          - zip
+          - unzip
+          - tar                # usually pre-installed
+          - gzip               # usually pre-installed
+          - bzip2
+          - xz-utils
+          - p7zip-full         # 7z
+
+          # --- SSH tools ---
+          - sshpass            # non-interactive SSH password auth
+          - openssh-client
+
+          # --- NTP client ---
+          - chrony
+
+          # --- NFS client ---
+          - nfs-common         # NFS client utilities
+          - nfs4-acl-tools
+
+          # --- SNMP ---
+          - snmpd              # SNMP daemon
+          - snmp               # SNMP tools (snmpwalk, snmpget, etc.)
+          - snmp-mibs-downloader  # Download standard MIB files
+
+          # --- Hardware inventory tools ---
+          - lshw               # detailed hardware info
+          - pciutils           # lspci
+          - usbutils           # lsusb
+          - dmidecode          # DMI/SMBIOS hardware info
+          - hdparm             # disk parameters
+          - smartmontools      # S.M.A.R.T. disk monitoring
+          - hwinfo             # hardware information
+
+          # --- System monitoring & process tools ---
+          - htop               # interactive process viewer
+          - iotop              # I/O monitor
+          - iftop              # already listed above (ignored)
+          - lsof               # list open files
+          - strace             # system call tracer
+          - sysstat            # sar, iostat, mpstat
+          - dstat              # versatile resource statistics
+
+          # --- Development / misc ---
+          - git
+          - rsync
+          - screen
+          - tmux
+          - tree
+          - less
+          - psmisc             # killall, fuser, pstree
+          - procps             # ps, top, vmstat, free, etc.
+          - util-linux         # various system utilities
+
+          # --- Python ---
+          - python3
+          - python3-pip
+          - python3-venv
+
+          # --- Misc useful ---
+          - bc                 # calculator
+          - at                 # job scheduler
+          - cron               # cron daemon
+          - logrotate
+
+    # --------------------------------------------------------
+    # NTP Configuration (chrony)
+    # --------------------------------------------------------
+    - name: Configure chrony NTP
+      template:
+        src: templates/chrony.conf.j2
+        dest: /etc/chrony/chrony.conf
+        backup: true
+
+    - name: Enable and restart chrony
+      service:
+        name: chrony
+        enabled: true
+        state: restarted
+
+    # --------------------------------------------------------
+    # SNMP Configuration
+    # --------------------------------------------------------
+    - name: Deploy snmpd.conf from template
+      template:
+        src: templates/snmpd.conf.j2
+        dest: /etc/snmp/snmpd.conf
+        backup: true
+      vars:
+        hostname: "{{ container_hostname }}"
+        deploy_date: "{{ ansible_date_time.iso8601 }}"
+
+    - name: Ensure MIBS directory exists
+      file:
+        path: /var/lib/snmp/mibs
+        state: directory
+
+    - name: Enable and restart snmpd
+      service:
+        name: snmpd
+        enabled: true
+        state: restarted
+
+    # --------------------------------------------------------
+    # Final: Full apt upgrade
+    # --------------------------------------------------------
+    - name: Upgrade all installed packages (dist-upgrade)
+      apt:
+        upgrade: dist
+        update_cache: true
+
+    - name: Remove unused packages (autoremove)
+      apt:
+        autoremove: true
+        purge: true
+
+    # --------------------------------------------------------
+    # Status report
+    # --------------------------------------------------------
+    - name: Get system IP addresses
+      shell: ip -4 addr show scope global | grep inet | awk '{print $2}'
+      register: ip_addrs
+      changed_when: false
+
+    - name: Show completion summary
+      debug:
+        msg:
+          - "=========================================="
+          - "Post-deployment configuration complete!"
+          - "Hostname : {{ container_hostname }}"
+          - "IP(s)    : {{ ip_addrs.stdout_lines | join(', ') }}"
+          - "Timezone : {{ ansible_date_time.tz }}"
+          - "NTP      : chrony configured"
+          - "SNMP     : community='{{ snmp_community }}' (rw) on :161"
+          - "Users    : root, {{ addusername }} (same password)"
+          - "SSH      : PermitRootLogin yes"
+          - "=========================================="

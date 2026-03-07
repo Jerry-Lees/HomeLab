@@ -1,0 +1,22 @@
+{
+  "type": "vm",
+  "hostname": "my-example-vm",
+  "fqdn": "my-example-vm.local",
+  "node": "proxmox01",
+  "vmid": 200,
+  "cloud_image_storage": "local",
+  "cloud_image_filename": "noble-server-cloudimg-amd64.img",
+  "cloud_image_url": "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img",
+  "image_refresh": false,
+  "cpus": 2,
+  "memory_gb": 4.0,
+  "disk_gb": 100,
+  "storage": "local-lvm",
+  "vlan": 220,
+  "bridge": "vmbr0",
+  "password": "changeme",
+  "ip_address": "172.16.0.200",
+  "prefix_len": "24",
+  "gateway": "172.16.0.1",
+  "deployed_at": "2026-03-06 10:00:00"
+}

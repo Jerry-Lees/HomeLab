@@ -1,0 +1,18 @@
+{
+  "hostname": "my-example-server",
+  "fqdn": "my-example-server.local",
+  "node": "proxmox01",
+  "vmid": 142,
+  "template_volid": "local:vztmpl/ubuntu-24.04-standard_24.04-2_amd64.tar.zst",
+  "template_name": "ubuntu-24.04-standard_24.04-2_amd64.tar.zst",
+  "cpus": 2,
+  "memory_gb": 4.0,
+  "disk_gb": 100,
+  "storage": "local-lvm",
+  "vlan": 220,
+  "bridge": "vmbr0",
+  "password": "changeme",
+  "ip_address": "172.16.0.150",
+  "prefix_len": "24",
+  "deployed_at": "2026-03-05 22:45:00"
+}

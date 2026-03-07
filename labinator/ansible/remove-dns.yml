@@ -1,0 +1,148 @@
+---
+# ============================================================
+# DNS Removal Playbook
+# SSHes to the BIND DNS server and removes:
+#   - A record from the forward zone
+#   - PTR record from the reverse zone
+# Then reloads BIND with rndc reload.
+# ============================================================
+# Usage (called automatically by decommission.py):
+#   ansible-playbook -i $(dns.server from config.yaml), remove-dns.yml \
+#     -e hostname=myhost \
+#     -e ip_address=10.10.10.140 \
+#     -e forward_zone_file=/var/lib/bind/example.com.hosts \
+#     -e reverse_zone_file=/var/lib/bind/10.10.10.in-addr.arpa.hosts
+# ============================================================
+- name: Remove DNS records from BIND server
+  hosts: all
+  gather_facts: false
+
+  tasks:
+    - name: Write A-record removal script
+      copy:
+        dest: /tmp/remove_dns_forward.py
+        content: |
+          import os, re, datetime
+
+          def increment_serial(s):
+              s = s.strip()
+              today = datetime.date.today().strftime('%Y%m%d')
+              if len(s) == 10:
+                  if s[:8] == today:
+                      nn = min(int(s[8:]) + 1, 99)
+                      return f"{today}{nn:02d}"
+                  else:
+                      return f"{today}01"
+              else:
+                  return str(int(s) + 1)
+
+          path     = os.environ['ZONE_FILE']
+          hostname = os.environ['HOSTNAME']
+
+          lines = open(path).readlines()
+
+          new_lines = []
+          removed = False
+          serial_updated = False
+          for line in lines:
+              stripped = line.split(';')[0].strip()
+              if re.match(rf'^{re.escape(hostname)}\s', stripped):
+                  removed = True
+                  continue  # skip this line (removes the record)
+              if not serial_updated and removed:
+                  m = re.search(r'(\d{8,12})\s*;?\s*[Ss]erial', line)
+                  if m:
+                      line = line[:m.start(1)] + increment_serial(m.group(1)) + line[m.end(1):]
+                      serial_updated = True
+              new_lines.append(line)
+
+          if removed:
+              open(path, 'w').write(''.join(new_lines))
+              print(f"Removed A record for {hostname}")
+          else:
+              print(f"A record for {hostname} not found — nothing to remove")
+
+    - name: Remove A record from forward zone
+      shell: python3 /tmp/remove_dns_forward.py
+      environment:
+        ZONE_FILE: "{{ forward_zone_file }}"
+        HOSTNAME: "{{ hostname }}"
+      changed_when: true
+      register: forward_result
+
+    - name: Show forward zone result
+      debug:
+        msg: "{{ forward_result.stdout }}"
+
+    - name: Write PTR-record removal script
+      copy:
+        dest: /tmp/remove_dns_reverse.py
+        content: |
+          import os, re, datetime
+
+          def increment_serial(s):
+              s = s.strip()
+              today = datetime.date.today().strftime('%Y%m%d')
+              if len(s) == 10:
+                  if s[:8] == today:
+                      nn = min(int(s[8:]) + 1, 99)
+                      return f"{today}{nn:02d}"
+                  else:
+                      return f"{today}01"
+              else:
+                  return str(int(s) + 1)
+
+          path       = os.environ['ZONE_FILE']
+          ip         = os.environ['IP_ADDRESS']
+          last_octet = ip.split('.')[-1]
+
+          if not os.path.exists(path):
+              print(f"Reverse zone file {path} not found — skipping PTR removal")
+              exit(0)
+
+          lines = open(path).readlines()
+
+          new_lines = []
+          removed = False
+          serial_updated = False
+          for line in lines:
+              stripped = line.split(';')[0].strip()
+              if re.match(rf'^{re.escape(last_octet)}\s', stripped):
+                  removed = True
+                  continue  # skip this line
+              if not serial_updated and removed:
+                  m = re.search(r'(\d{8,12})\s*;?\s*[Ss]erial', line)
+                  if m:
+                      line = line[:m.start(1)] + increment_serial(m.group(1)) + line[m.end(1):]
+                      serial_updated = True
+              new_lines.append(line)
+
+          if removed:
+              open(path, 'w').write(''.join(new_lines))
+              print(f"Removed PTR record for {last_octet}")
+          else:
+              print(f"PTR record for {last_octet} not found — nothing to remove")
+
+    - name: Remove PTR record from reverse zone
+      shell: python3 /tmp/remove_dns_reverse.py
+      environment:
+        ZONE_FILE: "{{ reverse_zone_file }}"
+        IP_ADDRESS: "{{ ip_address }}"
+      changed_when: true
+      register: reverse_result
+
+    - name: Show reverse zone result
+      debug:
+        msg: "{{ reverse_result.stdout }}"
+
+    - name: Reload BIND to apply changes
+      command: rndc reload
+      changed_when: true
+
+    - name: Clean up scripts
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /tmp/remove_dns_forward.py
+        - /tmp/remove_dns_reverse.py
