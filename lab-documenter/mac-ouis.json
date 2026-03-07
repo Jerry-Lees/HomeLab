@@ -29,6 +29,11 @@
     "source": "initial_import",
     "vendor": "VMware"
   },
+  "000573": {
+    "date_added": "2026-01-14",
+    "source": "api",
+    "vendor": "Cisco Systems, Inc"
+  },
   "0007EB": {
     "date_added": "2025-11-08",
     "source": "initial_import",
@@ -564,10 +569,20 @@
     "source": "initial_import",
     "vendor": "Apple"
   },
+  "9CAD97": {
+    "date_added": "2026-01-14",
+    "source": "api",
+    "vendor": "Hon Hai Precision Ind. Co.,Ltd."
+  },
   "A4C361": {
     "date_added": "2025-11-08",
     "source": "initial_import",
     "vendor": "Apple"
+  },
+  "A8032A": {
+    "date_added": "2026-01-14",
+    "source": "api",
+    "vendor": "Espressif Inc."
   },
   "A81B5A": {
     "date_added": "2025-11-08",
