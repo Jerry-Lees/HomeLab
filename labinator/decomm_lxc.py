@@ -26,6 +26,7 @@ import tty
 from pathlib import Path
 
 import json
+import questionary
 import yaml
 from rich.console import Console
 from rich.panel import Panel
@@ -355,32 +356,27 @@ def main() -> None:
             console.print("Only containers deployed via deploy_lxc.py can be decommissioned this way.")
             sys.exit(1)
 
-        console.print("[bold]Available deployments:[/bold]\n")
-        for i, f in enumerate(deploy_files, 1):
+        choices = []
+        for f in deploy_files:
             d = load_deployment_file(f)
-            console.print(
-                f"  [{i}] [bold]{d.get('hostname', f.stem)}[/bold]  "
-                f"vmid={d.get('vmid', '?')}  node={d.get('node', '?')}  "
-                f"ip={d.get('ip_address', '?')}  "
+            ip = d.get("assigned_ip") or d.get("ip_address", "?")
+            label = (
+                f"{d.get('hostname', f.stem):<20}  "
+                f"node={d.get('node', '?'):<12}  "
+                f"ip={ip:<16}  "
                 f"deployed={d.get('deployed_at', '?')}"
             )
-        console.print()
+            choices.append(questionary.Choice(title=label, value=f))
 
-        try:
-            raw = input(f"Select container to decommission [1-{len(deploy_files)}]: ").strip()
-        except (KeyboardInterrupt, EOFError):
+        deploy_path = questionary.select(
+            "Select container to decommission:",
+            choices=choices,
+        ).ask()
+
+        if deploy_path is None:
             console.print("\n[yellow]Aborted.[/yellow]")
             sys.exit(0)
 
-        try:
-            idx = int(raw) - 1
-            if not (0 <= idx < len(deploy_files)):
-                raise ValueError()
-        except ValueError:
-            console.print("[red]Invalid selection. Aborted.[/red]")
-            sys.exit(1)
-
-        deploy_path = deploy_files[idx]
         deploy = load_deployment_file(deploy_path)
 
     # Scary confirmation (skipped in silent mode)
