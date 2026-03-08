@@ -240,6 +240,7 @@ def confirm_destruction(deploy: dict, kind: str = "VM") -> bool:
         console.print(f"  [dim]{i}...[/dim]", end="\r")
         time.sleep(1)
     console.print()
+    flush_stdin()  # discard any keystrokes made during the countdown
 
     console.print(
         f"[bold]To confirm destruction of [red]{hostname}[/red], "
