@@ -1,0 +1,6 @@
+---
+- name: Upgrade all installed packages
+  community.general.zypper:
+    name: '*'
+    state: latest
+    update_cache: true

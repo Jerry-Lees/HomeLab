@@ -1,0 +1,116 @@
+# ============================================================
+# Proxmox LXC/VM Deploy Wizard - Configuration Example
+# ============================================================
+# Copy this file to config.yaml and fill in your values.
+# config.yaml is excluded from git — never commit it.
+# ============================================================
+
+proxmox:
+  # API endpoint - any node in the cluster works (cluster shares state).
+  # Use 'host' for a single node, or 'hosts' list for automatic failover.
+  # host: proxmox01.example.com
+  hosts:
+    - proxmox01.example.com
+    - proxmox02.example.com
+
+  # Proxmox API user (realm included)
+  user: root@pam
+
+  # API Token name (created in Proxmox: Datacenter > Permissions > API Tokens)
+  # Use the token ID only — NOT the full "user!tokenid" string.
+  # e.g. if the full token is root@pam!vm-deploy, put: vm-deploy
+  token_name: vm-deploy
+
+  # API Token secret (UUID shown only once at creation time)
+  token_secret: CHANGEME
+
+  # SSH key for node access (must be authorized on all Proxmox nodes as root)
+  ssh_key: ~/.ssh/id_rsa
+
+  # Domain suffix used to construct node SSH hostnames
+  # e.g., node "proxmox01" -> SSH to "proxmox01.example.com"
+  node_domain: example.com
+
+  # Verify SSL certificate for Proxmox API (set true if using valid certs)
+  verify_ssl: false
+
+# Known cluster nodes (used for display; script also queries live from API)
+nodes:
+  - proxmox01
+  - proxmox02
+  - proxmox03
+
+# Default values shown as suggestions in the interactive prompts
+defaults:
+  cpus: 2
+  memory_gb: 4
+  disk_gb: 100
+  vlan: 220
+  bridge: vmbr0
+  root_password: changeme
+  addusername: admin             # secondary user created on every deployed container/VM
+  swap_mb: 512
+  onboot: true
+  unprivileged: true          # LXC: run as unprivileged container (recommended)
+  firewall_enabled: false     # Enable Proxmox firewall on container/VM network interface
+  cpu_threshold: 0.85         # Node filter: skip nodes at or above this CPU load (0.0-1.0)
+  ram_threshold: 0.95         # Node filter: skip nodes at or above this RAM usage (0.0-1.0)
+  # Default search domain for new containers/VMs
+  searchdomain: example.com
+  # Default DNS servers (space-separated)
+  nameserver: "10.0.0.1 10.0.0.2"
+  # Default OS template for LXC (matched by filename)
+  template: ubuntu-24.04-standard_24.04-2_amd64.tar.zst
+
+# DNS registration (BIND)
+# Set enabled: false to skip automatic DNS and manage manually
+dns:
+  enabled: true
+  server: 10.0.0.10             # IP of your BIND DNS server
+  ssh_user: root
+  # Forward zone file on the DNS server
+  forward_zone_file: /var/lib/bind/example.com.hosts
+  # Reverse zone file is derived automatically from the container IP at deploy time:
+  # e.g. 10.10.10.140 -> /var/lib/bind/10.10.10.in-addr.arpa.hosts
+
+# Ansible inventory update settings
+ansible_inventory:
+  # The server that holds the master inventory file
+  server: dev.example.com
+  # SSH user for connecting to the inventory server
+  user: root
+  # Full path to the inventory file on the remote server
+  file: /root/ansible/inventory/hosts
+  # Ansible group to add new hosts into (CASE-SENSITIVE)
+  group: Linux
+
+# SNMP configuration (applied to all deployed containers/VMs)
+snmp:
+  community: your-snmp-community
+  # Restrict to these source networks ('default' = any source)
+  source: default
+  location: Homelab
+  contact: admin@example.com
+
+# NTP servers
+ntp:
+  servers:
+    - pool.ntp.org
+    - time.nist.gov
+
+# Timezone for new containers/VMs
+timezone: America/Chicago
+
+# VM-specific settings
+vm:
+  # Default Proxmox storage to pre-select when choosing where to store cloud images.
+  # Must be a storage with content type 'iso' configured in Proxmox.
+  # Cloud images are stored at {storage_path}/cloud-images/ — not in template/iso/,
+  # so they are invisible to the Proxmox GUI ISO picker.
+  # Leave blank (or remove) to always prompt without a default.
+  default_cloud_image_storage: local
+  cpu_type: x86-64-v2-AES     # VM CPU type (x86-64-v2-AES requires host support; use kvm64 for max compatibility)
+  machine: q35                # VM machine type (q35 or i440fx)
+  bios: seabios               # VM BIOS (seabios or ovmf for UEFI)
+  storage_controller: virtio-scsi-pci  # VM storage controller (virtio-scsi-pci, lsi, megasas, pvscsi)
+  nic_driver: virtio          # VM NIC driver (virtio, e1000, rtl8139)

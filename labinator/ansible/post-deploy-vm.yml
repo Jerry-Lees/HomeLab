@@ -33,17 +33,18 @@
     - name: Wait for SSH connection to be available
       wait_for_connection:
         delay: 5
-        timeout: 300
+        timeout: 1800
 
     - name: Gather facts now that SSH is up
       setup:
 
+    - name: Load OS-specific variables
+      include_vars: "vars/{{ ansible_os_family }}.yml"
+
     - name: Wait for cloud-init first-boot to complete
-      shell: cloud-init status --wait
-      register: cloud_init_result
-      changed_when: false
-      failed_when: cloud_init_result.rc not in [0, 2]
-      timeout: 300
+      wait_for:
+        path: /run/cloud-init/result.json
+        timeout: 1800
 
     # --------------------------------------------------------
     # Hostname
@@ -66,7 +67,7 @@
       user:
         name: "{{ addusername }}"
         shell: /bin/bash
-        groups: sudo
+        groups: "{{ sudo_group }}"
         append: true
         create_home: true
         state: present
@@ -98,7 +99,7 @@
 
     - name: Restart SSH service to apply changes
       service:
-        name: ssh
+        name: "{{ ssh_service }}"
         state: restarted
         enabled: true
 
@@ -112,112 +113,18 @@
     # --------------------------------------------------------
     # Install packages
     # --------------------------------------------------------
-    - name: Update apt cache
-      apt:
-        update_cache: true
-        cache_valid_time: 0
+    - name: Run OS-specific pre-install tasks
+      include_tasks: "tasks/pre-install-{{ ansible_os_family }}.yml"
 
     - name: Install all standard tools and utilities
-      apt:
+      package:
+        name: "{{ packages }}"
         state: present
-        name:
-          # --- QEMU guest agent (enables Proxmox IP reporting, clean shutdown) ---
-          - qemu-guest-agent
 
-          # --- Network tools ---
-          - net-tools          # ifconfig, netstat, route, arp
-          - iproute2           # ip addr, ip route, ss, tc
-          - nmap               # port scanner
-          - iputils-ping       # ping, arping
-          - traceroute         # traceroute
-          - mtr                # combined ping+traceroute
-          - dnsutils           # dig, nslookup, host
-          - netcat-openbsd     # nc - network utility
-          - socat              # advanced netcat
-          - tcpdump            # packet capture
-          - iperf3             # network bandwidth testing
-          - fping              # fast parallel ping
-          - arp-scan           # ARP scanner
-          - ethtool            # ethernet settings
-          - iftop              # live bandwidth monitor
-          - nload              # network load monitor
-          - curl               # HTTP client
-          - wget               # HTTP/FTP download
-
-          # --- Text editors ---
-          - nano
-          - vim
-
-          # --- Data/JSON/YAML tools ---
-          - jq                 # JSON processor
-          - yamllint           # YAML linter
-          - python3-jsonschema  # JSON schema validation
-
-          # --- Shell/script linting ---
-          - shellcheck         # shell script linter
-
-          # --- Archive/compression tools ---
-          - zip
-          - unzip
-          - tar
-          - gzip
-          - bzip2
-          - xz-utils
-          - p7zip-full         # 7z
-
-          # --- SSH tools ---
-          - sshpass            # non-interactive SSH password auth
-          - openssh-client
-
-          # --- NTP client ---
-          - chrony
-
-          # --- NFS client ---
-          - nfs-common         # NFS client utilities
-          - nfs4-acl-tools
-
-          # --- SNMP ---
-          - snmpd              # SNMP daemon
-          - snmp               # SNMP tools (snmpwalk, snmpget, etc.)
-          - snmp-mibs-downloader  # Download standard MIB files
-
-          # --- Hardware inventory tools ---
-          - lshw               # detailed hardware info
-          - pciutils           # lspci
-          - usbutils           # lsusb
-          - dmidecode          # DMI/SMBIOS hardware info
-          - hdparm             # disk parameters
-          - smartmontools      # S.M.A.R.T. disk monitoring
-
-          # --- System monitoring & process tools ---
-          - htop               # interactive process viewer
-          - iotop              # I/O monitor
-          - lsof               # list open files
-          - strace             # system call tracer
-          - sysstat            # sar, iostat, mpstat
-          - dstat              # versatile resource statistics
-
-          # --- Development / misc ---
-          - git
-          - rsync
-          - screen
-          - tmux
-          - tree
-          - less
-          - psmisc             # killall, fuser, pstree
-          - procps             # ps, top, vmstat, free, etc.
-          - util-linux         # various system utilities
-
-          # --- Python ---
-          - python3
-          - python3-pip
-          - python3-venv
-
-          # --- Misc useful ---
-          - bc                 # calculator
-          - at                 # job scheduler
-          - cron               # cron daemon
-          - logrotate
+    - name: Install qemu-guest-agent
+      package:
+        name: qemu-guest-agent
+        state: present
 
     # --------------------------------------------------------
     # QEMU Guest Agent
@@ -234,12 +141,12 @@
     - name: Configure chrony NTP
       template:
         src: templates/chrony.conf.j2
-        dest: /etc/chrony/chrony.conf
+        dest: "{{ chrony_conf_path }}"
         backup: true
 
     - name: Enable and restart chrony
       service:
-        name: chrony
+        name: "{{ chrony_service }}"
         enabled: true
         state: restarted
 
@@ -267,17 +174,10 @@
         state: restarted
 
     # --------------------------------------------------------
-    # Final: Full apt upgrade
+    # Final: Full system upgrade
     # --------------------------------------------------------
-    - name: Upgrade all installed packages (dist-upgrade)
-      apt:
-        upgrade: dist
-        update_cache: true
-
-    - name: Remove unused packages (autoremove)
-      apt:
-        autoremove: true
-        purge: true
+    - name: Run OS-specific upgrade tasks
+      include_tasks: "tasks/upgrade-{{ ansible_os_family }}.yml"
 
     # --------------------------------------------------------
     # Status report

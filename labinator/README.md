@@ -89,7 +89,7 @@ An interactive wizard that fully provisions and onboards a QEMU virtual machine 
 7. Downloads the cloud image to the selected storage if not already present, then imports it as the VM disk via `qm importdisk`
 8. Configures cloud-init: injects the controller's SSH public key, sets hostname, password, network (static or DHCP)
 9. Starts the VM and waits for SSH (static IP) or polls the QEMU guest agent for the assigned IP (DHCP)
-10. Runs the Ansible post-deploy-vm playbook: waits for cloud-init first-boot to complete, then configures hostname, timezone, NTP, users, tools, SNMP, QEMU guest agent, full apt dist-upgrade
+10. Runs the Ansible post-deploy-vm playbook: waits for cloud-init first-boot to complete, then configures hostname, timezone, NTP, users, tools, SNMP, QEMU guest agent, and a full system upgrade — using OS-appropriate commands for the detected guest family (Debian/RedHat/Suse)
 11. Registers DNS A and PTR records on the BIND server
 12. Updates the Ansible inventory on the development server
 13. Saves a deployment file to `deployments/vms/<hostname>.json`
@@ -130,13 +130,47 @@ vm-onboard/
 └── ansible/
     ├── post-deploy.yml            # Post-deploy configuration for LXC containers
     ├── post-deploy-vm.yml         # Post-deploy configuration for QEMU VMs
+    ├── ansible.cfg                # Ansible settings (host key checking disabled)
     ├── add-dns.yml                # Register A + PTR records in BIND
     ├── remove-dns.yml             # Remove A + PTR records from BIND
     ├── update-inventory.yml       # Add host to Ansible inventory
     ├── remove-from-inventory.yml  # Remove host from Ansible inventory
+    ├── vars/
+    │   ├── Debian.yml             # OS-specific vars for Debian/Ubuntu family
+    │   ├── RedHat.yml             # OS-specific vars for RHEL/Rocky/Alma family
+    │   └── Suse.yml               # OS-specific vars for openSUSE/SLES family
+    ├── tasks/
+    │   ├── pre-install-Debian.yml # apt update
+    │   ├── pre-install-RedHat.yml # epel-release + dnf update
+    │   ├── pre-install-Suse.yml   # zypper refresh
+    │   ├── upgrade-Debian.yml     # apt dist-upgrade + autoremove
+    │   ├── upgrade-RedHat.yml     # dnf upgrade + autoremove
+    │   └── upgrade-Suse.yml       # zypper update
     └── templates/
-        └── snmpd.conf.j2          # SNMP daemon configuration template
+        ├── snmpd.conf.j2          # SNMP daemon configuration template
+        └── chrony.conf.j2         # chrony NTP configuration template
 ```
+
+---
+
+## Supported Guest Operating Systems
+
+VM deployments (`deploy_vm.py`) support any cloud-init capable image. The Ansible post-deploy playbook automatically detects the guest OS family and applies the correct package manager, service names, and package list.
+
+**Tested and verified:**
+- Ubuntu 24.04 LTS
+- Rocky Linux 8
+- openSUSE Leap 15.6
+
+**Should work without changes** — derivatives are covered by the same OS family vars:
+
+- **Debian family:** Debian, Ubuntu, Linux Mint, Raspbian, Kali, Pop!_OS
+- **RedHat family:** Rocky, AlmaLinux, CentOS Stream, RHEL, Fedora, Oracle Linux
+- **Suse family:** openSUSE Leap, openSUSE Tumbleweed, SLES
+
+If a specific package name differs for a new distro (e.g. a tool is named differently in that distro's repos), update the relevant `ansible/vars/<Family>.yml` file — no playbook changes needed.
+
+LXC containers (`deploy_lxc.py`) currently support Debian/Ubuntu templates only, as the bootstrap step uses `apt` directly.
 
 ---
 
@@ -286,7 +320,12 @@ Then edit `config.yaml` with your environment's values. The reference below show
 
 ```yaml
 proxmox:
-  host: proxmox01.example.com   # Any node in the cluster for API access
+  # Single host — or use 'hosts' list for automatic failover across cluster nodes.
+  # Any node in the cluster works; they all share the same API state.
+  # host: proxmox01.example.com
+  hosts:
+    - proxmox01.example.com       # Tried in order; first reachable one is used
+    - proxmox02.example.com
   user: root@pam                    # Proxmox user (realm included)
   token_name: vm-deploy             # Token ID only — NOT the full user!tokenid string
   token_secret: CHANGEME            # ← PASTE YOUR TOKEN SECRET HERE
@@ -585,7 +624,7 @@ The image is checked for existence at `{storage_path}/cloud-images/{filename}` o
 For static IPs, the script polls TCP port 22 until SSH accepts connections. For DHCP, it polls the QEMU guest agent `network-get-interfaces` endpoint until a non-loopback IPv4 is reported.
 
 **Step 5 — Ansible with cloud-init wait:**
-The playbook waits for `cloud-init status --wait` to complete (exit code 0 or 2, where 2 means done with non-fatal warnings) before making any configuration changes. This prevents race conditions with first-boot initialization.
+The playbook waits for `/run/cloud-init/result.json` to exist before making any configuration changes. This file is written by cloud-init when all first-boot stages complete, and works reliably across all supported OS families.
 
 ---
 
@@ -730,7 +769,9 @@ All defaults come from `config.yaml` and are shown as editable suggestions at ea
 
 ## Installed Packages
 
-The Ansible post-deploy playbooks install the following via `apt`. VMs additionally include `qemu-guest-agent`. LXC containers additionally include `hwinfo`.
+The Ansible post-deploy playbooks install a standard toolset on every deployed host. The exact package names vary by OS family — see `ansible/vars/Debian.yml`, `RedHat.yml`, and `Suse.yml` for the full per-family lists. The categories and tools are consistent across all families. VMs additionally include `qemu-guest-agent`. LXC containers additionally include `hwinfo`.
+
+The following lists reflect the **Debian/Ubuntu** package names:
 
 **Network tools**
 `net-tools` · `iproute2` · `nmap` · `iputils-ping` · `traceroute` · `mtr` · `dnsutils` · `netcat-openbsd` · `socat` · `tcpdump` · `iperf3` · `fping` · `arp-scan` · `ethtool` · `iftop` · `nload` · `curl` · `wget`
@@ -782,7 +823,7 @@ The Ansible post-deploy playbooks install the following via `apt`. VMs additiona
 | NTP | chrony running | chrony running |
 | SNMP | snmpd on UDP :161, community `YourSNMPCommunityString` | snmpd on UDP :161, community `YourSNMPCommunityString` |
 | QEMU guest agent | n/a | Installed and enabled |
-| Package state | `apt dist-upgrade` completed | `apt dist-upgrade` completed |
+| Package state | `apt dist-upgrade` completed | Full system upgrade completed (apt/dnf/zypper per OS family) |
 | Proxmox tag | `auto-deploy` | `auto-deploy` |
 | DNS | A + PTR registered on BIND | A + PTR registered on BIND |
 | Ansible inventory | Added to configured group | Added to configured group |

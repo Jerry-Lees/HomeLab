@@ -57,13 +57,22 @@ def load_config() -> dict:
 
 def connect_proxmox(cfg: dict) -> ProxmoxAPI:
     pve = cfg["proxmox"]
-    return ProxmoxAPI(
-        pve["host"],
-        user=pve["user"],
-        token_name=pve["token_name"],
-        token_value=pve["token_secret"],
-        verify_ssl=pve.get("verify_ssl", False),
-    )
+    hosts = pve.get("hosts") or [pve["host"]]
+    last_err: Exception | None = None
+    for host in hosts:
+        try:
+            api = ProxmoxAPI(
+                host,
+                user=pve["user"],
+                token_name=pve["token_name"],
+                token_value=pve["token_secret"],
+                verify_ssl=pve.get("verify_ssl", False),
+            )
+            api.nodes.get()  # verify connectivity
+            return api
+        except Exception as e:
+            last_err = e
+    raise last_err
 
 
 def wait_for_task(proxmox: ProxmoxAPI, node: str, taskid: str, timeout: int = 120) -> None:
@@ -145,13 +154,12 @@ def remove_dns(cfg: dict, deploy: dict) -> None:
 
     ansible_dir = Path(__file__).parent / "ansible"
     hostname = deploy["hostname"]
-    ip_address = deploy.get("ip_address", "")
-
-    if not ip_address:
-        console.print("  [yellow]Warning: No IP address in deployment file — skipping DNS removal.[/yellow]")
-        return
+    ip_address = deploy.get("assigned_ip") or deploy.get("ip_address", "")
 
     ip_parts = ip_address.split(".")
+    if not ip_address or len(ip_parts) != 4:
+        console.print("  [yellow]Warning: No IP address found in deployment file — skipping DNS removal.[/yellow]")
+        return
     reverse_zone = f"{ip_parts[2]}.{ip_parts[1]}.{ip_parts[0]}.in-addr.arpa"
     zone_dir = str(Path(dns["forward_zone_file"]).parent)
     reverse_zone_file = f"{zone_dir}/{reverse_zone}.hosts"

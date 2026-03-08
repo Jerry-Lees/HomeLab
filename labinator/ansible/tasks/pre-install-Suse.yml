@@ -1,0 +1,4 @@
+---
+- name: Refresh zypper repositories
+  command: zypper --non-interactive refresh
+  changed_when: false

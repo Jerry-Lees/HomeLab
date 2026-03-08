@@ -78,13 +78,22 @@ def load_config() -> dict:
 
 def connect_proxmox(cfg: dict) -> ProxmoxAPI:
     pve = cfg["proxmox"]
-    return ProxmoxAPI(
-        pve["host"],
-        user=pve["user"],
-        token_name=pve["token_name"],
-        token_value=pve["token_secret"],
-        verify_ssl=pve.get("verify_ssl", False),
-    )
+    hosts = pve.get("hosts") or [pve["host"]]
+    last_err: Exception | None = None
+    for host in hosts:
+        try:
+            api = ProxmoxAPI(
+                host,
+                user=pve["user"],
+                token_name=pve["token_name"],
+                token_value=pve["token_secret"],
+                verify_ssl=pve.get("verify_ssl", False),
+            )
+            api.nodes.get()  # verify connectivity
+            return api
+        except Exception as e:
+            last_err = e
+    raise last_err
 
 
 def get_nodes_with_load(proxmox: ProxmoxAPI) -> list[dict]:

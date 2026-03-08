@@ -112,13 +112,23 @@ def load_config() -> dict:
 
 def connect_proxmox(cfg: dict) -> ProxmoxAPI:
     pve = cfg["proxmox"]
-    return ProxmoxAPI(
-        pve["host"],
-        user=pve["user"],
-        token_name=pve["token_name"],
-        token_value=pve["token_secret"],
-        verify_ssl=pve.get("verify_ssl", False),
-    )
+    # Support both a single 'host' and a 'hosts' list for failover.
+    hosts = pve.get("hosts") or [pve["host"]]
+    last_err: Exception | None = None
+    for host in hosts:
+        try:
+            api = ProxmoxAPI(
+                host,
+                user=pve["user"],
+                token_name=pve["token_name"],
+                token_value=pve["token_secret"],
+                verify_ssl=pve.get("verify_ssl", False),
+            )
+            api.nodes.get()  # verify connectivity
+            return api
+        except Exception as e:
+            last_err = e
+    raise last_err
 
 
 def get_nodes_with_load(proxmox: ProxmoxAPI) -> list[dict]:
@@ -422,9 +432,8 @@ def wait_for_guest_agent_ip(proxmox: ProxmoxAPI, node: str, vmid: int,
     Poll the QEMU guest agent until it reports a non-loopback IPv4 address.
     Used for DHCP VMs where the IP isn't known at deploy time.
     Requires qemu-guest-agent to be installed and running inside the VM
-    (cloud-init installs it during first boot via post-deploy-vm.yml is too late;
-    it must be in the cloud image or cloud-init user-data — Ubuntu cloud images
-    include it by default since 22.04).
+    For DHCP VMs a cloud-init vendor-data snippet pre-installs qemu-guest-agent
+    so it is running before this function is called. See write_guest_agent_snippet().
     """
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -549,6 +558,53 @@ def import_cloud_image(cfg: dict, proxmox: ProxmoxAPI, node_name: str, vmid: int
         ssh.close()
 
 
+def write_guest_agent_snippet(cfg: dict, node_name: str, vmid: int) -> str:
+    """
+    Write a minimal cloud-init user-data snippet to the Proxmox node's local
+    snippets directory (/var/lib/vz/snippets/) that pre-installs and starts
+    qemu-guest-agent during first boot.
+
+    Required for DHCP VMs: the agent must be running before we can poll the
+    guest agent API to discover the dynamically assigned IP address.
+
+    Returns the cicustom value to pass to the Proxmox VM config, e.g.:
+      "vendor=local:snippets/vm-113-userdata.yaml"
+    """
+    snippet = (
+        "#cloud-config\n"
+        "package_update: false\n"
+        "package_upgrade: false\n"
+        "packages:\n"
+        "  - qemu-guest-agent\n"
+        "runcmd:\n"
+        "  - systemctl enable --now qemu-guest-agent\n"
+    )
+    snippet_name = f"vm-{vmid}-userdata.yaml"
+    snippet_path = f"/var/lib/vz/snippets/{snippet_name}"
+
+    pve = cfg["proxmox"]
+    ssh_host = node_ssh_host(cfg, node_name)
+    ssh_key = os.path.expanduser(pve.get("ssh_key", "~/.ssh/id_rsa"))
+
+    ssh = paramiko.SSHClient()
+    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    try:
+        ssh.connect(ssh_host, username="root", key_filename=ssh_key, timeout=15)
+        run_ssh_cmd(ssh, "mkdir -p /var/lib/vz/snippets")
+        sftp = ssh.open_sftp()
+        try:
+            with sftp.open(snippet_path, "w") as f:
+                f.write(snippet)
+        finally:
+            sftp.close()
+    except Exception as e:
+        raise RuntimeError(f"Failed to write cloud-init snippet on {ssh_host}: {e}")
+    finally:
+        ssh.close()
+
+    return f"vendor=local:snippets/{snippet_name}"
+
+
 # ─────────────────────────────────────────────
 # Ansible runners
 # ─────────────────────────────────────────────
@@ -573,7 +629,7 @@ def run_ansible_post_deploy_vm(vm_ip: str, ssh_key: str, password: str, hostname
         f.write(
             f"{vm_ip} "
             f"ansible_user=root "
-            f"ansible_python_interpreter=/usr/bin/python3 "
+            f"ansible_python_interpreter=auto "
             f"ansible_ssh_extra_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'\n"
         )
         inv_path = f.name
@@ -1173,10 +1229,16 @@ def main() -> None:
         }
         if pub_key_encoded:
             ci_params["sshkeys"] = pub_key_encoded
+        if use_dhcp:
+            # Pre-install qemu-guest-agent via cloud-init snippet so it is
+            # running when we poll the guest agent API for the DHCP-assigned IP.
+            cicustom = write_guest_agent_snippet(cfg, node_name, next_vmid)
+            ci_params["cicustom"] = cicustom
         proxmox.nodes(node_name).qemu(next_vmid).config.put(**ci_params)
         console.print(
             f"  [dim]Cloud-init: {'DHCP' if use_dhcp else f'{ip_address}/{prefix_len} gw {gateway}'}"
-            f"{' + SSH key' if pub_key_encoded else ''}[/dim]"
+            f"{' + SSH key' if pub_key_encoded else ''}"
+            f"{' + guest-agent snippet' if use_dhcp else ''}[/dim]"
         )
 
         console.print("[green]✓ VM configured[/green]")

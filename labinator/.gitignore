@@ -1,0 +1,27 @@
+# NEVER commit credentials
+config.yaml
+
+# Claude Code project settings
+.claude/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Ansible temp files
+*.retry
+/tmp/deploy_inv_*
+
+# Editor
+.vscode/
+*.swp
+
+# Deployment records (real deployments — examples are tracked explicitly)
+deployments/lxc/*.json
+deployments/vms/*.json
+!deployments/lxc/example-*.json
+!deployments/vms/example-*.json

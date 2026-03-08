@@ -1,0 +1,10 @@
+---
+- name: Upgrade all installed packages (dist-upgrade)
+  apt:
+    upgrade: dist
+    update_cache: true
+
+- name: Remove unused packages (autoremove)
+  apt:
+    autoremove: true
+    purge: true
