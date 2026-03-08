@@ -1,5 +1,224 @@
 # Feature Ideas
 
+## Shared Library Module
+
+`deploy_lxc.py`, `deploy_vm.py`, `decomm_lxc.py`, and `decomm_vm.py` duplicate significant code
+(config loading, Proxmox connection, `wait_for_task`, DNS helpers, Ansible inventory steps).
+Extract into a `lib.py` (or `labinator/lib.py`) shared module.
+
+### Implementation notes
+
+- Functions to extract: `load_config()`, `connect_proxmox()`, `wait_for_task()`, DNS add/remove
+  wrappers, Ansible inventory add/remove wrappers, `health_check()`, `resolve_profile()`,
+  `validate_config()`.
+- All four scripts import from `lib` — no behaviour changes, just deduplication.
+- Makes adding new integrations (Netbox, Cacti, etc.) a single-place change.
+
+---
+
+## Resource Resize Script
+
+Add a `resize.py` (or `resize_lxc.py` / `resize_vm.py`) that modifies CPU, RAM, or disk on an
+already-deployed container or VM without a full redeploy.
+
+### Implementation notes
+
+- Accepts `--deploy-file` to identify the target (reads VMID and node from the JSON).
+- Interactive prompts (pre-filled with current values) for CPU, memory, disk.
+- For LXC: uses Proxmox API `PUT /nodes/{node}/lxc/{vmid}/config`.
+- For VM: uses `PUT /nodes/{node}/qemu/{vmid}/config`; disk resize requires an additional
+  `POST /nodes/{node}/qemu/{vmid}/resize`.
+- Updates the deployment JSON with the new values after a successful resize.
+- Warn if resizing down (Proxmox does not support disk shrink).
+
+---
+
+## Auto-Expire / VM TTL
+
+Assign a time-to-live to a deployment so test VMs don't accumulate and quietly consume
+resources indefinitely.
+
+### Usage
+
+```bash
+python3 deploy_vm.py --deploy-file deployments/vms/test-thing.json --ttl 7d
+python3 expire.py --check      # scan for expired or expiring-soon deployments
+python3 expire.py --reap       # decomm all expired VMs/LXCs automatically
+```
+
+### Implementation notes
+
+- Store `expires_at` (ISO 8601 timestamp) in the deployment JSON at deploy time when
+  `--ttl` is specified. TTL format: `7d`, `24h`, `2w`, etc.
+- `expire.py --check` reads all deployment JSONs, compares `expires_at` to now, and
+  prints a table of expired and expiring-soon (within 48h) hosts.
+- `expire.py --reap` calls the normal decomm logic for each expired host — same DNS,
+  inventory, and Proxmox cleanup as a manual decomm.
+- Optional: send a warning notification (email, Slack, ntfy.sh) N hours before expiry.
+- Optional: `--renew` flag to extend the TTL on an existing deployment without redeploying.
+- Pairs naturally with a cron job or systemd timer to run `expire.py --reap` nightly.
+- The REST API (see above) can expose a `POST /api/deployments/{hostname}/renew` endpoint
+  for TTL extension without shell access.
+
+---
+
+## Profile Tag Colors
+
+When a package profile with tags is selected at deploy time, automatically configure the
+corresponding tag colors in Proxmox (Datacenter → Options → Tag Style) so the tags appear
+with consistent, role-appropriate colors in the Proxmox UI — without manual configuration.
+
+### Implementation notes
+
+- Add an optional `color` key per tag in `config.yaml` under each profile's `tags` block:
+  ```yaml
+  web-server:
+    packages: [...]
+    tags:
+      - name: WWW
+        color: "#0070c0"     # blue
+  ```
+- On deploy, after the VM/LXC is created, call `PUT /cluster/options` with the `tag-style`
+  color-map to register the color for any new tags not already configured.
+- Only updates tags that labinator manages — does not overwrite manually configured colors.
+- Falls back gracefully if the API call fails (tags still applied, just without color).
+
+---
+
+## Proxmox Firewall Rules
+
+After a VM or LXC is deployed, automatically configure Proxmox firewall rules on the instance
+via the Proxmox API — no iptables or ufw involvement. Rules are defined alongside package
+profiles in `config.yaml` so the right ports open automatically when a profile is selected.
+
+### Usage
+
+```yaml
+# config.yaml
+package_profiles:
+  web-server:
+    packages:
+      - nginx
+      - certbot
+    tags:
+      - WWW
+    firewall_rules:
+      - direction: in
+        action: ACCEPT
+        proto: tcp
+        dport: "80"
+        comment: HTTP
+      - direction: in
+        action: ACCEPT
+        proto: tcp
+        dport: "443"
+        comment: HTTPS
+
+  database:
+    packages:
+      - mariadb-server
+    tags:
+      - DB
+    firewall_rules:
+      - direction: in
+        action: ACCEPT
+        proto: tcp
+        dport: "3306"
+        comment: MariaDB
+```
+
+### How it works
+
+- Proxmox firewall operates at three levels: datacenter, node, and VM/LXC instance.
+- Labinator adds rules at the **VM/LXC level** via:
+  - `POST /nodes/{node}/qemu/{vmid}/firewall/rules` (VMs)
+  - `POST /nodes/{node}/lxc/{vmid}/firewall/rules` (LXC)
+- The VM firewall must also be **enabled** (`PUT .../firewall/options` with `enable: 1`).
+  The NIC already has `firewall=1` set at creation — this enables the per-VM ruleset.
+- Optionally supports **Proxmox Security Groups** — define rules once at the cluster level
+  and reference by group name, rather than duplicating per-profile:
+  ```yaml
+  firewall_security_group: web-server   # references cluster firewall group
+  ```
+
+### Implementation notes
+
+- Rules are applied as a post-creation step, after the VM/LXC exists in Proxmox.
+- If no `firewall_rules` or `firewall_security_group` is defined for a profile, the
+  firewall is left in its default state (disabled at VM level, existing datacenter rules apply).
+- Store applied rule IDs (or a flag) in the deployment JSON so decomm can optionally
+  clean up instance-level rules on decommission.
+- Add `firewall_enabled: true` to the profile to explicitly enable the VM-level firewall
+  when rules are applied.
+
+---
+
+## Batch Deploy
+
+Deploy multiple containers and/or VMs in sequence from a list of deployment JSON files using a
+single unified script, rather than running deploy_lxc.py or deploy_vm.py once per host.
+
+### Usage
+
+```bash
+python3 deploy.py --batch deployments/vms/web1.json deployments/lxc/db1.json deployments/vms/app1.json
+python3 deploy.py --batch-dir deployments/batch/
+```
+
+### Design decisions
+
+- **One script for everything** — a single `deploy.py` entry point reads the `"type"` field
+  from each deployment JSON (`"vm"` or `"lxc"`) and dispatches to the appropriate deploy logic.
+  No need to remember which script to use.
+- **Continue on failure** — if one host fails, the error is logged and the batch continues with
+  the remaining files. A summary table is printed at the end showing each host's result.
+- **Sequential, not parallel** — deploys run one at a time to avoid VMID conflicts and Proxmox
+  API rate issues.
+
+### Implementation notes
+
+- `--batch` accepts one or more JSON file paths; `--batch-dir` processes all JSON files in a
+  directory alphabetically. Both are mutually exclusive with `--deploy-file`.
+- Each file is deployed in silent mode (no interactive prompts) — all required values must be
+  present in the deployment file.
+- Skip any file whose VMID is already running in Proxmox (idempotent re-runs).
+- Print a `rich` summary table at the end: hostname, type, result (✓ / ✗), and elapsed time.
+- The `--validate` flag pairs naturally with batch — validate all files before starting any deploys.
+
+---
+
+## Proxmox Cluster Import / Scan
+
+Scan an existing Proxmox cluster and generate labinator deployment JSON files for VMs and LXCs
+that were provisioned outside of labinator — allowing you to adopt an existing environment
+without starting from scratch.
+
+### Usage
+
+```bash
+python3 import.py                          # scan all nodes, interactive review
+python3 import.py --node proxmox01         # scan a single node
+python3 import.py --silent                 # generate files without prompting
+```
+
+### Implementation notes
+
+- Query all nodes via the Proxmox API and enumerate every VM (`qemu`) and LXC (`lxc`).
+- For each host, extract: VMID, hostname (from config name), node, CPU, RAM, disk size,
+  storage pool, VLAN/bridge, IP (from cloud-init config or guest agent), and tags.
+- Skip any VMID that already has a matching deployment file in `deployments/vms/` or
+  `deployments/lxc/` (unless `--overwrite` is passed).
+- Fields that can't be determined automatically (e.g. `cloud_image_filename`, `password`)
+  are left blank or set to sensible placeholders — clearly marked so the operator knows
+  what to fill in before using the file for a redeploy.
+- In interactive mode, display each discovered host and confirm before writing the file.
+  In `--silent` mode, write all files without prompting.
+- Print a summary at the end: how many files written, how many skipped, how many need
+  manual review.
+- Pairs naturally with Batch Deploy — import first, then batch redeploy to a new cluster.
+
+---
+
 ## Cacti Monitoring Integration
 
 Cacti does not have an official REST API (it has been on the roadmap for v1.3 for several years).
@@ -53,71 +272,6 @@ php /path/to/cacti/cli/remove_device.php --device-id=<id>
 - [Cacti CLI: add_device.php](https://files.cacti.net/docs/html/cli_add_device.html)
 - [Cacti REST API forum discussion](https://forums.cacti.net/viewtopic.php?t=58539)
 - [Cacti CLI command reference](https://nsrc.org/workshops/2019/ubuntunet-nren-noc/netmgmt/en/cacti/cacti-cli-commands.html)
-
----
-
-## Shared Library Module
-
-`deploy_lxc.py`, `deploy_vm.py`, `decomm_lxc.py`, and `decomm_vm.py` duplicate significant code
-(config loading, Proxmox connection, `wait_for_task`, DNS helpers, Ansible inventory steps).
-Extract into a `lib.py` (or `labinator/lib.py`) shared module.
-
-### Implementation notes
-
-- Functions to extract: `load_config()`, `connect_proxmox()`, `wait_for_task()`, DNS add/remove
-  wrappers, Ansible inventory add/remove wrappers.
-- All four scripts import from `lib` — no behaviour changes, just deduplication.
-- Makes adding new integrations (Netbox, Cacti, etc.) a single-place change.
-
----
-
-## --validate Flag
-
-Add a `--validate` flag to `deploy_lxc.py` and `deploy_vm.py` that checks a deployment JSON
-against a schema and verifies config.yaml is well-formed, without connecting to Proxmox or
-making any changes.
-
-### Implementation notes
-
-- Use `jsonschema` (add to `requirements.txt`) to validate the deployment file.
-- Check required keys, value types, and plausible ranges (e.g. memory > 0, valid IP format).
-- Exit 0 on success, non-zero with a clear error message on failure.
-- Useful in CI or before batch deployments to catch typos early.
-
----
-
-## Post-Deploy Status / Health Check
-
-After a container or VM is provisioned and Ansible runs, verify the host is actually healthy
-before reporting success.
-
-### Implementation notes
-
-- Ping the IP address (ICMP or TCP port 22) with a configurable timeout/retry count.
-- Attempt an SSH connection and run a trivial command (e.g. `hostname`).
-- If the check fails after N retries, print a warning but do not roll back (deployment file is
-  already written — operator can investigate or decomm manually).
-- Add `health_check:` block to `config.yaml`:
-  - `enabled: true/false`
-  - `timeout_seconds: 60`
-  - `retries: 5`
-
----
-
-## Resource Resize Script
-
-Add a `resize.py` (or `resize_lxc.py` / `resize_vm.py`) that modifies CPU, RAM, or disk on an
-already-deployed container or VM without a full redeploy.
-
-### Implementation notes
-
-- Accepts `--deploy-file` to identify the target (reads VMID and node from the JSON).
-- Interactive prompts (pre-filled with current values) for CPU, memory, disk.
-- For LXC: uses Proxmox API `PUT /nodes/{node}/lxc/{vmid}/config`.
-- For VM: uses `PUT /nodes/{node}/qemu/{vmid}/config`; disk resize requires an additional
-  `POST /nodes/{node}/qemu/{vmid}/resize`.
-- Updates the deployment JSON with the new values after a successful resize.
-- Warn if resizing down (Proxmox does not support disk shrink).
 
 ---
 
@@ -292,73 +446,6 @@ remove it — the same pattern as the Cacti integration.
 
 ---
 
-## Batch Deploy
-
-Deploy multiple containers and/or VMs in sequence from a list of deployment JSON files using a
-single unified script, rather than running deploy_lxc.py or deploy_vm.py once per host.
-
-### Usage
-
-```bash
-python3 deploy.py --batch deployments/vms/web1.json deployments/lxc/db1.json deployments/vms/app1.json
-python3 deploy.py --batch-dir deployments/batch/
-```
-
-### Design decisions
-
-- **One script for everything** — a single `deploy.py` entry point reads the `"type"` field
-  from each deployment JSON (`"vm"` or `"lxc"`) and dispatches to the appropriate deploy logic.
-  No need to remember which script to use.
-- **Continue on failure** — if one host fails, the error is logged and the batch continues with
-  the remaining files. A summary table is printed at the end showing each host's result.
-- **Sequential, not parallel** — deploys run one at a time to avoid VMID conflicts and Proxmox
-  API rate issues.
-
-### Implementation notes
-
-- `--batch` accepts one or more JSON file paths; `--batch-dir` processes all JSON files in a
-  directory alphabetically. Both are mutually exclusive with `--deploy-file`.
-- Each file is deployed in silent mode (no interactive prompts) — all required values must be
-  present in the deployment file.
-- Skip any file whose VMID is already running in Proxmox (idempotent re-runs).
-- Print a `rich` summary table at the end: hostname, type, result (✓ / ✗), and elapsed time.
-- The `--validate` flag (see above) pairs naturally with batch — validate all files before
-  starting any deploys.
-
----
-
-## Proxmox Cluster Import / Scan
-
-Scan an existing Proxmox cluster and generate labinator deployment JSON files for VMs and LXCs
-that were provisioned outside of labinator — allowing you to adopt an existing environment
-without starting from scratch.
-
-### Usage
-
-```bash
-python3 import.py                          # scan all nodes, interactive review
-python3 import.py --node proxmox01         # scan a single node
-python3 import.py --silent                 # generate files without prompting
-```
-
-### Implementation notes
-
-- Query all nodes via the Proxmox API and enumerate every VM (`qemu`) and LXC (`lxc`).
-- For each host, extract: VMID, hostname (from config name), node, CPU, RAM, disk size,
-  storage pool, VLAN/bridge, IP (from cloud-init config or guest agent), and tags.
-- Skip any VMID that already has a matching deployment file in `deployments/vms/` or
-  `deployments/lxc/` (unless `--overwrite` is passed).
-- Fields that can't be determined automatically (e.g. `cloud_image_filename`, `password`)
-  are left blank or set to sensible placeholders — clearly marked so the operator knows
-  what to fill in before using the file for a redeploy.
-- In interactive mode, display each discovered host and confirm before writing the file.
-  In `--silent` mode, write all files without prompting.
-- Print a summary at the end: how many files written, how many skipped, how many need
-  manual review.
-- Pairs naturally with Batch Deploy — import first, then batch redeploy to a new cluster.
-
----
-
 ## REST API (FastAPI)
 
 Wrap labinator's core logic in a REST API server so deployments and decommissions can be
@@ -402,35 +489,6 @@ GET    /api/status               cluster overview (nodes, running VMs/LXCs, reso
 
 ---
 
-## Auto-Expire / VM TTL
-
-Assign a time-to-live to a deployment so test VMs don't accumulate and quietly consume
-resources indefinitely.
-
-### Usage
-
-```bash
-python3 deploy_vm.py --deploy-file deployments/vms/test-thing.json --ttl 7d
-python3 expire.py --check      # scan for expired or expiring-soon deployments
-python3 expire.py --reap       # decomm all expired VMs/LXCs automatically
-```
-
-### Implementation notes
-
-- Store `expires_at` (ISO 8601 timestamp) in the deployment JSON at deploy time when
-  `--ttl` is specified. TTL format: `7d`, `24h`, `2w`, etc.
-- `expire.py --check` reads all deployment JSONs, compares `expires_at` to now, and
-  prints a table of expired and expiring-soon (within 48h) hosts.
-- `expire.py --reap` calls the normal decomm logic for each expired host — same DNS,
-  inventory, and Proxmox cleanup as a manual decomm.
-- Optional: send a warning notification (email, Slack, ntfy.sh) N hours before expiry.
-- Optional: `--renew` flag to extend the TTL on an existing deployment without redeploying.
-- Pairs naturally with a cron job or systemd timer to run `expire.py --reap` nightly.
-- The REST API (see above) can expose a `POST /api/deployments/{hostname}/renew` endpoint
-  for TTL extension without shell access.
-
----
-
 ## Natural Language Deploy
 
 Describe a VM in plain English and let Claude generate the deployment JSON, confirm it
@@ -468,80 +526,3 @@ python3 deploy.py "give me a small Ubuntu VM on proxmox02 for the wiki"
 ### Dependencies to add
 
 - `anthropic`
-
----
-
-## Package Profiles
-
-Define named sets of packages in `config.yaml` that represent a server role. Select a
-profile at deploy time to install a consistent, reusable toolset on top of the standard
-baseline — without editing vars files or hardcoding packages into deployment JSONs.
-
-### Usage
-
-```yaml
-# config.yaml
-package_profiles:
-  web-server:
-    - nginx
-    - certbot
-    - python3-certbot-nginx
-  database:
-    - postgresql
-    - postgresql-client
-  monitoring:
-    - prometheus-node-exporter
-    - grafana
-  docker-host:
-    - docker-ce
-    - docker-ce-cli
-    - containerd.io
-    - docker-compose-plugin
-```
-
-```json
-// deployment JSON
-{
-  "hostname": "my-web-server",
-  "package_profile": "web-server"
-}
-```
-
-### Implementation notes
-
-- The wizard prompts for an optional profile after the hostname: `Package profile (optional):`
-  with a list of defined profiles plus `[none]`. Defaults to none.
-- The selected profile name is stored in the deployment JSON as `package_profile`.
-- The Ansible playbook reads `package_profile`, looks it up in `config.yaml` vars passed
-  as extra variables, and appends the profile's packages to the standard install list.
-- Profiles are OS-agnostic by name — the package names within each profile should match
-  the target OS (or use per-family sub-keys if cross-OS profiles are needed later).
-- Multiple profiles could be supported in a future iteration (`package_profiles: [web-server, monitoring]`).
-
----
-
-## Extra Packages Per Deployment
-
-Allow one-off packages to be specified directly in the deployment JSON for packages that
-don't belong in a profile — without touching vars files or config.yaml.
-
-### Usage
-
-```json
-{
-  "hostname": "my-app-server",
-  "package_profile": "web-server",
-  "extra_packages": ["ffmpeg", "imagemagick", "wkhtmltopdf"]
-}
-```
-
-### Implementation notes
-
-- The wizard prompts: `Extra packages (optional, comma-separated):` after the profile prompt.
-- Stored in the deployment JSON as `extra_packages` (list of strings).
-- The Ansible playbook appends `extra_packages` to the install list after the profile
-  packages — profile first, then extras.
-- Works with or without a profile — either, both, or neither can be specified.
-- Pairs with the `--validate` flag to catch obviously invalid package names early.
-- The natural language deploy feature (see above) can populate both `package_profile` and
-  `extra_packages` automatically based on the description.
