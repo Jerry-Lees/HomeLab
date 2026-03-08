@@ -370,7 +370,7 @@ def check_sshpass() -> None:
         raise RuntimeError("sshpass not found. Install it: apt install sshpass")
 
 
-def run_ansible_post_deploy(container_ip: str, password: str, hostname: str, nameserver: str, searchdomain: str, cfg: dict = None) -> None:
+def run_ansible_post_deploy(container_ip: str, password: str, hostname: str, nameserver: str, searchdomain: str, cfg: dict = None, extra_packages: list = ()) -> None:
     """Run the post-deploy Ansible playbook against the new container."""
     ansible_dir = Path(__file__).parent / "ansible"
     snmp = (cfg or {}).get("snmp", {})
@@ -407,6 +407,8 @@ def run_ansible_post_deploy(container_ip: str, password: str, hostname: str, nam
             "-e", json.dumps({"ntp_servers": ntp_servers}),
             "--timeout", "60",
         ]
+        if extra_packages:
+            cmd += ["-e", json.dumps({"extra_packages": list(extra_packages)})]
         cmd_display = [
             arg.split("=")[0] + "=**REDACTED**" if arg.startswith("password=") else arg
             for arg in cmd
@@ -506,7 +508,7 @@ def save_deployment_file(hostname: str, vmid: int, node_name: str,
                          cpus_str: str, memory_gb_str: str, disk_gb_str: str,
                          storage: str, vlan_str: str, bridge: str,
                          password: str, container_ip: str, prefix_len: str,
-                         cfg: dict) -> None:
+                         cfg: dict, extra_packages: list = ()) -> None:
     domain = cfg["proxmox"].get("node_domain", "")
     fqdn = f"{hostname}.{domain}" if domain else hostname
     deployments_dir = Path(__file__).parent / "deployments" / "lxc"
@@ -528,6 +530,7 @@ def save_deployment_file(hostname: str, vmid: int, node_name: str,
         "password": password,
         "ip_address": container_ip,
         "prefix_len": prefix_len,
+        "extra_packages": list(extra_packages),
         "deployed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
     with open(deploy_file, "w") as f:
@@ -721,6 +724,21 @@ def main() -> None:
         default=defaults.get("root_password", "changeme"),
         d=deploy, key="password", silent=silent,
     )
+
+    # ── Extra packages ──
+    deploy_extra_pkgs = deploy.get("extra_packages", []) if deploy else []
+    if silent:
+        extra_packages = deploy_extra_pkgs
+    else:
+        pkgs_default = ", ".join(deploy_extra_pkgs) if deploy_extra_pkgs else ""
+        pkgs_answer = questionary.text(
+            "Extra packages to install (optional):",
+            instruction="comma-separated, e.g. htop, curl  —  leave blank for none",
+            default=pkgs_default,
+        ).ask()
+        if pkgs_answer is None:
+            sys.exit(0)
+        extra_packages = [p.strip() for p in pkgs_answer.split(",") if p.strip()]
 
     # ── Node selection (filtered by requested resources) ──
     memory_mb = int(float(memory_gb_str) * 1024)
@@ -994,6 +1012,7 @@ def main() -> None:
                 nameserver=defaults.get("nameserver", "8.8.8.8 8.8.4.4"),
                 searchdomain=defaults.get("searchdomain", ""),
                 cfg=cfg,
+                extra_packages=extra_packages,
             )
             console.print("[green]✓ Post-deployment configuration complete[/green]")
             break
@@ -1025,6 +1044,7 @@ def main() -> None:
         hostname, next_vmid, node_name, template_volid, template_name,
         cpus_str, memory_gb_str, disk_gb_str, storage, vlan_str, bridge,
         password, container_ip, prefix_len, cfg,
+        extra_packages=extra_packages,
     )
 
     # ═══════════════════════════════════════════

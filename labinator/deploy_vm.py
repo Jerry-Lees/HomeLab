@@ -616,7 +616,7 @@ def check_ansible() -> None:
         raise RuntimeError("ansible-playbook not found. Install Ansible: apt install ansible")
 
 
-def run_ansible_post_deploy_vm(vm_ip: str, ssh_key: str, password: str, hostname: str, cfg: dict = None) -> None:
+def run_ansible_post_deploy_vm(vm_ip: str, ssh_key: str, password: str, hostname: str, cfg: dict = None, extra_packages: list = ()) -> None:
     """Run the post-deploy Ansible playbook against the new VM using SSH key auth."""
     ansible_dir = Path(__file__).parent / "ansible"
     snmp = (cfg or {}).get("snmp", {})
@@ -651,6 +651,8 @@ def run_ansible_post_deploy_vm(vm_ip: str, ssh_key: str, password: str, hostname
             "--private-key", ssh_key,
             "--timeout", "60",
         ]
+        if extra_packages:
+            cmd += ["-e", json.dumps({"extra_packages": list(extra_packages)})]
         cmd_display = [
             arg.split("=")[0] + "=**REDACTED**" if arg.startswith("password=") else arg
             for arg in cmd
@@ -758,7 +760,7 @@ def save_vm_deployment_file(hostname: str, vmid: int, node_name: str,
                              disk_gb_str: str, storage: str, vlan_str: str,
                              bridge: str, password: str, ip_address: str,
                              prefix_len: str, gateway: str, assigned_ip: str,
-                             cfg: dict) -> Path:
+                             cfg: dict, extra_packages: list = ()) -> Path:
     """
     ip_address: "dhcp" or the configured static IP
     assigned_ip: actual IP the VM received (same as ip_address for static;
@@ -789,6 +791,7 @@ def save_vm_deployment_file(hostname: str, vmid: int, node_name: str,
         "ip_address": ip_address,    # "dhcp" or static IP
         "prefix_len": prefix_len,    # "" if DHCP
         "gateway": gateway,          # "" if DHCP
+        "extra_packages": list(extra_packages),
         "deployed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
     if assigned_ip and assigned_ip != ip_address:
@@ -947,6 +950,21 @@ def main() -> None:
         default=defaults.get("root_password", "changeme"),
         d=deploy, key="password", silent=silent,
     )
+
+    # ── Extra packages ──
+    deploy_extra_pkgs = deploy.get("extra_packages", []) if deploy else []
+    if silent:
+        extra_packages = deploy_extra_pkgs
+    else:
+        pkgs_default = ", ".join(deploy_extra_pkgs) if deploy_extra_pkgs else ""
+        pkgs_answer = questionary.text(
+            "Extra packages to install (optional):",
+            instruction="comma-separated, e.g. htop, curl  —  leave blank for none",
+            default=pkgs_default,
+        ).ask()
+        if pkgs_answer is None:
+            sys.exit(0)
+        extra_packages = [p.strip() for p in pkgs_answer.split(",") if p.strip()]
 
     # ── IP address — blank or "dhcp" = DHCP mode ──
     deploy_ip = str(deploy.get("ip_address", ""))
@@ -1304,7 +1322,7 @@ def main() -> None:
     # ═══════════════════════════════════════════
     console.print("[bold green]─── Step 5/7: Running post-deployment configuration (Ansible) ───[/bold green]")
     try:
-        run_ansible_post_deploy_vm(vm_ip, ssh_key, password, hostname, cfg=cfg)
+        run_ansible_post_deploy_vm(vm_ip, ssh_key, password, hostname, cfg=cfg, extra_packages=extra_packages)
         console.print("[green]✓ Post-deployment configuration complete[/green]")
     except Exception as e:
         console.print(f"[red]✗ Post-deploy failed: {e}[/red]")
@@ -1330,6 +1348,7 @@ def main() -> None:
         vlan_str, bridge, password,
         "dhcp" if use_dhcp else ip_address,
         prefix_len, gateway, vm_ip, cfg,
+        extra_packages=extra_packages,
     )
 
     # ═══════════════════════════════════════════

@@ -62,6 +62,16 @@ defaults:
   # Default OS template for LXC (matched by filename)
   template: ubuntu-24.04-standard_24.04-2_amd64.tar.zst
 
+# Extra packages — per-deployment overrides
+# Specify in the deployment JSON to install one-off packages on top of the standard baseline.
+# Not set here in config.yaml — this is a per-deployment JSON field:
+#
+#   "extra_packages": ["ffmpeg", "imagemagick", "wkhtmltopdf"]
+#
+# The deploy wizard prompts for these at deploy time (optional, comma-separated).
+# Leave blank to install nothing extra. The field is always saved in the deployment JSON
+# so re-deploys from the same file will reinstall the same extra packages.
+
 # DNS registration (BIND)
 # Set enabled: false to skip automatic DNS and manage manually
 dns:

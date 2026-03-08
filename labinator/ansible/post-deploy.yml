@@ -34,6 +34,10 @@
     - name: Load OS-specific variables
       include_vars: "vars/{{ ansible_os_family }}.yml"
 
+    - name: Ensure correct sudo group for OS family
+      set_fact:
+        sudo_group: "{{ 'sudo' if ansible_os_family == 'Debian' else 'wheel' }}"
+
     # --------------------------------------------------------
     # Hostname
     # --------------------------------------------------------
@@ -55,7 +59,7 @@
       user:
         name: "{{ addusername }}"
         shell: /bin/bash
-        groups: "{{ sudo_group }}"
+        groups: "{{ 'sudo' if ansible_os_family == 'Debian' else 'wheel' }}"
         append: true
         create_home: true
         state: present
@@ -113,6 +117,12 @@
       package:
         name: "{{ packages }}"
         state: present
+
+    - name: Install extra packages (if specified)
+      package:
+        name: "{{ extra_packages }}"
+        state: present
+      when: extra_packages | default([]) | length > 0
 
     # --------------------------------------------------------
     # NTP Configuration (chrony)
