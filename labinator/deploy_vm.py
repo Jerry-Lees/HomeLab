@@ -788,7 +788,7 @@ def check_ansible() -> None:
         raise RuntimeError("ansible-playbook not found. Install Ansible: apt install ansible")
 
 
-def run_ansible_post_deploy_vm(vm_ip: str, ssh_key: str, password: str, hostname: str, cfg: dict = None, extra_packages: list = ()) -> None:
+def run_ansible_post_deploy_vm(vm_ip: str, ssh_key: str, password: str, hostname: str, cfg: dict = None, profile_packages: list = (), extra_packages: list = ()) -> None:
     """Run the post-deploy Ansible playbook against the new VM using SSH key auth."""
     ansible_dir = Path(__file__).parent / "ansible"
     snmp = (cfg or {}).get("snmp", {})
@@ -823,6 +823,8 @@ def run_ansible_post_deploy_vm(vm_ip: str, ssh_key: str, password: str, hostname
             "--private-key", ssh_key,
             "--timeout", "60",
         ]
+        if profile_packages:
+            cmd += ["-e", json.dumps({"profile_packages": list(profile_packages)})]
         if extra_packages:
             cmd += ["-e", json.dumps({"extra_packages": list(extra_packages)})]
         cmd_display = [
@@ -984,7 +986,7 @@ def save_vm_deployment_file(hostname: str, vmid: int, node_name: str,
                              disk_gb_str: str, storage: str, vlan_str: str,
                              bridge: str, password: str, ip_address: str,
                              prefix_len: str, gateway: str, assigned_ip: str,
-                             cfg: dict, extra_packages: list = ()) -> Path:
+                             cfg: dict, package_profile: str = "", extra_packages: list = ()) -> Path:
     """
     ip_address: "dhcp" or the configured static IP
     assigned_ip: actual IP the VM received (same as ip_address for static;
@@ -1015,6 +1017,7 @@ def save_vm_deployment_file(hostname: str, vmid: int, node_name: str,
         "ip_address": ip_address,    # "dhcp" or static IP
         "prefix_len": prefix_len,    # "" if DHCP
         "gateway": gateway,          # "" if DHCP
+        "package_profile": package_profile,
         "extra_packages": list(extra_packages),
         "deployed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
@@ -1183,6 +1186,31 @@ def main() -> None:
         default=defaults.get("root_password", "changeme"),
         d=deploy, key="password", silent=silent,
     )
+
+    # ── Package profile ──
+    profiles = cfg.get("package_profiles", {})
+    deploy_profile = (deploy.get("package_profile", "") or "") if deploy else ""
+    if silent:
+        package_profile = deploy_profile
+        if package_profile and package_profile not in profiles:
+            console.print(f"[yellow]Warning: package_profile '{package_profile}' not found in config — skipping.[/yellow]")
+            package_profile = ""
+        profile_packages = list(profiles.get(package_profile, []))
+    elif profiles:
+        profile_choices = [questionary.Choice(title="[none]", value="")] + [
+            questionary.Choice(title=name, value=name) for name in profiles
+        ]
+        package_profile = questionary.select(
+            "Package profile (optional):",
+            choices=profile_choices,
+            default=deploy_profile if deploy_profile in profiles else "",
+        ).ask()
+        if package_profile is None:
+            sys.exit(0)
+        profile_packages = list(profiles.get(package_profile, []))
+    else:
+        package_profile = ""
+        profile_packages = []
 
     # ── Extra packages ──
     deploy_extra_pkgs = deploy.get("extra_packages", []) if deploy else []
@@ -1555,7 +1583,7 @@ def main() -> None:
     # ═══════════════════════════════════════════
     console.print("[bold green]─── Step 5/7: Running post-deployment configuration (Ansible) ───[/bold green]")
     try:
-        run_ansible_post_deploy_vm(vm_ip, ssh_key, password, hostname, cfg=cfg, extra_packages=extra_packages)
+        run_ansible_post_deploy_vm(vm_ip, ssh_key, password, hostname, cfg=cfg, profile_packages=profile_packages, extra_packages=extra_packages)
         console.print("[green]✓ Post-deployment configuration complete[/green]")
     except Exception as e:
         console.print(f"[red]✗ Post-deploy failed: {e}[/red]")
@@ -1581,6 +1609,7 @@ def main() -> None:
         vlan_str, bridge, password,
         "dhcp" if use_dhcp else ip_address,
         prefix_len, gateway, vm_ip, cfg,
+        package_profile=package_profile,
         extra_packages=extra_packages,
     )
 

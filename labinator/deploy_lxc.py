@@ -537,7 +537,7 @@ def check_sshpass() -> None:
         raise RuntimeError("sshpass not found. Install it: apt install sshpass")
 
 
-def run_ansible_post_deploy(container_ip: str, password: str, hostname: str, nameserver: str, searchdomain: str, cfg: dict = None, extra_packages: list = ()) -> None:
+def run_ansible_post_deploy(container_ip: str, password: str, hostname: str, nameserver: str, searchdomain: str, cfg: dict = None, profile_packages: list = (), extra_packages: list = ()) -> None:
     """Run the post-deploy Ansible playbook against the new container."""
     ansible_dir = Path(__file__).parent / "ansible"
     snmp = (cfg or {}).get("snmp", {})
@@ -574,6 +574,8 @@ def run_ansible_post_deploy(container_ip: str, password: str, hostname: str, nam
             "-e", json.dumps({"ntp_servers": ntp_servers}),
             "--timeout", "60",
         ]
+        if profile_packages:
+            cmd += ["-e", json.dumps({"profile_packages": list(profile_packages)})]
         if extra_packages:
             cmd += ["-e", json.dumps({"extra_packages": list(extra_packages)})]
         cmd_display = [
@@ -727,7 +729,7 @@ def save_deployment_file(hostname: str, vmid: int, node_name: str,
                          cpus_str: str, memory_gb_str: str, disk_gb_str: str,
                          storage: str, vlan_str: str, bridge: str,
                          password: str, container_ip: str, prefix_len: str,
-                         cfg: dict, extra_packages: list = ()) -> None:
+                         cfg: dict, package_profile: str = "", extra_packages: list = ()) -> None:
     domain = cfg["proxmox"].get("node_domain", "")
     fqdn = f"{hostname}.{domain}" if domain else hostname
     deployments_dir = Path(__file__).parent / "deployments" / "lxc"
@@ -749,6 +751,7 @@ def save_deployment_file(hostname: str, vmid: int, node_name: str,
         "password": password,
         "ip_address": container_ip,
         "prefix_len": prefix_len,
+        "package_profile": package_profile,
         "extra_packages": list(extra_packages),
         "deployed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
@@ -952,6 +955,31 @@ def main() -> None:
         default=defaults.get("root_password", "changeme"),
         d=deploy, key="password", silent=silent,
     )
+
+    # ── Package profile ──
+    profiles = cfg.get("package_profiles", {})
+    deploy_profile = (deploy.get("package_profile", "") or "") if deploy else ""
+    if silent:
+        package_profile = deploy_profile
+        if package_profile and package_profile not in profiles:
+            console.print(f"[yellow]Warning: package_profile '{package_profile}' not found in config — skipping.[/yellow]")
+            package_profile = ""
+        profile_packages = list(profiles.get(package_profile, []))
+    elif profiles:
+        profile_choices = [questionary.Choice(title="[none]", value="")] + [
+            questionary.Choice(title=name, value=name) for name in profiles
+        ]
+        package_profile = questionary.select(
+            "Package profile (optional):",
+            choices=profile_choices,
+            default=deploy_profile if deploy_profile in profiles else "",
+        ).ask()
+        if package_profile is None:
+            sys.exit(0)
+        profile_packages = list(profiles.get(package_profile, []))
+    else:
+        package_profile = ""
+        profile_packages = []
 
     # ── Extra packages ──
     deploy_extra_pkgs = deploy.get("extra_packages", []) if deploy else []
@@ -1240,6 +1268,7 @@ def main() -> None:
                 nameserver=defaults.get("nameserver", "8.8.8.8 8.8.4.4"),
                 searchdomain=defaults.get("searchdomain", ""),
                 cfg=cfg,
+                profile_packages=profile_packages,
                 extra_packages=extra_packages,
             )
             console.print("[green]✓ Post-deployment configuration complete[/green]")
@@ -1272,6 +1301,7 @@ def main() -> None:
         hostname, next_vmid, node_name, template_volid, template_name,
         cpus_str, memory_gb_str, disk_gb_str, storage, vlan_str, bridge,
         password, container_ip, prefix_len, cfg,
+        package_profile=package_profile,
         extra_packages=extra_packages,
     )
 

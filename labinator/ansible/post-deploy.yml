@@ -118,6 +118,12 @@
         name: "{{ packages }}"
         state: present
 
+    - name: Install profile packages (if a package profile was selected)
+      package:
+        name: "{{ profile_packages }}"
+        state: present
+      when: profile_packages | default([]) | length > 0
+
     - name: Install extra packages (if specified)
       package:
         name: "{{ extra_packages }}"

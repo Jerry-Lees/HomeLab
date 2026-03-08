@@ -62,8 +62,47 @@ defaults:
   # Default OS template for LXC (matched by filename)
   template: ubuntu-24.04-standard_24.04-2_amd64.tar.zst
 
-# Extra packages — per-deployment overrides
-# Specify in the deployment JSON to install one-off packages on top of the standard baseline.
+# Package profiles — named sets of packages representing a server role.
+# Select a profile at deploy time to install a consistent toolset on every VM/LXC of that role.
+# Install order: standard baseline → profile packages → extra_packages (one-off additions).
+#
+# NOTE: Package names are OS-specific. The names below target Debian/Ubuntu.
+#       If you deploy Rocky Linux or openSUSE, adjust the names accordingly
+#       (e.g. 'mariadb-server' stays the same, but 'python3-certbot-nginx' may differ).
+#
+package_profiles:
+  web-server:
+    - nginx
+    - certbot
+    - python3-certbot-nginx
+    - ufw
+
+  database:
+    - mariadb-server
+    - mariadb-client
+
+  docker-host:
+    - docker-ce
+    - docker-ce-cli
+    - containerd.io
+    - docker-compose-plugin
+
+  monitoring-node:
+    - prometheus-node-exporter
+    - snmpd
+
+  dev-tools:
+    - git
+    - vim
+    - tmux
+    - make
+    - python3-pip
+
+  nfs-server:
+    - nfs-kernel-server
+    - nfs-common
+
+# Extra packages — per-deployment one-off additions on top of the standard baseline (and profile).
 # Not set here in config.yaml — this is a per-deployment JSON field:
 #
 #   "extra_packages": ["ffmpeg", "imagemagick", "wkhtmltopdf"]
