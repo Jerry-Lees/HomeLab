@@ -26,6 +26,7 @@ if os.path.exists(_venv) and os.path.realpath(sys.executable) != os.path.realpat
 
 import argparse
 import base64
+import ipaddress
 import os
 import sys
 import time
@@ -70,6 +71,171 @@ def load_config() -> dict:
         console.print("[red]ERROR: Edit config.yaml and set proxmox.token_secret[/red]")
         sys.exit(1)
     return cfg
+
+
+# ─────────────────────────────────────────────
+# Validation (--validate flag)
+# ─────────────────────────────────────────────
+
+def _check_ipv4(value: str) -> bool:
+    try:
+        ipaddress.IPv4Address(value)
+        return True
+    except ValueError:
+        return False
+
+
+def validate_config(cfg_path: Path) -> list[str]:
+    """Return a list of error strings; empty means config is valid."""
+    errors = []
+    if not cfg_path.exists():
+        return [f"config.yaml not found at {cfg_path}"]
+    try:
+        with open(cfg_path) as f:
+            cfg = yaml.safe_load(f)
+    except yaml.YAMLError as e:
+        return [f"config.yaml is not valid YAML: {e}"]
+    if not isinstance(cfg, dict):
+        return ["config.yaml is empty or not a YAML mapping"]
+
+    px = cfg.get("proxmox") or {}
+    if not px.get("host") and not px.get("hosts"):
+        errors.append("proxmox.host (or proxmox.hosts list) is required")
+    if not px.get("user"):
+        errors.append("proxmox.user is required")
+    if not px.get("token_name"):
+        errors.append("proxmox.token_name is required")
+    secret = str(px.get("token_secret", ""))
+    if not secret:
+        errors.append("proxmox.token_secret is required")
+    elif "CHANGEME" in secret:
+        errors.append("proxmox.token_secret still contains a placeholder value")
+
+    defaults = cfg.get("defaults") or {}
+    if not defaults.get("addusername"):
+        errors.append("defaults.addusername is required")
+
+    snmp = cfg.get("snmp") or {}
+    if not snmp.get("community"):
+        errors.append("snmp.community is required")
+
+    ntp = cfg.get("ntp") or {}
+    servers = ntp.get("servers")
+    if not servers or not isinstance(servers, list):
+        errors.append("ntp.servers must be a non-empty list")
+
+    if not cfg.get("timezone"):
+        errors.append("timezone is required")
+
+    return errors
+
+
+def validate_lxc_deployment(deploy_path: Path) -> list[str]:
+    """Return a list of error strings; empty means deployment JSON is valid."""
+    errors = []
+    try:
+        with open(deploy_path) as f:
+            d = json.load(f)
+    except FileNotFoundError:
+        return [f"File not found: {deploy_path}"]
+    except json.JSONDecodeError as e:
+        return [f"Invalid JSON: {e}"]
+    if not isinstance(d, dict):
+        return ["Deployment file is not a JSON object"]
+
+    if d.get("type") == "vm":
+        return ["This looks like a VM deployment file (\"type\": \"vm\") — use deploy_vm.py instead"]
+
+    for field in ("hostname", "node", "template_name", "storage", "bridge", "password"):
+        val = d.get(field)
+        if not val or not isinstance(val, str) or not val.strip():
+            errors.append(f"'{field}' is required and must be a non-empty string")
+
+    cpus = d.get("cpus")
+    if cpus is None:
+        errors.append("'cpus' is required")
+    elif not isinstance(cpus, int) or cpus <= 0:
+        errors.append(f"'cpus' must be a positive integer (got {cpus!r})")
+
+    mem = d.get("memory_gb")
+    if mem is None:
+        errors.append("'memory_gb' is required")
+    elif not isinstance(mem, (int, float)) or mem <= 0:
+        errors.append(f"'memory_gb' must be a positive number (got {mem!r})")
+
+    disk = d.get("disk_gb")
+    if disk is None:
+        errors.append("'disk_gb' is required")
+    elif not isinstance(disk, (int, float)) or disk <= 0:
+        errors.append(f"'disk_gb' must be a positive number (got {disk!r})")
+
+    vlan = d.get("vlan")
+    if vlan is None:
+        errors.append("'vlan' is required")
+    elif not isinstance(vlan, int) or not (1 <= vlan <= 4094):
+        errors.append(f"'vlan' must be an integer 1–4094 (got {vlan!r})")
+
+    ip = d.get("ip_address")
+    if ip is None:
+        errors.append("'ip_address' is required")
+    elif ip != "dhcp":
+        if not _check_ipv4(str(ip)):
+            errors.append(f"'ip_address' must be 'dhcp' or a valid IPv4 address (got {ip!r})")
+        prefix = d.get("prefix_len")
+        if prefix is None or str(prefix) == "":
+            errors.append("'prefix_len' is required when ip_address is a static IP")
+        elif not str(prefix).isdigit() or not (1 <= int(prefix) <= 32):
+            errors.append(f"'prefix_len' must be 1–32 (got {prefix!r})")
+
+    ep = d.get("extra_packages")
+    if ep is not None:
+        if not isinstance(ep, list):
+            errors.append("'extra_packages' must be a list")
+        elif not all(isinstance(p, str) for p in ep):
+            errors.append("'extra_packages' entries must all be strings")
+
+    return errors
+
+
+def run_validate(args) -> None:
+    """Run --validate checks, print a rich report, and exit 0 or 1."""
+    from rich.table import Table as RichTable
+    cfg_path = Path(__file__).parent / "config.yaml"
+    all_errors: list[tuple[str, str]] = []  # (section, message)
+
+    cfg_errors = validate_config(cfg_path)
+    for e in cfg_errors:
+        all_errors.append(("config.yaml", e))
+
+    if args.deploy_file:
+        deploy_errors = validate_lxc_deployment(Path(args.deploy_file))
+        for e in deploy_errors:
+            all_errors.append((args.deploy_file, e))
+
+    console.print()
+    console.print(Panel.fit(
+        Text("Labinator Validate", style="bold yellow"),
+        border_style="yellow",
+    ))
+    console.print()
+
+    if not all_errors:
+        console.print(f"[green]✓ config.yaml[/green]  OK")
+        if args.deploy_file:
+            console.print(f"[green]✓ {args.deploy_file}[/green]  OK")
+        console.print()
+        console.print("[bold green]All checks passed.[/bold green]")
+        sys.exit(0)
+
+    table = RichTable(show_header=True, header_style="bold red")
+    table.add_column("File", style="dim")
+    table.add_column("Error")
+    for section, msg in all_errors:
+        table.add_row(section, msg)
+    console.print(table)
+    console.print()
+    console.print(f"[bold red]{len(all_errors)} error(s) found. Fix them before deploying.[/bold red]")
+    sys.exit(1)
 
 
 # ─────────────────────────────────────────────
@@ -611,6 +777,8 @@ def main() -> None:
               python3 deploy_lxc.py
               python3 deploy_lxc.py --deploy-file deployments/lxc/myserver.json
               python3 deploy_lxc.py --deploy-file deployments/lxc/myserver.json --silent
+              python3 deploy_lxc.py --validate
+              python3 deploy_lxc.py --validate --deploy-file deployments/lxc/myserver.json
         """),
     )
     parser.add_argument(
@@ -621,7 +789,14 @@ def main() -> None:
         "--silent", action="store_true",
         help="Non-interactive mode: use all values from --deploy-file without prompting",
     )
+    parser.add_argument(
+        "--validate", action="store_true",
+        help="Validate config.yaml and deployment file without connecting to Proxmox or deploying",
+    )
     args = parser.parse_args()
+
+    if args.validate:
+        run_validate(args)  # exits 0 or 1
 
     if args.silent and not args.deploy_file:
         parser.error("--silent requires --deploy-file")
