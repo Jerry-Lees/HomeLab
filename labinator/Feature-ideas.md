@@ -294,22 +294,254 @@ remove it — the same pattern as the Cacti integration.
 
 ## Batch Deploy
 
-Deploy multiple containers or VMs in sequence from a directory of deployment JSON files, rather
-than running the deploy script once per host.
+Deploy multiple containers and/or VMs in sequence from a list of deployment JSON files using a
+single unified script, rather than running deploy_lxc.py or deploy_vm.py once per host.
 
 ### Usage
 
 ```bash
-python3 deploy_lxc.py --deploy-dir deployments/lxc/batch/
-python3 deploy_vm.py  --deploy-dir deployments/vms/batch/
+python3 deploy.py --batch deployments/vms/web1.json deployments/lxc/db1.json deployments/vms/app1.json
+python3 deploy.py --batch-dir deployments/batch/
+```
+
+### Design decisions
+
+- **One script for everything** — a single `deploy.py` entry point reads the `"type"` field
+  from each deployment JSON (`"vm"` or `"lxc"`) and dispatches to the appropriate deploy logic.
+  No need to remember which script to use.
+- **Continue on failure** — if one host fails, the error is logged and the batch continues with
+  the remaining files. A summary table is printed at the end showing each host's result.
+- **Sequential, not parallel** — deploys run one at a time to avoid VMID conflicts and Proxmox
+  API rate issues.
+
+### Implementation notes
+
+- `--batch` accepts one or more JSON file paths; `--batch-dir` processes all JSON files in a
+  directory alphabetically. Both are mutually exclusive with `--deploy-file`.
+- Each file is deployed in silent mode (no interactive prompts) — all required values must be
+  present in the deployment file.
+- Skip any file whose VMID is already running in Proxmox (idempotent re-runs).
+- Print a `rich` summary table at the end: hostname, type, result (✓ / ✗), and elapsed time.
+- The `--validate` flag (see above) pairs naturally with batch — validate all files before
+  starting any deploys.
+
+---
+
+## Proxmox Cluster Import / Scan
+
+Scan an existing Proxmox cluster and generate labinator deployment JSON files for VMs and LXCs
+that were provisioned outside of labinator — allowing you to adopt an existing environment
+without starting from scratch.
+
+### Usage
+
+```bash
+python3 import.py                          # scan all nodes, interactive review
+python3 import.py --node proxmox01         # scan a single node
+python3 import.py --silent                 # generate files without prompting
 ```
 
 ### Implementation notes
 
-- `--deploy-dir` and `--deploy-file` are mutually exclusive.
-- Process files in alphabetical order by default; add `--parallel` flag for concurrent deploys
-  (with a configurable concurrency limit to avoid hammering the Proxmox API).
-- Skip any file that already has a matching running VMID in Proxmox (idempotent re-runs).
-- Print a summary table at the end (succeeded / failed / skipped) using `rich`.
-- On failure of any single host, log the error and continue with the remaining files rather
-  than aborting the entire batch.
+- Query all nodes via the Proxmox API and enumerate every VM (`qemu`) and LXC (`lxc`).
+- For each host, extract: VMID, hostname (from config name), node, CPU, RAM, disk size,
+  storage pool, VLAN/bridge, IP (from cloud-init config or guest agent), and tags.
+- Skip any VMID that already has a matching deployment file in `deployments/vms/` or
+  `deployments/lxc/` (unless `--overwrite` is passed).
+- Fields that can't be determined automatically (e.g. `cloud_image_filename`, `password`)
+  are left blank or set to sensible placeholders — clearly marked so the operator knows
+  what to fill in before using the file for a redeploy.
+- In interactive mode, display each discovered host and confirm before writing the file.
+  In `--silent` mode, write all files without prompting.
+- Print a summary at the end: how many files written, how many skipped, how many need
+  manual review.
+- Pairs naturally with Batch Deploy — import first, then batch redeploy to a new cluster.
+
+---
+
+## REST API (FastAPI)
+
+Wrap labinator's core logic in a REST API server so deployments and decommissions can be
+triggered programmatically — from a web UI, CI/CD pipeline, or any HTTP client — without
+needing shell access to the controller machine.
+
+### Usage
+
+```bash
+uvicorn api:app --host 0.0.0.0 --port 8080
+```
+
+### Endpoints
+
+```
+POST   /api/vms/deploy           deploy a VM (body: deployment JSON)
+POST   /api/lxc/deploy           deploy an LXC container (body: deployment JSON)
+DELETE /api/vms/{hostname}       decommission a VM
+DELETE /api/lxc/{hostname}       decommission an LXC container
+GET    /api/deployments          list all deployment files (VMs and LXCs)
+GET    /api/deployments/{hostname}  return a single deployment JSON
+GET    /api/status               cluster overview (nodes, running VMs/LXCs, resource usage)
+```
+
+### Implementation notes
+
+- **FastAPI** is the natural choice — same Python ecosystem as the existing scripts, so core
+  functions can be imported directly rather than shelling out to subprocesses.
+- Auto-generates interactive Swagger UI docs at `/docs` — no extra work required.
+- Long-running operations (deploy, decomm) should run as background tasks
+  (`fastapi.BackgroundTasks` or a task queue like Celery) and return a job ID immediately.
+  A `GET /api/jobs/{id}` endpoint returns status and logs for the running operation.
+- Add basic API key authentication (header: `X-API-Key`) configured in `config.yaml`.
+- Opens the door to a web UI frontend (HTMX or React) that calls this API instead of
+  running scripts from the terminal.
+
+### Dependencies to add
+
+- `fastapi`
+- `uvicorn`
+
+---
+
+## Auto-Expire / VM TTL
+
+Assign a time-to-live to a deployment so test VMs don't accumulate and quietly consume
+resources indefinitely.
+
+### Usage
+
+```bash
+python3 deploy_vm.py --deploy-file deployments/vms/test-thing.json --ttl 7d
+python3 expire.py --check      # scan for expired or expiring-soon deployments
+python3 expire.py --reap       # decomm all expired VMs/LXCs automatically
+```
+
+### Implementation notes
+
+- Store `expires_at` (ISO 8601 timestamp) in the deployment JSON at deploy time when
+  `--ttl` is specified. TTL format: `7d`, `24h`, `2w`, etc.
+- `expire.py --check` reads all deployment JSONs, compares `expires_at` to now, and
+  prints a table of expired and expiring-soon (within 48h) hosts.
+- `expire.py --reap` calls the normal decomm logic for each expired host — same DNS,
+  inventory, and Proxmox cleanup as a manual decomm.
+- Optional: send a warning notification (email, Slack, ntfy.sh) N hours before expiry.
+- Optional: `--renew` flag to extend the TTL on an existing deployment without redeploying.
+- Pairs naturally with a cron job or systemd timer to run `expire.py --reap` nightly.
+- The REST API (see above) can expose a `POST /api/deployments/{hostname}/renew` endpoint
+  for TTL extension without shell access.
+
+---
+
+## Natural Language Deploy
+
+Describe a VM in plain English and let Claude generate the deployment JSON, confirm it
+with you, and kick off the deploy — no wizard prompts required.
+
+### Usage
+
+```bash
+python3 deploy.py "spin up a 4-core Rocky Linux box with 8GB RAM for load testing"
+python3 deploy.py "give me a small Ubuntu VM on proxmox02 for the wiki"
+```
+
+### How it works
+
+1. The description is sent to the Claude API with the labinator deployment JSON schema
+   as context.
+2. Claude returns a populated deployment JSON (hostname suggestion, OS image, CPU, RAM,
+   disk, VLAN, node preference if mentioned).
+3. The generated JSON is displayed in a confirmation summary — same as the normal wizard.
+4. User confirms or edits, then the deploy runs in silent mode.
+
+### Implementation notes
+
+- Uses the Claude API (`anthropic` Python SDK).
+- The system prompt includes the full deployment JSON schema, available cloud images
+  from `cloud-images.yaml`, and current cluster state (nodes, free resources) so Claude
+  can make sensible choices.
+- Falls back to interactive wizard if the description is too ambiguous to produce a
+  confident JSON.
+- Config keys under a new `ai:` block in `config.yaml`:
+  - `enabled: true/false`
+  - `api_key:` (Anthropic API key)
+  - `model:` (e.g. `claude-opus-4-6`)
+
+### Dependencies to add
+
+- `anthropic`
+
+---
+
+## Package Profiles
+
+Define named sets of packages in `config.yaml` that represent a server role. Select a
+profile at deploy time to install a consistent, reusable toolset on top of the standard
+baseline — without editing vars files or hardcoding packages into deployment JSONs.
+
+### Usage
+
+```yaml
+# config.yaml
+package_profiles:
+  web-server:
+    - nginx
+    - certbot
+    - python3-certbot-nginx
+  database:
+    - postgresql
+    - postgresql-client
+  monitoring:
+    - prometheus-node-exporter
+    - grafana
+  docker-host:
+    - docker-ce
+    - docker-ce-cli
+    - containerd.io
+    - docker-compose-plugin
+```
+
+```json
+// deployment JSON
+{
+  "hostname": "my-web-server",
+  "package_profile": "web-server"
+}
+```
+
+### Implementation notes
+
+- The wizard prompts for an optional profile after the hostname: `Package profile (optional):`
+  with a list of defined profiles plus `[none]`. Defaults to none.
+- The selected profile name is stored in the deployment JSON as `package_profile`.
+- The Ansible playbook reads `package_profile`, looks it up in `config.yaml` vars passed
+  as extra variables, and appends the profile's packages to the standard install list.
+- Profiles are OS-agnostic by name — the package names within each profile should match
+  the target OS (or use per-family sub-keys if cross-OS profiles are needed later).
+- Multiple profiles could be supported in a future iteration (`package_profiles: [web-server, monitoring]`).
+
+---
+
+## Extra Packages Per Deployment
+
+Allow one-off packages to be specified directly in the deployment JSON for packages that
+don't belong in a profile — without touching vars files or config.yaml.
+
+### Usage
+
+```json
+{
+  "hostname": "my-app-server",
+  "package_profile": "web-server",
+  "extra_packages": ["ffmpeg", "imagemagick", "wkhtmltopdf"]
+}
+```
+
+### Implementation notes
+
+- The wizard prompts: `Extra packages (optional, comma-separated):` after the profile prompt.
+- Stored in the deployment JSON as `extra_packages` (list of strings).
+- The Ansible playbook appends `extra_packages` to the install list after the profile
+  packages — profile first, then extras.
+- Works with or without a profile — either, both, or neither can be specified.
+- Pairs with the `--validate` flag to catch obviously invalid package names early.
+- The natural language deploy feature (see above) can populate both `package_profile` and
+  `extra_packages` automatically based on the description.
