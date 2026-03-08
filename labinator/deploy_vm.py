@@ -1218,14 +1218,25 @@ def main() -> None:
         "description": vm_note,
     }
 
-    try:
-        with console.status(f"[bold green]Creating VM {next_vmid} ({hostname}) on {node_name}..."):
-            task = proxmox.nodes(node_name).qemu.post(**create_params)
-            wait_for_task(proxmox, node_name, task, timeout=60)
-        console.print(f"[green]✓ VM {next_vmid} created[/green]")
-    except Exception as e:
-        console.print(f"[red]✗ VM creation failed: {e}[/red]")
-        sys.exit(1)
+    for _vmid_attempt in range(3):
+        create_params["vmid"] = next_vmid
+        try:
+            with console.status(f"[bold green]Creating VM {next_vmid} ({hostname}) on {node_name}..."):
+                task = proxmox.nodes(node_name).qemu.post(**create_params)
+                wait_for_task(proxmox, node_name, task, timeout=60)
+            console.print(f"[green]✓ VM {next_vmid} created[/green]")
+            break
+        except Exception as e:
+            if "already exists" in str(e) and _vmid_attempt < 2:
+                old_vmid = next_vmid
+                next_vmid = get_next_vmid(proxmox)
+                console.print(
+                    f"[yellow]⚠ VMID {old_vmid} already in use (race condition) — "
+                    f"retrying with VMID {next_vmid}[/yellow]"
+                )
+            else:
+                console.print(f"[red]✗ VM creation failed: {e}[/red]")
+                sys.exit(1)
 
     # ═══════════════════════════════════════════
     # Step 2/6: Import cloud image + configure disk + cloud-init
