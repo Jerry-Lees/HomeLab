@@ -51,6 +51,18 @@ except ImportError:
     print("ERROR: proxmoxer not installed. Run: pip install -r requirements.txt")
     sys.exit(1)
 
+from modules.lib import (
+    load_config,
+    connect_proxmox,
+    wait_for_task,
+    health_check,
+    _check_ipv4,
+    validate_config,
+    resolve_profile,
+    run_ansible_add_dns,
+    run_ansible_inventory_update,
+)
+
 console = Console()
 
 # ─────────────────────────────────────────────
@@ -91,77 +103,8 @@ def lookup_url_in_catalog(catalog: list[dict], filename: str) -> str | None:
 
 
 # ─────────────────────────────────────────────
-# Config
-# ─────────────────────────────────────────────
-
-def load_config() -> dict:
-    config_path = Path(__file__).parent / "config.yaml"
-    if not config_path.exists():
-        console.print(f"[red]ERROR: config.yaml not found at {config_path}[/red]")
-        sys.exit(1)
-    with open(config_path) as f:
-        cfg = yaml.safe_load(f)
-    if cfg["proxmox"]["token_secret"] == "CHANGEME-PASTE-YOUR-TOKEN-SECRET-HERE":
-        console.print("[red]ERROR: Edit config.yaml and set proxmox.token_secret[/red]")
-        sys.exit(1)
-    return cfg
-
-
-# ─────────────────────────────────────────────
 # Validation (--validate flag)
 # ─────────────────────────────────────────────
-
-def _check_ipv4(value: str) -> bool:
-    try:
-        ipaddress.IPv4Address(value)
-        return True
-    except ValueError:
-        return False
-
-
-def validate_config(cfg_path: Path) -> list[str]:
-    """Return a list of error strings; empty means config is valid."""
-    errors = []
-    if not cfg_path.exists():
-        return [f"config.yaml not found at {cfg_path}"]
-    try:
-        with open(cfg_path) as f:
-            cfg = yaml.safe_load(f)
-    except yaml.YAMLError as e:
-        return [f"config.yaml is not valid YAML: {e}"]
-    if not isinstance(cfg, dict):
-        return ["config.yaml is empty or not a YAML mapping"]
-
-    px = cfg.get("proxmox") or {}
-    if not px.get("host") and not px.get("hosts"):
-        errors.append("proxmox.host (or proxmox.hosts list) is required")
-    if not px.get("user"):
-        errors.append("proxmox.user is required")
-    if not px.get("token_name"):
-        errors.append("proxmox.token_name is required")
-    secret = str(px.get("token_secret", ""))
-    if not secret:
-        errors.append("proxmox.token_secret is required")
-    elif "CHANGEME" in secret:
-        errors.append("proxmox.token_secret still contains a placeholder value")
-
-    defaults = cfg.get("defaults") or {}
-    if not defaults.get("addusername"):
-        errors.append("defaults.addusername is required")
-
-    snmp = cfg.get("snmp") or {}
-    if not snmp.get("community"):
-        errors.append("snmp.community is required")
-
-    ntp = cfg.get("ntp") or {}
-    servers = ntp.get("servers")
-    if not servers or not isinstance(servers, list):
-        errors.append("ntp.servers must be a non-empty list")
-
-    if not cfg.get("timezone"):
-        errors.append("timezone is required")
-
-    return errors
 
 
 def validate_vm_deployment(deploy_path: Path) -> list[str]:
@@ -281,26 +224,6 @@ def run_validate(args) -> None:
 # ─────────────────────────────────────────────
 # Proxmox helpers
 # ─────────────────────────────────────────────
-
-def connect_proxmox(cfg: dict) -> ProxmoxAPI:
-    pve = cfg["proxmox"]
-    # Support both a single 'host' and a 'hosts' list for failover.
-    hosts = pve.get("hosts") or [pve["host"]]
-    last_err: Exception | None = None
-    for host in hosts:
-        try:
-            api = ProxmoxAPI(
-                host,
-                user=pve["user"],
-                token_name=pve["token_name"],
-                token_value=pve["token_secret"],
-                verify_ssl=pve.get("verify_ssl", False),
-            )
-            api.nodes.get()  # verify connectivity
-            return api
-        except Exception as e:
-            last_err = e
-    raise last_err
 
 
 def get_nodes_with_load(proxmox: ProxmoxAPI) -> list[dict]:
@@ -567,25 +490,6 @@ def select_image_with_storage(
         return selected_storage, selected["filename"], selected.get("url"), image_refresh
 
 
-def wait_for_task(proxmox: ProxmoxAPI, node: str, taskid: str, timeout: int = 180) -> None:
-    """Poll until a Proxmox task completes. Raises on failure or timeout."""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            status = proxmox.nodes(node).tasks(taskid).status.get()
-            if status["status"] == "stopped":
-                exit_status = status.get("exitstatus", "")
-                if exit_status != "OK":
-                    raise RuntimeError(f"Proxmox task failed: {exit_status}")
-                return
-        except RuntimeError:
-            raise
-        except Exception:
-            pass
-        time.sleep(2)
-    raise TimeoutError(f"Proxmox task {taskid} did not complete within {timeout}s")
-
-
 def wait_for_ssh(host: str, timeout: int = 300) -> None:
     """Poll until SSH port (22) accepts TCP connections."""
     deadline = time.time() + timeout
@@ -839,131 +743,6 @@ def run_ansible_post_deploy_vm(vm_ip: str, ssh_key: str, password: str, hostname
         os.unlink(inv_path)
 
 
-def health_check(ip: str, password: str, addusername: str, cfg: dict) -> bool:
-    """
-    Verify the host is healthy after deployment.
-    Checks TCP port 22, then SSHes in and runs hostname.
-    Returns True if healthy, False if not. Never raises.
-    Skipped silently if health_check.enabled is false/absent in config.
-    """
-    hc = (cfg or {}).get("health_check", {})
-    if not hc.get("enabled", False):
-        return True
-
-    timeout = int(hc.get("timeout_seconds", 30))
-    retries = int(hc.get("retries", 5))
-
-    console.print()
-    console.print("[bold]─── Health Check ───[/bold]")
-
-    # ── TCP port 22 ──
-    alive = False
-    for attempt in range(1, retries + 1):
-        try:
-            with socket.create_connection((ip, 22), timeout=timeout):
-                alive = True
-                break
-        except OSError:
-            console.print(f"[yellow]  Port 22 not yet open (attempt {attempt}/{retries}) — retrying in 5s...[/yellow]")
-            time.sleep(5)
-
-    if not alive:
-        console.print(f"[yellow]⚠ Health check: port 22 unreachable on {ip} after {retries} attempts[/yellow]")
-        console.print("[yellow]  Deployment may be OK — investigate if the host doesn't respond.[/yellow]")
-        return False
-
-    console.print(f"[green]✓ TCP port 22 open on {ip}[/green]")
-
-    # ── SSH: run hostname ──
-    try:
-        client = paramiko.SSHClient()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        client.connect(ip, username=addusername, password=password,
-                       timeout=timeout, allow_agent=False, look_for_keys=False)
-        _, stdout, _ = client.exec_command("hostname")
-        result = stdout.read().decode().strip()
-        client.close()
-        console.print(f"[green]✓ SSH OK — hostname: {result}[/green]")
-    except Exception as e:
-        console.print(f"[yellow]⚠ SSH check failed: {e}[/yellow]")
-        return False
-
-    return True
-
-
-def run_ansible_add_dns(cfg: dict, hostname: str, vm_ip: str) -> None:
-    """Register A and PTR records on the BIND DNS server (skipped if dns.enabled is false)."""
-    dns = cfg.get("dns", {})
-    if not dns.get("enabled", False):
-        console.print("  [dim]DNS registration skipped (disabled in config)[/dim]")
-        return
-
-    ansible_dir = Path(__file__).parent / "ansible"
-    domain = cfg["proxmox"].get("node_domain", "")
-    fqdn = f"{hostname}.{domain}" if domain else hostname
-
-    ip_parts = vm_ip.split(".")
-    reverse_zone = f"{ip_parts[2]}.{ip_parts[1]}.{ip_parts[0]}.in-addr.arpa"
-    zone_dir = str(Path(dns["forward_zone_file"]).parent)
-    reverse_zone_file = f"{zone_dir}/{reverse_zone}.hosts"
-
-    cmd = [
-        "ansible-playbook",
-        "-i", f"{dns['server']},",
-        str(ansible_dir / "add-dns.yml"),
-        "-e", f"new_hostname={hostname}",
-        "-e", f"new_ip={vm_ip}",
-        "-e", f"new_fqdn={fqdn}",
-        "-e", f"forward_zone_file={dns['forward_zone_file']}",
-        "-e", f"reverse_zone_file={reverse_zone_file}",
-        "-u", dns.get("ssh_user", "root"),
-        "--timeout", "30",
-    ]
-    console.print(f"  [dim]Registering {fqdn} → {vm_ip} on {dns['server']}...[/dim]")
-    result = subprocess.run(cmd, cwd=str(ansible_dir))
-    if result.returncode != 0:
-        console.print(
-            f"  [yellow]Warning: DNS registration failed. "
-            f"Add manually: {fqdn} A {vm_ip} and PTR.[/yellow]"
-        )
-    else:
-        console.print(f"  [green]✓ DNS registered: {fqdn} → {vm_ip} (+ PTR)[/green]")
-
-
-def run_ansible_inventory_update(cfg: dict, hostname: str, vm_ip: str, password: str) -> None:
-    """Run the inventory-update playbook against the development server."""
-    inv_cfg = cfg.get("ansible_inventory", {})
-    if not inv_cfg:
-        console.print("  [dim]Inventory update skipped (not configured)[/dim]")
-        return
-
-    ansible_dir = Path(__file__).parent / "ansible"
-    dev_server = inv_cfg["server"]
-    dev_user = inv_cfg.get("user", "root")
-
-    cmd = [
-        "ansible-playbook",
-        "-i", f"{dev_server},",
-        str(ansible_dir / "update-inventory.yml"),
-        "-e", f"new_hostname={hostname}",
-        "-e", f"new_ip={vm_ip}",
-        "-e", f"inventory_file={inv_cfg['file']}",
-        "-e", f"inventory_group={inv_cfg['group']}",
-        "-e", f"password={password}",
-        "-e", f"node_domain={cfg['proxmox'].get('node_domain', '')}",
-        "-u", dev_user,
-        "--timeout", "30",
-    ]
-    console.print(f"  [dim]Connecting to {dev_server} to update inventory...[/dim]")
-    result = subprocess.run(cmd, cwd=str(ansible_dir))
-    if result.returncode != 0:
-        console.print(
-            f"  [yellow]Warning: Inventory update failed. "
-            f"Add manually: {hostname} ansible_host={vm_ip} "
-            f"to [{inv_cfg['group']}][/yellow]"
-        )
-    else:
-        console.print(f"  [green]✓ Inventory updated on {dev_server}[/green]")
 
 
 # ─────────────────────────────────────────────
@@ -1041,19 +820,6 @@ def q(widget_fn, *args, d: dict | None = None, key: str | None = None,
     if result is None:
         sys.exit(0)
     return result
-
-
-def resolve_profile(profile_name: str, profiles: dict) -> tuple[list, list]:
-    """Return (packages, tags) for a named profile.
-    Supports both flat-list format (packages only, no tags) and
-    dict format with 'packages' and optional 'tags' keys.
-    """
-    profile = profiles.get(profile_name)
-    if not profile:
-        return [], []
-    if isinstance(profile, list):
-        return list(profile), []
-    return list(profile.get("packages", [])), list(profile.get("tags", []))
 
 
 def derive_gateway(ip: str) -> str:
