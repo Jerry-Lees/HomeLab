@@ -108,6 +108,14 @@ ntp:
     - pool.ntp.org
     - time.nist.gov
 
+# Post-deployment health check
+# After Ansible completes, verify the host is reachable and SSH is working.
+# If the check fails, a warning is printed but the deployment is NOT rolled back.
+health_check:
+  enabled: false          # Set to true to enable
+  timeout_seconds: 30     # Per-attempt TCP/SSH timeout
+  retries: 5              # Number of TCP port-22 attempts before giving up
+
 # Timezone for new containers/VMs
 timezone: America/Chicago
 

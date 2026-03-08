@@ -28,6 +28,7 @@ import argparse
 import base64
 import ipaddress
 import os
+import socket
 import sys
 import time
 import subprocess
@@ -585,6 +586,58 @@ def run_ansible_post_deploy(container_ip: str, password: str, hostname: str, nam
             raise RuntimeError("Ansible post-deploy playbook failed (see output above)")
     finally:
         os.unlink(inv_path)
+
+
+def health_check(ip: str, password: str, addusername: str, cfg: dict) -> bool:
+    """
+    Verify the host is healthy after deployment.
+    Checks TCP port 22, then SSHes in and runs hostname.
+    Returns True if healthy, False if not. Never raises.
+    Skipped silently if health_check.enabled is false/absent in config.
+    """
+    hc = (cfg or {}).get("health_check", {})
+    if not hc.get("enabled", False):
+        return True
+
+    timeout = int(hc.get("timeout_seconds", 30))
+    retries = int(hc.get("retries", 5))
+
+    console.print()
+    console.print("[bold]─── Health Check ───[/bold]")
+
+    # ── TCP port 22 ──
+    alive = False
+    for attempt in range(1, retries + 1):
+        try:
+            with socket.create_connection((ip, 22), timeout=timeout):
+                alive = True
+                break
+        except OSError:
+            console.print(f"[yellow]  Port 22 not yet open (attempt {attempt}/{retries}) — retrying in 5s...[/yellow]")
+            time.sleep(5)
+
+    if not alive:
+        console.print(f"[yellow]⚠ Health check: port 22 unreachable on {ip} after {retries} attempts[/yellow]")
+        console.print("[yellow]  Deployment may be OK — investigate if the host doesn't respond.[/yellow]")
+        return False
+
+    console.print(f"[green]✓ TCP port 22 open on {ip}[/green]")
+
+    # ── SSH: run hostname ──
+    try:
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.connect(ip, username=addusername, password=password,
+                       timeout=timeout, allow_agent=False, look_for_keys=False)
+        _, stdout, _ = client.exec_command("hostname")
+        result = stdout.read().decode().strip()
+        client.close()
+        console.print(f"[green]✓ SSH OK — hostname: {result}[/green]")
+    except Exception as e:
+        console.print(f"[yellow]⚠ SSH check failed: {e}[/yellow]")
+        return False
+
+    return True
 
 
 def run_ansible_add_dns(cfg: dict, hostname: str, container_ip: str) -> None:
@@ -1221,6 +1274,9 @@ def main() -> None:
         password, container_ip, prefix_len, cfg,
         extra_packages=extra_packages,
     )
+
+    # Health check (optional — runs if health_check.enabled in config)
+    health_check(container_ip, password, addusername, cfg)
 
     # ═══════════════════════════════════════════
     # Done!
