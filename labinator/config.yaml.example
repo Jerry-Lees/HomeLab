@@ -70,37 +70,61 @@ defaults:
 #       If you deploy Rocky Linux or openSUSE, adjust the names accordingly
 #       (e.g. 'mariadb-server' stays the same, but 'python3-certbot-nginx' may differ).
 #
+# NOTE: Tag names are applied directly to Proxmox VMs/LXC containers.
+#       Proxmox only allows alphanumeric characters, hyphens, and underscores in tags.
+#       Spaces are NOT supported — use hyphens instead (e.g. 'build-server' not 'Build Server').
+#
 package_profiles:
   web-server:
-    - nginx
-    - certbot
-    - python3-certbot-nginx
-    - ufw
+    packages:
+      - nginx
+      - certbot
+      - python3-certbot-nginx
+      - ufw
+    tags:
+      - WWW
 
   database:
-    - mariadb-server
-    - mariadb-client
+    packages:
+      - mariadb-server
+      - mariadb-client
+    tags:
+      - DB
+      - MariaDB
 
   docker-host:
-    - docker-ce
-    - docker-ce-cli
-    - containerd.io
-    - docker-compose-plugin
+    packages:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-compose-plugin
+    tags:
+      - Docker
 
   monitoring-node:
-    - prometheus-node-exporter
-    - snmpd
+    packages:
+      - prometheus-node-exporter
+      - snmpd
+    tags:
+      - Monitoring
 
   dev-tools:
-    - git
-    - vim
-    - tmux
-    - make
-    - python3-pip
+    packages:
+      - git
+      - vim
+      - tmux
+      - make
+      - python3-pip
+    tags:
+      - Dev
 
   nfs-server:
-    - nfs-kernel-server
-    - nfs-common
+    packages:
+      - nfs-kernel-server
+      - nfs-common
+    tags:
+      - NFS
+      - Storage
 
 # Extra packages — per-deployment one-off additions on top of the standard baseline (and profile).
 # Not set here in config.yaml — this is a per-deployment JSON field:

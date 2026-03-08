@@ -760,6 +760,19 @@ def save_deployment_file(hostname: str, vmid: int, node_name: str,
     console.print(f"  [dim]Deployment file saved: {deploy_file}[/dim]")
 
 
+def resolve_profile(profile_name: str, profiles: dict) -> tuple[list, list]:
+    """Return (packages, tags) for a named profile.
+    Supports both flat-list format (packages only, no tags) and
+    dict format with 'packages' and optional 'tags' keys.
+    """
+    profile = profiles.get(profile_name)
+    if not profile:
+        return [], []
+    if isinstance(profile, list):
+        return list(profile), []
+    return list(profile.get("packages", [])), list(profile.get("tags", []))
+
+
 def q(widget_fn, *args, d: dict | None = None, key: str | None = None,
       silent: bool = False, cast=str, **kwargs):
     """Ask a question, using deployment file value as default or skipping in silent mode."""
@@ -964,7 +977,7 @@ def main() -> None:
         if package_profile and package_profile not in profiles:
             console.print(f"[yellow]Warning: package_profile '{package_profile}' not found in config — skipping.[/yellow]")
             package_profile = ""
-        profile_packages = list(profiles.get(package_profile, []))
+        profile_packages, profile_tags = resolve_profile(package_profile, profiles)
     elif profiles:
         profile_choices = [questionary.Choice(title="[none]", value="")] + [
             questionary.Choice(title=name, value=name) for name in profiles
@@ -976,10 +989,11 @@ def main() -> None:
         ).ask()
         if package_profile is None:
             sys.exit(0)
-        profile_packages = list(profiles.get(package_profile, []))
+        profile_packages, profile_tags = resolve_profile(package_profile, profiles)
     else:
         package_profile = ""
         profile_packages = []
+        profile_tags = []
 
     # ── Extra packages ──
     deploy_extra_pkgs = deploy.get("extra_packages", []) if deploy else []
@@ -1130,7 +1144,8 @@ def main() -> None:
     table.add_row("Memory",      f"{memory_gb_str} GB ({memory_mb} MB)")
     table.add_row("Disk",        f"{disk_gb_str} GB  →  {storage}")
     table.add_row("Network",     f"{bridge}.{vlan_str}  (DHCP)")
-    table.add_row("Tags",        "auto-deploy")
+    tags_display = ";".join(["auto-deploy"] + profile_tags) if profile_tags else "auto-deploy"
+    table.add_row("Tags",        tags_display)
     table.add_row("Users",       f"root, {addusername} (same password)")
     table.add_row("Timezone",    cfg.get("timezone", "UTC"))
     table.add_row("NTP",         ", ".join(cfg.get("ntp", {}).get("servers", ["pool.ntp.org"])))
@@ -1194,7 +1209,7 @@ def main() -> None:
         "nameserver":   defaults.get("nameserver", "8.8.8.8 8.8.4.4"),
         "searchdomain": defaults.get("searchdomain", ""),
         "description":  container_note,
-        "tags":         "auto-deploy",
+        "tags":         ";".join(["auto-deploy"] + profile_tags),
     }
 
     try:
