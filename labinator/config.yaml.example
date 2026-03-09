@@ -135,19 +135,34 @@ package_profiles:
 # Leave blank to install nothing extra. The field is always saved in the deployment JSON
 # so re-deploys from the same file will reinstall the same extra packages.
 
-# DNS registration (BIND)
-# Set enabled: false to skip automatic DNS and manage manually
+# DNS registration
+# Set enabled: false to skip automatic DNS registration and manage records manually.
+# provider: selects the DNS integration backend. Currently only 'bind' is implemented;
+# additional providers (powerdns, technitium, etc.) are planned for future releases.
 dns:
   enabled: true
-  server: 10.0.0.10             # IP of your BIND DNS server
+  provider: bind          # bind | powerdns | technitium (future)
+  server: 10.0.0.10             # IP of your DNS server
   ssh_user: root
   # Forward zone file on the DNS server
   forward_zone_file: /var/lib/bind/example.com.hosts
   # Reverse zone file is derived automatically from the container IP at deploy time:
   # e.g. 10.10.10.140 -> /var/lib/bind/10.10.10.in-addr.arpa.hosts
 
+# Ansible post-deploy configuration
+# Set enabled: false to skip ALL Ansible post-deploy steps — you will need to
+# configure the host (users, packages, NTP, SNMP, etc.) manually.
+# DNS registration and inventory update are controlled separately below.
+ansible:
+  enabled: true
+
 # Ansible inventory update settings
+# Set enabled: false to skip inventory registration.
+# provider: selects the inventory backend. Currently only 'flat_file' is implemented;
+# additional providers (awx, semaphore, etc.) are planned for future releases.
 ansible_inventory:
+  enabled: true
+  provider: flat_file     # flat_file | awx | semaphore (future)
   # The server that holds the master inventory file
   server: dev.example.com
   # SSH user for connecting to the inventory server

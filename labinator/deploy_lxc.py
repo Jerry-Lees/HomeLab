@@ -1059,29 +1059,32 @@ def main() -> None:
     # Ansible post-deploy
     # ═══════════════════════════════════════════
     console.print("[bold cyan]─── Step 5/7: Running post-deployment configuration (Ansible) ───[/bold cyan]")
-    post_deploy_password = password
-    for attempt in range(2):
-        try:
-            run_ansible_post_deploy(
-                container_ip, post_deploy_password, hostname,
-                nameserver=defaults.get("nameserver", "8.8.8.8 8.8.4.4"),
-                searchdomain=defaults.get("searchdomain", ""),
-                cfg=cfg,
-                profile_packages=profile_packages,
-                extra_packages=extra_packages,
-            )
-            console.print("[green]✓ Post-deployment configuration complete[/green]")
-            break
-        except Exception as e:
-            console.print(f"[red]✗ Post-deploy failed: {e}[/red]")
-            if attempt == 0 and not silent:
-                console.print("[yellow]This may be a password mismatch. "
-                              "Enter the container's current root password to retry.[/yellow]")
-                retry_pw = questionary.password("Container root password:").ask()
-                if retry_pw:
-                    post_deploy_password = retry_pw
-                    continue
-            sys.exit(1)
+    if cfg.get("ansible", {}).get("enabled", True):
+        post_deploy_password = password
+        for attempt in range(2):
+            try:
+                run_ansible_post_deploy(
+                    container_ip, post_deploy_password, hostname,
+                    nameserver=defaults.get("nameserver", "8.8.8.8 8.8.4.4"),
+                    searchdomain=defaults.get("searchdomain", ""),
+                    cfg=cfg,
+                    profile_packages=profile_packages,
+                    extra_packages=extra_packages,
+                )
+                console.print("[green]✓ Post-deployment configuration complete[/green]")
+                break
+            except Exception as e:
+                console.print(f"[red]✗ Post-deploy failed: {e}[/red]")
+                if attempt == 0 and not silent:
+                    console.print("[yellow]This may be a password mismatch. "
+                                  "Enter the container's current root password to retry.[/yellow]")
+                    retry_pw = questionary.password("Container root password:").ask()
+                    if retry_pw:
+                        post_deploy_password = retry_pw
+                        continue
+                sys.exit(1)
+    else:
+        console.print("  [dim]Skipped (ansible.enabled: false) — configure host manually[/dim]")
 
     # ═══════════════════════════════════════════
     # Register DNS

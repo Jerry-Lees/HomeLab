@@ -444,6 +444,9 @@ def run_ansible_inventory_update(cfg: dict, hostname: str, ip: str, password: st
     if not inv_cfg:
         console.print("  [dim]Inventory update skipped (not configured)[/dim]")
         return
+    if not inv_cfg.get("enabled", True):
+        console.print("  [dim]Inventory update skipped (ansible_inventory.enabled: false)[/dim]")
+        return
 
     ansible_dir = _ROOT / "ansible"
     dev_server = inv_cfg["server"]

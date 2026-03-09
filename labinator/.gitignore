@@ -19,6 +19,7 @@ venv/
 # Editor
 .vscode/
 *.swp
+*.bak
 
 # Deployment records (real deployments — examples are tracked explicitly)
 deployments/lxc/*.json

@@ -1374,12 +1374,15 @@ def main() -> None:
     # Step 5/6: Ansible post-deploy
     # ═══════════════════════════════════════════
     console.print("[bold green]─── Step 5/7: Running post-deployment configuration (Ansible) ───[/bold green]")
-    try:
-        run_ansible_post_deploy_vm(vm_ip, ssh_key, password, hostname, cfg=cfg, profile_packages=profile_packages, extra_packages=extra_packages)
-        console.print("[green]✓ Post-deployment configuration complete[/green]")
-    except Exception as e:
-        console.print(f"[red]✗ Post-deploy failed: {e}[/red]")
-        sys.exit(1)
+    if cfg.get("ansible", {}).get("enabled", True):
+        try:
+            run_ansible_post_deploy_vm(vm_ip, ssh_key, password, hostname, cfg=cfg, profile_packages=profile_packages, extra_packages=extra_packages)
+            console.print("[green]✓ Post-deployment configuration complete[/green]")
+        except Exception as e:
+            console.print(f"[red]✗ Post-deploy failed: {e}[/red]")
+            sys.exit(1)
+    else:
+        console.print("  [dim]Skipped (ansible.enabled: false) — configure host manually[/dim]")
 
     # ═══════════════════════════════════════════
     # Step 6/7: Register DNS
