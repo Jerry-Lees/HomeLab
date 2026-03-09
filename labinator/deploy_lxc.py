@@ -181,6 +181,120 @@ def run_validate(args) -> None:
     sys.exit(1)
 
 
+def run_dry_run(args) -> None:
+    """--dry-run: validate config + deployment file, print what would happen, exit 0/1."""
+    cfg_path = Path(__file__).parent / "config.yaml"
+
+    console.print()
+    console.print(Panel.fit(
+        Text("Labinator Dry Run — LXC Deploy", style="bold yellow"),
+        border_style="yellow",
+    ))
+    console.print()
+
+    # ── Validate config ──
+    cfg_errors = validate_config(cfg_path)
+    if cfg_errors:
+        for e in cfg_errors:
+            console.print(f"[red]✗ config.yaml: {e}[/red]")
+        sys.exit(1)
+    console.print("[green]✓ config.yaml[/green]  OK")
+
+    with open(cfg_path) as f:
+        cfg = yaml.safe_load(f)
+
+    if not args.deploy_file:
+        console.print()
+        console.print("[yellow]No --deploy-file provided. Config is valid.[/yellow]")
+        console.print("[dim]Provide --deploy-file for a full step-by-step dry-run.[/dim]")
+        sys.exit(0)
+
+    # ── Validate deployment file ──
+    deploy_errors = validate_lxc_deployment(Path(args.deploy_file))
+    if deploy_errors:
+        for e in deploy_errors:
+            console.print(f"[red]✗ {args.deploy_file}: {e}[/red]")
+        sys.exit(1)
+    console.print(f"[green]✓ {args.deploy_file}[/green]  OK")
+
+    with open(args.deploy_file) as f:
+        d = json.load(f)
+
+    # ── Derive display values ──
+    hostname     = d.get("hostname", "?")
+    node         = d.get("node", "?")
+    storage      = d.get("storage", "?")
+    template     = d.get("template_name", "?")
+    cpus         = d.get("cpus", "?")
+    memory_gb    = d.get("memory_gb", "?")
+    disk_gb      = d.get("disk_gb", "?")
+    extra_pkgs   = d.get("extra_packages", [])
+
+    profiles = cfg.get("package_profiles", {})
+    profile_packages, profile_tags = resolve_profile(d.get("package_profile", ""), profiles)
+    tags = ";".join(["auto-deploy"] + profile_tags)
+
+    domain = cfg.get("proxmox", {}).get("node_domain", "")
+    fqdn = f"{hostname}.{domain}" if domain else hostname
+
+    ansible_enabled = cfg.get("ansible", {}).get("enabled", True)
+    dns_cfg         = cfg.get("dns", {})
+    dns_enabled     = dns_cfg.get("enabled", False)
+    inv_cfg         = cfg.get("ansible_inventory", {})
+    inv_enabled     = bool(inv_cfg) and inv_cfg.get("enabled", True)
+
+    # ── Summary table ──
+    tbl = Table(show_header=False, box=None, padding=(0, 1))
+    tbl.add_column(style="bold")
+    tbl.add_column()
+    tbl.add_row("Hostname",    hostname)
+    tbl.add_row("Node",        node)
+    tbl.add_row("Template",    template)
+    tbl.add_row("vCPUs",       str(cpus))
+    tbl.add_row("Memory",      f"{memory_gb} GB")
+    tbl.add_row("Disk",        f"{disk_gb} GB → {storage}")
+    tbl.add_row("IP",          "DHCP (assigned at boot)")
+    tbl.add_row("Profile pkgs", ", ".join(profile_packages) if profile_packages else "(none)")
+    tbl.add_row("Extra pkgs",  ", ".join(extra_pkgs) if extra_pkgs else "(none)")
+    tbl.add_row("Tags",        tags)
+    console.print()
+    console.print(Panel(tbl, title="[bold]LXC Deployment Summary[/bold]", border_style="dim"))
+    console.print()
+
+    # ── Step-by-step plan ──
+    DRY = "[bold yellow][DRY RUN][/bold yellow]"
+
+    console.print("[bold]Steps that would execute:[/bold]")
+    console.print()
+    console.print(f"  {DRY} Step 1/7  Create LXC container (next available VMID) — {hostname} on {node}")
+    console.print(f"  {DRY} Step 2/7  Start container")
+    console.print(f"  {DRY} Step 3/7  Wait for DHCP IP address")
+    console.print(f"  {DRY} Step 4/7  Bootstrap SSH via pct exec on {node}")
+
+    if ansible_enabled:
+        console.print(f"  {DRY} Step 5/7  Run Ansible post-deploy playbook")
+        if profile_packages:
+            console.print(f"             [dim]└─ Profile packages : {', '.join(profile_packages)}[/dim]")
+        if extra_pkgs:
+            console.print(f"             [dim]└─ Extra packages   : {', '.join(extra_pkgs)}[/dim]")
+    else:
+        console.print(f"  {DRY} Step 5/7  [dim]Ansible post-deploy SKIPPED (ansible.enabled: false)[/dim]")
+
+    if dns_enabled:
+        console.print(f"  {DRY} Step 6/7  Register DNS: {fqdn} → <DHCP> on {dns_cfg.get('server', '?')}")
+    else:
+        console.print(f"  {DRY} Step 6/7  [dim]DNS registration SKIPPED (dns.enabled: false)[/dim]")
+
+    if inv_enabled:
+        console.print(f"  {DRY} Step 7/7  Update Ansible inventory on {inv_cfg.get('server', '?')}")
+    else:
+        console.print(f"  {DRY} Step 7/7  [dim]Inventory update SKIPPED (ansible_inventory.enabled: false)[/dim]")
+
+    console.print()
+    console.print("[bold green]Dry run complete — no changes made.[/bold green]")
+    sys.exit(0)
+
+
 # ─────────────────────────────────────────────
 # Proxmox helpers
 # ─────────────────────────────────────────────
@@ -621,6 +735,7 @@ def main() -> None:
               python3 deploy_lxc.py --deploy-file deployments/lxc/myserver.json --silent
               python3 deploy_lxc.py --validate
               python3 deploy_lxc.py --validate --deploy-file deployments/lxc/myserver.json
+              python3 deploy_lxc.py --dry-run --deploy-file deployments/lxc/myserver.json
         """),
     )
     parser.add_argument(
@@ -635,10 +750,17 @@ def main() -> None:
         "--validate", action="store_true",
         help="Validate config.yaml and deployment file without connecting to Proxmox or deploying",
     )
+    parser.add_argument(
+        "--dry-run", action="store_true",
+        help="Validate config + deployment file and print what would happen without making any changes",
+    )
     args = parser.parse_args()
 
     if args.validate:
         run_validate(args)  # exits 0 or 1
+
+    if args.dry_run:
+        run_dry_run(args)  # exits 0 or 1
 
     if args.silent and not args.deploy_file:
         parser.error("--silent requires --deploy-file")
