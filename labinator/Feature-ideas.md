@@ -16,6 +16,88 @@ Extract into a `lib.py` (or `labinator/lib.py`) shared module.
 
 ---
 
+## LXC Feature Flags (Profile-Driven + Manual Override)
+
+LXC containers share the host kernel, so Proxmox must explicitly grant access to kernel
+features that would otherwise be blocked by the container's security namespace. VMs don't
+have this concept — they get a full kernel and Docker, NFS, FUSE, etc. all just work natively.
+
+Right now `deploy_lxc.py` hardcodes `features: nesting=1` on every container regardless of
+what it's actually for. A database or web server gets Docker capabilities it doesn't need.
+A Docker host is fine. An NFS server needs `mount=nfs` instead. This is a blunt instrument.
+
+### Proxmox LXC feature flags
+
+| Flag | What it enables |
+|---|---|
+| `nesting=1` | Containers inside the container (Docker, Podman, LXC-in-LXC) |
+| `keyctl=1` | Kernel keyring access — required by some container runtimes and systemd services |
+| `fuse=1` | FUSE filesystem mounts inside the container (rclone, sshfs, etc.) |
+| `mknod=1` | Creating device nodes — needed by some specialized workloads |
+| `mount=nfs` | NFS mounts inside the container |
+| `mount=cifs` | CIFS/SMB mounts inside the container |
+
+### Proposed behavior
+
+Tie feature flags to package profiles in `config.yaml`. If you select the `docker-host`
+profile, `nesting=1` and `keyctl=1` turn on automatically. A `database` or `web-server`
+profile gets no extra features. A manual override prompt catches anything not covered by a
+profile.
+
+```yaml
+package_profiles:
+  docker-host:
+    packages:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-compose-plugin
+    tags:
+      - Docker
+    lxc_features:
+      - nesting=1
+      - keyctl=1
+
+  nfs-server:
+    packages:
+      - nfs-kernel-server
+      - nfs-common
+    tags:
+      - NFS
+      - Storage
+    lxc_features:
+      - mount=nfs
+```
+
+If no profile is selected (or the profile defines no `lxc_features`), show a manual
+toggle prompt before confirming the deployment:
+
+```
+LXC feature flags (space to toggle, enter to confirm):
+  [ ] nesting=1   (Docker / container-in-container)
+  [ ] keyctl=1    (kernel keyring)
+  [ ] fuse=1      (FUSE mounts — rclone, sshfs)
+  [ ] mount=nfs   (NFS mounts inside container)
+  [ ] mount=cifs  (CIFS/SMB mounts inside container)
+```
+
+### Implementation notes
+
+- Add `lxc_features` key (list of strings) to each profile in `config.yaml`. No key = no
+  extra features for that profile.
+- At deploy time, collect features from the selected profile. If the list is empty AND no
+  `--silent` flag is set, show the toggle prompt for manual selection.
+- In `--silent` mode, use only the profile's features — no prompt.
+- Combine features into a comma-separated string for the Proxmox API:
+  `features: "nesting=1,keyctl=1"`.
+- Store the applied features list in the deployment JSON under `lxc_features` for reference.
+- Remove the hardcoded `nesting=1` from the container creation params — replace it with
+  the resolved feature string (which may be empty).
+- Update `--dry-run` summary table to show a "Features" row when any flags are set.
+- This is LXC-only — VMs have no equivalent concept.
+
+---
+
 ## Resource Resize Script
 
 Add a `resize.py` (or `resize_lxc.py` / `resize_vm.py`) that modifies CPU, RAM, or disk on an
@@ -526,3 +608,577 @@ python3 deploy.py "give me a small Ubuntu VM on proxmox02 for the wiki"
 ### Dependencies to add
 
 - `anthropic`
+
+---
+
+## status.py — Live Cluster Dashboard
+
+Cross-reference all local deployment JSONs against live Proxmox state and display a unified
+rich table showing every managed host at a glance.
+
+### Usage
+
+```bash
+./status.py                    # all hosts
+./status.py --node proxmox02   # filter by node
+./status.py --type vm          # filter by type (vm or lxc)
+./status.py --tag Docker        # filter by Proxmox tag
+```
+
+### What it shows
+
+| Column | Source |
+|---|---|
+| Hostname | deployment JSON |
+| Type | VM / LXC |
+| VMID | deployment JSON |
+| Node | deployment JSON |
+| IP | deployment JSON (`assigned_ip` → `ip_address`) |
+| Status | live Proxmox API (running / stopped / unknown) |
+| CPU % | live Proxmox API |
+| RAM used | live Proxmox API |
+| Deployed | `deployed_at` from deployment JSON |
+| Tags | live Proxmox API |
+
+### Anomaly detection
+
+- **Orphaned VM/LXC** — running in Proxmox but no deployment JSON found. Printed in yellow
+  as a warning row. Suggests a host deployed outside of labinator, or a deployment file
+  that was deleted.
+- **Ghost file** — deployment JSON exists but the VMID is not present in Proxmox. Printed
+  in red. Suggests the VM/LXC was manually destroyed without running decomm.
+- **Node mismatch** — deployment JSON says `proxmox02` but Proxmox reports it on `proxmox03`.
+  Suggests a live migration happened outside of labinator.
+
+### Implementation notes
+
+- Reads all JSONs from `deployments/lxc/` and `deployments/vms/`.
+- Queries Proxmox API for all nodes' VMs and LXCs in parallel using the cluster resources
+  endpoint (`GET /cluster/resources?type=vm`).
+- Matches by VMID. No VMID match = orphan or ghost, depending on which side is missing.
+- Uses `rich` table with color-coded Status column (green = running, red = stopped, yellow = warning).
+- Does not require SSH — API-only.
+
+---
+
+## console.py — Out-of-Band Console Access
+
+SSH to the right Proxmox node and open a direct console session on a VM or LXC container
+without needing the Proxmox web UI or knowing which node it's on.
+
+This is the "I broke SSH and need to get in anyway" tool. Also useful for initial
+post-deploy inspection or any time you want shell access without going through the VM's
+network stack.
+
+### Usage
+
+```bash
+./console.py myserver                    # lookup by hostname in deployment JSONs
+./console.py myserver.lees-family.io    # FQDN — domain suffix is stripped automatically
+./console.py --vmid 142                  # direct access by VMID (no deployment JSON needed)
+./console.py --vmid 142 --node proxmox02 # skip the API lookup entirely
+./console.py                             # interactive list — same picker as decomm scripts
+```
+
+### How it works
+
+- Looks up the deployment JSON by hostname (stripping domain suffix if an FQDN is given).
+- Reads `node` and `vmid` from the JSON.
+- SSHs to `root@<node>.<node_domain>` and runs:
+  - LXC: `pct enter <vmid>`
+  - VM: `qm terminal <vmid>` (requires serial console — already configured by `deploy_vm.py`)
+- The SSH session is interactive — your terminal is handed directly to the console.
+- On exit (Ctrl-D or `exit`), you are returned to your local shell.
+
+### Implementation notes
+
+- Uses `os.execvp("ssh", [...])` to replace the Python process with SSH — no subprocess
+  wrapper, so terminal resizing and Ctrl-C work naturally.
+- `--vmid` without `--node` queries the Proxmox API to find which node the VMID lives on.
+- Falls back to the interactive picker (same style as `decomm_lxc.py`) if no argument is given.
+- Print a one-line banner before handing off: `Connecting to console of myserver (LXC 142) on proxmox02...`
+- Add a note that `qm terminal` requires the VM to have `serial0=socket` configured — which
+  `deploy_vm.py` sets automatically, but manually-created VMs may not have it.
+
+---
+
+## DNS Pre-Check Before Registration
+
+Before attempting to register a DNS record, verify whether the hostname already resolves —
+catching stale records, naming collisions, or a redeployment of a host that wasn't fully
+decommissioned.
+
+This has already caused real pain: a hostname that still resolved from a previous deployment
+caused silent failures that required manual cleanup.
+
+### Behavior
+
+- At Step 6 (DNS registration), do a DNS lookup for `<hostname>.<searchdomain>` before
+  writing anything to the zone file.
+- **If it resolves to the same IP as the new deployment:** print a notice and skip (idempotent).
+- **If it resolves to a different IP:** warn the user with both IPs and ask:
+  - `[O]verwrite the existing record`
+  - `[S]kip DNS registration`
+  - `[A]bort deployment`
+- **If it doesn't resolve:** proceed normally.
+- In `--silent` mode: overwrite automatically and log a warning to the history log.
+
+### Implementation notes
+
+- Use Python's `socket.getaddrinfo()` or `dns.resolver` (dnspython) for the lookup.
+- Run the check against the configured `dns.server` directly (not the system resolver) to
+  avoid cache skew: `dig @<dns.server> <fqdn>`.
+- Also check for a stale PTR record at the expected reverse address and warn if it points
+  to a different hostname.
+- No new dependencies if using `socket` — or add `dnspython` for richer control.
+
+---
+
+## VLAN Existence Check Before Deploy
+
+Before creating a VM or LXC on a VLAN, verify that the bridge/VLAN interface actually
+exists and is active on the target Proxmox node.
+
+Proxmox will happily create the container with a broken network interface and report
+success — you won't discover the problem until the VM boots with no network. Users will
+always find creative ways to specify VLANs that don't exist yet.
+
+### Behavior
+
+- After node selection and before container/VM creation, query the target node's network
+  interfaces via the Proxmox API (`GET /nodes/{node}/network`).
+- Check that `vmbr0` (or the configured bridge) exists and is active.
+- Check that a VLAN interface `vmbr0.<vlan>` exists, or that the bridge supports VLAN-aware
+  tagging (Proxmox VLAN-aware bridge mode).
+- If the VLAN interface is not found:
+  - **Non-silent:** warn the user and ask whether to continue anyway or abort.
+  - **Silent mode:** warn and continue (non-fatal — the user may be creating the VLAN
+    simultaneously, or knows it will be created by another process).
+- This check is advisory, not a hard block — Proxmox may use VLAN-aware bridges where
+  individual `vmbr0.<vlan>` interfaces don't appear in the network list.
+
+### Implementation notes
+
+- API endpoint: `GET /nodes/{node}/network` returns all interfaces with their type and state.
+- Look for an interface named `{bridge}.{vlan}` or a bridge with `bridge_vlan_aware: 1`
+  that covers the requested VLAN range.
+- Low implementation cost — one API call already available via proxmoxer.
+- Low priority in practice (experienced users will catch this), but a good safety net for
+  new users or automation scenarios.
+
+---
+
+## --config Flag — Alternate Configuration File
+
+Support multiple configuration files so labinator can target different Proxmox clusters,
+environments, or users without modifying `config.yaml`.
+
+### Usage
+
+```bash
+./deploy_vm.py                             # uses config.yaml (default)
+./deploy_vm.py --config prod.yaml          # alternate config in project root
+./deploy_vm.py --config ~/configs/lab.yaml # absolute or relative path
+```
+
+### Behavior
+
+- If `--config` is not passed, use `config.yaml` in the project root — no change from
+  current behavior.
+- If `--config` is passed, print a notice before any other output:
+  ```
+  Using alternate configuration: /home/dad/configs/prod.yaml
+  ```
+- If the specified file does not exist, do not fall back silently. Instead:
+  - **Interactive mode:** warn the user and offer two choices:
+    - `[U]se default config.yaml instead`
+    - `[E]xit and correct the path`
+  - **Silent mode (`--silent`):** print an error and exit 1 immediately — do not fall
+    back silently, as a silent fallback could deploy to the wrong cluster.
+- The `--validate` and `--dry-run` flags respect `--config` and validate/preview against
+  the specified file.
+
+### Implementation notes
+
+- Add `--config` argument to all four scripts (`deploy_lxc.py`, `deploy_vm.py`,
+  `decomm_lxc.py`, `decomm_vm.py`) and to `modules/lib.py`'s `load_config()` function.
+- `load_config()` already takes a path — wire `args.config` through to it.
+- Store the resolved config path in the deployment JSON under `config_file` for reference
+  (useful when auditing which environment a host was deployed to).
+- Common use cases: separate `lab.yaml` and `prod.yaml` for different clusters;
+  per-user configs with different API tokens; a `readonly.yaml` with a read-only API
+  token for `status.py`-style queries.
+
+---
+
+## Post-Deploy Hook Scripts — Plugins and Extensibility
+
+After a successful deployment (or decommission), run user-defined scripts or Ansible
+playbooks automatically. This is the plugin/extensibility mechanism that keeps labinator
+from needing a built-in integration for every possible tool.
+
+### Usage
+
+```yaml
+# config.yaml — global hooks run for every deployment
+hooks:
+  post_deploy:
+    - ./hooks/notify-slack.sh
+    - ./hooks/register-in-wiki.sh
+  post_decomm:
+    - ./hooks/remove-from-wiki.sh
+```
+
+```json
+// deployment JSON — per-host hooks (merged with global hooks)
+{
+  "hostname": "myserver",
+  "post_deploy_hooks": ["./hooks/setup-monitoring.sh"],
+  "post_decomm_hooks": []
+}
+```
+
+### Hook interface
+
+Each hook is called as a subprocess with a standard set of environment variables so it
+has everything it needs without parsing config files:
+
+```bash
+LABINATOR_HOSTNAME=myserver
+LABINATOR_FQDN=myserver.lees-family.io
+LABINATOR_IP=10.20.20.150
+LABINATOR_NODE=proxmox02
+LABINATOR_VMID=142
+LABINATOR_TYPE=lxc          # or "vm"
+LABINATOR_ACTION=deploy     # or "decomm"
+LABINATOR_DEPLOY_FILE=/home/dad/projects/HomeLab/labinator/deployments/lxc/myserver.json
+```
+
+### Behavior
+
+- Hooks run after all built-in steps complete successfully.
+- Each hook's stdout/stderr is captured and printed under a collapsible section.
+- A non-zero exit code from a hook prints a warning but does NOT abort — hooks are
+  best-effort by default. Add `hook_failure: abort` to `config.yaml` to make failures fatal.
+- Hooks are executed in order, one at a time.
+- Any executable file is supported: shell scripts, Python scripts, Ansible playbooks
+  (via `ansible-playbook`), etc.
+
+### Implementation notes
+
+- Add `run_hooks(action, deploy_record, cfg)` to `modules/lib.py`.
+- Merge global hooks from `config.yaml` with per-host hooks from the deployment JSON,
+  global first.
+- Log each hook invocation (name, exit code, elapsed time) to the deployment history log.
+- Include a `hooks/` directory in the project with example scripts demonstrating the
+  environment variable interface.
+- This replaces the need for built-in Cacti, Netbox, Uptime Kuma, etc. integrations for
+  users who prefer scripting their own.
+
+---
+
+## Preflight Checklist
+
+Before connecting to Proxmox or creating anything, verify that all external dependencies
+are reachable and correctly configured. Fail fast with a clear, actionable message rather
+than dying 10 minutes into a deploy with a cryptic error.
+
+### Checks performed
+
+| Check | How |
+|---|---|
+| `config.yaml` valid | parse + schema check (already in `--validate`) |
+| Proxmox API reachable | TCP connect to port 8006 on each configured host |
+| Proxmox API auth valid | lightweight API call (`GET /version`) with the configured token |
+| SSH key exists on disk | `os.path.exists(cfg["proxmox"]["ssh_key"])` |
+| SSH key accepted by Proxmox nodes | `ssh -o BatchMode=yes root@node echo OK` |
+| DNS server reachable (if enabled) | TCP connect to port 22 on `dns.server` |
+| DNS server SSH auth valid (if enabled) | `ssh -o BatchMode=yes root@dns_server echo OK` |
+| Ansible installed on controller | `which ansible-playbook` |
+| `sshpass` installed (LXC only) | `which sshpass` |
+| Inventory server reachable (if enabled) | TCP connect + SSH auth check |
+| Sufficient free disk on target node | query via API before creation |
+
+### Usage
+
+```bash
+./deploy_vm.py --preflight          # run checks and exit (no deploy)
+./deploy_lxc.py --preflight
+```
+
+Preflight also runs automatically at the start of every deploy. If a check fails:
+- **Interactive:** print the failed check with a suggested fix and ask:
+  `[C]ontinue anyway`, `[R]etry this check`, `[A]bort`
+- **Silent mode:** print error and exit 1.
+
+If `--preflight` was not explicitly passed and a check fails, offer to run the full
+preflight report so the user can see everything that's wrong at once — not just the
+first failure.
+
+### Implementation notes
+
+- Add `run_preflight(cfg, kind)` to `modules/lib.py` (kind = "lxc" or "vm").
+- Each check is a small function that returns `(passed: bool, message: str)`.
+- Print results as a rich table: ✓ green / ✗ red / ⚠ yellow (warning, non-fatal).
+- Log preflight results to the deployment history log.
+- Most checks are fast (sub-second TCP connects). SSH auth checks add ~1-2s each.
+  Total preflight time should be under 10 seconds.
+
+---
+
+## Deployment Rollback
+
+If a deploy fails partway through — after the VM/LXC is created in Proxmox but before
+all steps complete — offer to automatically roll back by running the full decomm sequence
+on the newly created host.
+
+Currently the script warns and exits, leaving a half-configured host behind that must be
+cleaned up manually. Rollback makes the tool feel safe to use, especially in `--silent`
+automation contexts.
+
+### Behavior
+
+- Rollback is only possible after Step 1 (container/VM creation) succeeds and a deployment
+  JSON has been written.
+- If any subsequent step fails (Ansible, DNS, inventory), offer:
+  ```
+  Step 5 failed. Options:
+    [R]ollback — destroy the VM, remove DNS, remove from inventory
+    [C]ontinue — leave the VM running and fix manually
+    [A]bort    — leave the VM running, mark deployment as failed in history log
+  ```
+- In `--silent` mode: default to `Continue` (non-destructive) unless
+  `rollback_on_failure: true` is set in `config.yaml`.
+- Rollback uses the same decomm logic as `decomm_vm.py` / `decomm_lxc.py` — no duplicate
+  code. The just-written deployment JSON is the input.
+- After rollback, the deployment JSON is deleted automatically (equivalent to `--purge`).
+- Log the rollback event to the deployment history log with the failure reason.
+
+### Implementation notes
+
+- Wrap the post-creation steps in a try/except that catches failures and triggers the
+  rollback prompt.
+- Pass a `rollback_json_path` to the error handler so it always knows what to clean up.
+- The rollback itself calls `decomm_vm()` / `decomm_lxc()` from the shared library —
+  same functions as the decomm scripts.
+- Add `rollback_on_failure: false` to `config.yaml` as an opt-in for automated pipelines.
+
+---
+
+## Deployment History Log
+
+Append every deploy and decomm event to a persistent audit log so there is always a
+record of what happened, who did it, when, and whether it succeeded.
+
+Even a user-writable plaintext log is better than no log — it catches "who deployed that
+mystery VM last Tuesday?" and "what step failed on Friday's deploy?"
+
+### Log location
+
+`deployments/history.log` — committed directory, log file gitignored (or kept, your choice).
+
+### Log format (one JSON object per line — easy to grep and parse)
+
+```json
+{
+  "timestamp": "2026-03-08T14:22:00",
+  "user": "dad",
+  "action": "deploy",
+  "type": "vm",
+  "hostname": "myserver",
+  "fqdn": "myserver.lees-family.io",
+  "node": "proxmox02",
+  "vmid": 142,
+  "ip": "10.20.20.150",
+  "result": "success",
+  "failed_step": null,
+  "failure_reason": null,
+  "duration_seconds": 187,
+  "deploy_file": "deployments/vms/myserver.json",
+  "config_file": "config.yaml",
+  "rollback": false,
+  "hooks_run": ["./hooks/notify-slack.sh"],
+  "preflight_passed": true
+}
+```
+
+On failure:
+```json
+{
+  ...
+  "result": "failed",
+  "failed_step": 5,
+  "failure_reason": "Ansible: UNREACHABLE — Connection timed out",
+  "rollback": true
+}
+```
+
+### Implementation notes
+
+- Add `write_history(entry: dict, cfg)` to `modules/lib.py`.
+- Call at the end of every deploy/decomm, regardless of success or failure.
+- `user` is `os.getenv("USER") or os.getenv("LOGNAME") or "unknown"`.
+- `duration_seconds` is wall-clock time from script start to finish.
+- Log preflight results, rollback events, and hook outcomes as part of the same entry.
+- If the history log is missing or unwritable, warn but do not fail the deployment.
+- Add a `--history` flag to `status.py` (future) to pretty-print the log as a rich table.
+
+---
+
+## LXC Template Auto-Download with Browse Interface
+
+When deploying an LXC container, if the desired template is not already downloaded on the
+target node, offer to browse available templates from the Proxmox template repository and
+download one automatically — rather than requiring the user to go into the Proxmox web UI.
+
+### Current behavior
+
+The template picker shows only templates already downloaded on the selected node. If none
+are present, or the one you want isn't there, you have to manually download it through
+Proxmox UI → node → local storage → CT Templates → Templates → Download. Then re-run the
+script.
+
+### Proposed behavior
+
+The template picker gains a second section — just like the VM cloud image browser:
+
+```
+Select OS template for proxmox02:
+
+  Already downloaded:
+    ubuntu-24.04-standard_24.04-2_amd64.tar.zst   (proxmox02 · local)
+
+  ─── Download from Proxmox template repository ───
+    Download: Ubuntu 24.04 LTS Standard
+    Download: Ubuntu 22.04 LTS Standard
+    Download: Debian 12 Standard
+    Download: Debian 11 Standard
+    Download: Alpine 3.19
+    Download: Rocky Linux 9
+    Download: Fedora 39
+    ...
+  ← Back
+```
+
+Selecting a "Download:" entry fetches the template to the node's local storage, then
+proceeds with the deploy using that template.
+
+### Implementation notes
+
+- Proxmox exposes a template list at `GET /nodes/{node}/aplinfo` — returns all available
+  templates from the configured repositories (pve-no-subscription, etc.) with name,
+  version, description, and download URL.
+- Download is triggered via `POST /nodes/{node}/storage/{storage}/download-url` or by
+  calling `pveam download local <template>` via SSH on the node.
+- Ubuntu templates should still be sorted first (same as current behavior).
+- Show download size and a spinner during download — same pattern as VM cloud image downloads.
+- Store the downloaded template's `volid` in the deployment JSON as usual.
+- Add `lxc_template_storage` to `config.yaml` defaults to pre-select where templates are
+  stored (default: `local`).
+
+---
+
+## App-Profile Deployments — Archive-Based Application Templates
+
+A lightweight alternative to writing per-app Ansible roles. Instead of scripting an
+application install from scratch, an admin configures the app once on a reference
+container (manually, or via a community helper script), then archives the working config
+files into a `.tar.gz`. Every future deployment of that app: install packages → extract
+archive → reboot → running.
+
+This approach sidesteps the two bad alternatives:
+- **Community helper scripts** — run on the Proxmox host, create their own container,
+  can't cleanly integrate with labinator's infra pipeline, and depend on an external URL
+  that can change or disappear.
+- **Full Ansible roles per app** — high maintenance burden; you own the install logic forever.
+
+The archive approach lets the admin do the hard work once, then captures the result.
+
+### Prerequisite: porter must be built first
+
+The `.tar.gz` deployment archives are built using **porter** — a standalone dual-pane
+terminal file manager (see `~/projects/porter/Feature-ideas.md`). Porter connects to the
+reference container via SSH/SFTP, lets you browse its filesystem and cherry-pick config
+files, and packs them into an archive with permissions and ownership fully preserved.
+
+Porter also generates a sidecar `labinator-manifest.yaml` that documents any custom
+users/groups and pre/post-extract commands, so labinator can handle ownership correctly
+on the destination container. Build porter before implementing this feature.
+
+### Archive storage
+
+Archives live in `labinator/app-templates/`:
+
+```
+labinator/
+└── app-templates/
+    ├── pihole.tar.gz
+    ├── pihole-manifest.yaml
+    ├── nginx-proxy-manager.tar.gz
+    ├── nginx-proxy-manager-manifest.yaml
+    └── vaultwarden.tar.gz
+```
+
+### App catalog (`app-catalog.yaml`)
+
+```yaml
+apps:
+  - name: Pi-hole
+    description: Network-wide ad blocking
+    recommended:
+      cpus: 1
+      memory_gb: 1
+      disk_gb: 8
+    profile: monitoring-node       # labinator package profile to apply first
+    extra_packages:
+      - pihole
+    lxc_features: []
+    archive: app-templates/pihole.tar.gz
+    manifest: app-templates/pihole-manifest.yaml
+
+  - name: Nginx Proxy Manager
+    description: Reverse proxy with GUI and automatic SSL
+    recommended:
+      cpus: 2
+      memory_gb: 2
+      disk_gb: 20
+    profile: web-server
+    extra_packages: []
+    lxc_features: [nesting=1]
+    archive: app-templates/nginx-proxy-manager.tar.gz
+    manifest: app-templates/nginx-proxy-manager-manifest.yaml
+```
+
+### Deploy-time behavior
+
+When an app profile is selected during `deploy_lxc.py`:
+
+1. Pre-fill CPU/RAM/disk from `recommended` values (user can override)
+2. Apply the referenced labinator package profile (installs baseline + profile packages)
+3. Install any `extra_packages`
+4. Apply `lxc_features` from the catalog entry
+5. Read the manifest — create any custom users/groups listed
+6. Extract the archive to `/` on the container: `tar xzf pihole.tar.gz -C /`
+7. Run any `post_extract_commands` from the manifest
+8. Reboot the container
+9. Continue with DNS, inventory, health check as normal
+
+### Permissions and ownership
+
+`tar` preserves chmod bits and numeric uid/gid. Since labinator installs packages before
+extracting (step 2 above), system users created by packages already exist with the correct
+uid/gid by the time the archive lands. Custom users are handled via the porter-generated
+manifest (step 5). For edge cases, `post_extract_commands` in the manifest can run
+targeted `chown` fixes.
+
+### Implementation notes
+
+- Add `--app` flag to `deploy_lxc.py`: `./deploy_lxc.py --app pihole`
+- App selection also available interactively — a new prompt after profile selection:
+  `Select app template (or None for standard profile-only deploy)`
+- Archive extraction runs via `pct exec <vmid> -- tar xzf ...` after the bootstrap step,
+  before Ansible.
+- Add `app_name` and `archive` fields to the deployment JSON for reference.
+- `--dry-run` shows the app name and archive path in the summary table.
+- This is LXC-focused initially — VM equivalent is possible but cloud-init handles most
+  VM app config differently (user-data scripts, etc.).
