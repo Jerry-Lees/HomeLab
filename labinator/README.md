@@ -25,6 +25,8 @@ A command-line wizard for provisioning, configuring, and onboarding LXC containe
   - [Interactive Mode](#interactive-mode)
   - [Deploy from File](#deploy-from-file)
   - [Silent Mode](#silent-non-interactive-mode)
+  - [Validate Mode](#validate-mode)
+  - [Dry-Run Mode](#dry-run-mode)
   - [Prompt Walkthrough](#walkthrough-lxc-prompt-order)
   - [Deployment Steps](#the-7-lxc-deployment-steps)
 - [Usage — decomm_lxc.py](#usage--decomm_lxcpy)
@@ -32,11 +34,14 @@ A command-line wizard for provisioning, configuring, and onboarding LXC containe
   - [Interactive Mode](#interactive-mode-1)
   - [Deploy from File](#deploy-from-file-1)
   - [Silent Mode](#silent-non-interactive-mode-1)
+  - [Validate Mode](#validate-mode-1)
+  - [Dry-Run Mode](#dry-run-mode-1)
   - [Prompt Walkthrough](#walkthrough-vm-prompt-order)
   - [Deployment Steps](#the-7-vm-deployment-steps)
 - [Usage — decomm_vm.py](#usage--decomm_vmpy)
 - [Deployment Files](#deployment-files)
 - [Deployment Defaults](#deployment-defaults)
+- [Package Profiles](#package-profiles)
 - [Installed Packages](#installed-packages)
 - [Post-Deployment State](#post-deployment-state)
 - [Ansible Playbooks](#ansible-playbooks)
@@ -112,16 +117,20 @@ Permanently destroys a VM deployed via `deploy_vm.py`:
 ## Project Layout
 
 ```
-vm-onboard/
+labinator/
 ├── deploy_lxc.py                  # LXC provisioning wizard
 ├── decomm_lxc.py                  # LXC decommission script
 ├── deploy_vm.py                   # QEMU VM provisioning wizard
 ├── decomm_vm.py                   # QEMU VM decommission script
 ├── config.yaml                    # Credentials + defaults (excluded from git)
+├── config.yaml.example            # Documented config template (committed)
 ├── cloud-images.yaml              # Cloud image catalog for deploy_vm.py
 ├── requirements.txt               # Python dependencies
 ├── setup.sh                       # First-time setup script
 ├── .gitignore                     # Excludes config.yaml and .venv
+├── modules/
+│   ├── __init__.py                # Package marker
+│   └── lib.py                     # Shared functions used by all four scripts
 ├── deployments/
 │   ├── lxc/                       # One JSON file per deployed LXC container
 │   │   └── myserver.json
@@ -140,7 +149,7 @@ vm-onboard/
     │   ├── RedHat.yml             # OS-specific vars for RHEL/Rocky/Alma family
     │   └── Suse.yml               # OS-specific vars for openSUSE/SLES family
     ├── tasks/
-    │   ├── pre-install-Debian.yml # apt update
+    │   ├── pre-install-Debian.yml # apt update (+ Docker repo setup if needed)
     │   ├── pre-install-RedHat.yml # epel-release + dnf update
     │   ├── pre-install-Suse.yml   # zypper refresh
     │   ├── upgrade-Debian.yml     # apt dist-upgrade + autoremove
@@ -352,14 +361,20 @@ defaults:
   nameserver: "10.0.0.10 10.0.0.11"
   template: ubuntu-24.04-standard_24.04-2_amd64.tar.zst  # Default LXC template
 
+ansible:
+  enabled: true                     # Set false to skip ALL Ansible post-deploy steps
+
 dns:
   enabled: true                     # Set false to skip DNS registration
+  provider: bind                    # Integration type (bind is the only supported provider)
   server: 10.0.0.10               # BIND DNS server IP
   ssh_user: root
   forward_zone_file: /var/lib/bind/example.com.hosts
   # Reverse zone file is derived automatically from the IP
 
 ansible_inventory:
+  enabled: true                     # Set false to skip inventory update only
+  provider: flat_file               # Integration type (flat_file is the only supported provider)
   server: dev.example.com
   user: root
   file: /root/ansible/inventory/hosts
@@ -442,6 +457,26 @@ python3 deploy_lxc.py --deploy-file deployments/lxc/myserver.json --silent
 ```
 
 Skips all interactive prompts and deploys using the values in the file. `--silent` requires `--deploy-file`.
+
+### Validate Mode
+
+```bash
+python3 deploy_lxc.py --validate
+python3 deploy_lxc.py --validate --deploy-file deployments/lxc/myserver.json
+```
+
+Parses and validates `config.yaml` (and the deployment file if provided) without connecting to Proxmox or making any changes. Exits 0 on success, 1 on error. Useful for CI checks or verifying a config change before deploying.
+
+### Dry-Run Mode
+
+```bash
+python3 deploy_lxc.py --dry-run
+python3 deploy_lxc.py --dry-run --deploy-file deployments/lxc/myserver.json
+```
+
+Validates config and deployment file, then prints a full summary of what _would_ happen — hostname, node, template, resources, packages, tags, and each numbered step — without connecting to Proxmox, running Ansible, or modifying anything. Exits 0 on success.
+
+Without `--deploy-file`, only the config is validated and a brief message is printed. With `--deploy-file`, a full deployment summary and step-by-step plan are shown. Useful for sanity-checking a deployment file before a real run.
 
 ---
 
@@ -559,6 +594,26 @@ Pre-fills all prompts from the deployment file. The cloud image storage and imag
 ```bash
 python3 deploy_vm.py --deploy-file deployments/vms/myvm.json --silent
 ```
+
+### Validate Mode
+
+```bash
+python3 deploy_vm.py --validate
+python3 deploy_vm.py --validate --deploy-file deployments/vms/myvm.json
+```
+
+Parses and validates `config.yaml` (and the deployment file if provided) without connecting to Proxmox or making any changes. Exits 0 on success, 1 on error.
+
+### Dry-Run Mode
+
+```bash
+python3 deploy_vm.py --dry-run
+python3 deploy_vm.py --dry-run --deploy-file deployments/vms/myvm.json
+```
+
+Validates config and deployment file, then prints a full summary of what _would_ happen — hostname, node, cloud image, resources, packages, tags, and each numbered step — without connecting to Proxmox, running Ansible, or modifying anything. Exits 0 on success.
+
+Without `--deploy-file`, only the config is validated and a brief message is printed. With `--deploy-file`, a full deployment summary and step-by-step plan are shown.
 
 ---
 
@@ -764,6 +819,45 @@ All defaults come from `config.yaml` and are shown as editable suggestions at ea
 | SNMP community | YourSNMPCommunityString | Read-write, UDP :161 |
 | QEMU guest agent | Installed and enabled | Required for DHCP IP discovery |
 | Tag | auto-deploy | Applied in Proxmox |
+
+---
+
+## Package Profiles
+
+Package profiles are named sets of packages defined in `config.yaml` under `package_profiles:`. At deploy time you select a profile (or none), and its packages are installed on top of the standard baseline. You can also specify additional one-off packages via `extra_packages` in the deployment file.
+
+**Install order:** standard baseline → profile packages → extra packages
+
+Profiles also apply Proxmox tags, so deployed hosts are labeled by role in the Proxmox UI.
+
+### Built-in profiles
+
+| Profile | Packages | Tags |
+|---|---|---|
+| `web-server` | nginx, certbot, python3-certbot-nginx, ufw | WWW |
+| `database` | mariadb-server, mariadb-client | DB, MariaDB |
+| `docker-host` | docker-ce, docker-ce-cli, containerd.io, docker-compose-plugin | Docker |
+| `monitoring-node` | prometheus-node-exporter, snmpd | Monitoring |
+| `dev-tools` | git, vim, tmux, make, python3-pip | Development, Build |
+| `nfs-server` | nfs-kernel-server, nfs-common | NFS, Storage |
+
+> **Docker CE note:** `docker-ce` is not in the standard Ubuntu/Debian repositories. When the `docker-host` profile (or any profile containing `docker-ce`) is selected, the Ansible playbook automatically sets up Docker's official apt repository before installing packages. No manual configuration is needed.
+
+### Defining custom profiles
+
+Add any profile to `config.yaml`:
+
+```yaml
+package_profiles:
+  my-profile:
+    packages:
+      - some-package
+      - another-package
+    tags:
+      - MyTag
+```
+
+The profile name appears in the selection prompt at deploy time. Tag names are applied to the Proxmox container/VM and appended to the `auto-deploy` tag.
 
 ---
 
@@ -1012,6 +1106,25 @@ The download runs on the Proxmox node via SSH, not on the controller. Check:
 - Verify the storage pool has `images` content type enabled in Proxmox
 - Verify there is enough free space on the storage (cloud images expand to their full uncompressed size after import)
 - Verify the downloaded file is not corrupt: `ssh root@node 'file /path/to/cloud-images/image.img'`
+
+---
+
+### Skipping Ansible, DNS, or inventory registration
+
+To disable specific integrations without failing, set flags in `config.yaml`:
+
+```yaml
+ansible:
+  enabled: false              # Skip ALL Ansible post-deploy steps
+
+dns:
+  enabled: false              # Skip DNS registration
+
+ansible_inventory:
+  enabled: false              # Skip inventory update only
+```
+
+When `ansible.enabled` is false, Steps 5–7 are all skipped and the host must be configured manually. When `dns.enabled` or `ansible_inventory.enabled` is false, only those specific steps are skipped. All flags default to `true` if absent.
 
 ---
 
