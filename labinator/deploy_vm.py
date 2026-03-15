@@ -61,6 +61,17 @@ from modules.lib import (
     resolve_profile,
     run_ansible_add_dns,
     run_ansible_inventory_update,
+    get_nodes_with_load,
+    bytes_to_gb,
+    get_next_vmid,
+    wait_for_ssh,
+    node_ssh_host,
+    check_ansible,
+    q,
+    load_deployment_file,
+    prompt_package_profile,
+    prompt_extra_packages,
+    prompt_node_selection,
 )
 
 console = Console()
@@ -346,32 +357,6 @@ def run_dry_run(args) -> None:
 # ─────────────────────────────────────────────
 
 
-def get_nodes_with_load(proxmox: ProxmoxAPI) -> list[dict]:
-    """Return online nodes sorted by free RAM (descending)."""
-    nodes = []
-    for node in proxmox.nodes.get():
-        if node.get("status") == "online":
-            maxmem = node.get("maxmem", 0)
-            mem = node.get("mem", 0)
-            nodes.append({
-                "name": node["node"],
-                "free_mem": maxmem - mem,
-                "maxmem": maxmem,
-                "mem": mem,
-                "cpu": node.get("cpu", 0),
-                "maxcpu": node.get("maxcpu", 1),
-            })
-    return sorted(nodes, key=lambda x: -x["free_mem"])
-
-
-def bytes_to_gb(b: int) -> str:
-    return f"{b / (1024 ** 3):.1f}"
-
-
-def get_next_vmid(proxmox: ProxmoxAPI) -> int:
-    return int(proxmox.cluster.nextid.get())
-
-
 def get_vm_disk_storages(proxmox: ProxmoxAPI, node: str) -> list[str]:
     """Return storage pools that can hold VM disk images (content type: images)."""
     pools = []
@@ -610,18 +595,6 @@ def select_image_with_storage(
         return selected_storage, selected["filename"], selected.get("url"), image_refresh
 
 
-def wait_for_ssh(host: str, timeout: int = 300) -> None:
-    """Poll until SSH port (22) accepts TCP connections."""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            with socket.create_connection((host, 22), timeout=5):
-                return
-        except (socket.timeout, ConnectionRefusedError, OSError):
-            time.sleep(5)
-    raise TimeoutError(f"SSH on {host}:22 did not become reachable within {timeout}s")
-
-
 def wait_for_guest_agent_ip(proxmox: ProxmoxAPI, node: str, vmid: int,
                              timeout: int = 300) -> str:
     """
@@ -648,24 +621,6 @@ def wait_for_guest_agent_ip(proxmox: ProxmoxAPI, node: str, vmid: int,
         f"Guest agent did not report a non-loopback IP within {timeout}s. "
         "Ensure qemu-guest-agent is available in the cloud image and the VM booted successfully."
     )
-
-
-def node_ssh_host(cfg: dict, node_name: str) -> str:
-    """Construct the SSH hostname for a proxmox node."""
-    domain = cfg["proxmox"].get("node_domain", "")
-    return f"{node_name}.{domain}" if domain else node_name
-
-
-def node_passes_filter(n: dict, memory_mb: int, cpu_threshold: float = 0.85,
-                       ram_threshold: float = 0.95) -> bool:
-    """Return True if a node can accommodate the requested resources."""
-    if n["cpu"] >= cpu_threshold:
-        return False
-    if n["maxmem"] > 0:
-        used_after = n["mem"] + memory_mb * 1024 * 1024
-        if used_after / n["maxmem"] >= ram_threshold:
-            return False
-    return True
 
 
 # ─────────────────────────────────────────────
@@ -805,13 +760,6 @@ def write_guest_agent_snippet(cfg: dict, node_name: str, vmid: int) -> str:
 # Ansible runners
 # ─────────────────────────────────────────────
 
-def check_ansible() -> None:
-    """Ensure ansible-playbook is available."""
-    result = subprocess.run(["which", "ansible-playbook"], capture_output=True)
-    if result.returncode != 0:
-        raise RuntimeError("ansible-playbook not found. Install Ansible: apt install ansible")
-
-
 def run_ansible_post_deploy_vm(vm_ip: str, ssh_key: str, password: str, hostname: str, cfg: dict = None, profile_packages: list = (), extra_packages: list = ()) -> None:
     """Run the post-deploy Ansible playbook against the new VM using SSH key auth."""
     ansible_dir = Path(__file__).parent / "ansible"
@@ -869,15 +817,6 @@ def run_ansible_post_deploy_vm(vm_ip: str, ssh_key: str, password: str, hostname
 # Deployment file helpers
 # ─────────────────────────────────────────────
 
-def load_deployment_file(path: str) -> dict:
-    p = Path(path)
-    if not p.exists():
-        console.print(f"[red]ERROR: Deployment file not found: {path}[/red]")
-        sys.exit(1)
-    with open(p) as f:
-        return json.load(f) or {}
-
-
 def save_vm_deployment_file(hostname: str, vmid: int, node_name: str,
                              image_storage_name: str, image_filename: str,
                              image_url: str | None, image_refresh: bool,
@@ -926,20 +865,6 @@ def save_vm_deployment_file(hostname: str, vmid: int, node_name: str,
         json.dump(data, f, indent=2)
     console.print(f"  [dim]Deployment file saved: {deploy_file}[/dim]")
     return deploy_file
-
-
-def q(widget_fn, *args, d: dict | None = None, key: str | None = None,
-      silent: bool = False, cast=str, **kwargs):
-    """Ask a question, using deployment file value as default or skipping in silent mode."""
-    val = cast(d[key]) if (d and key and key in d and d[key] is not None) else None
-    if val is not None and silent:
-        return val
-    if val is not None:
-        kwargs["default"] = val
-    result = widget_fn(*args, **kwargs).ask()
-    if result is None:
-        sys.exit(0)
-    return result
 
 
 def derive_gateway(ip: str) -> str:
@@ -1092,46 +1017,9 @@ def main() -> None:
         d=deploy, key="password", silent=silent,
     )
 
-    # ── Package profile ──
-    profiles = cfg.get("package_profiles", {})
-    deploy_profile = (deploy.get("package_profile", "") or "") if deploy else ""
-    if silent:
-        package_profile = deploy_profile
-        if package_profile and package_profile not in profiles:
-            console.print(f"[yellow]Warning: package_profile '{package_profile}' not found in config — skipping.[/yellow]")
-            package_profile = ""
-        profile_packages, profile_tags = resolve_profile(package_profile, profiles)
-    elif profiles:
-        profile_choices = [questionary.Choice(title="[none]", value="")] + [
-            questionary.Choice(title=name, value=name) for name in profiles
-        ]
-        package_profile = questionary.select(
-            "Package profile (optional):",
-            choices=profile_choices,
-            default=deploy_profile if deploy_profile in profiles else "",
-        ).ask()
-        if package_profile is None:
-            sys.exit(0)
-        profile_packages, profile_tags = resolve_profile(package_profile, profiles)
-    else:
-        package_profile = ""
-        profile_packages = []
-        profile_tags = []
-
-    # ── Extra packages ──
-    deploy_extra_pkgs = deploy.get("extra_packages", []) if deploy else []
-    if silent:
-        extra_packages = deploy_extra_pkgs
-    else:
-        pkgs_default = ", ".join(deploy_extra_pkgs) if deploy_extra_pkgs else ""
-        pkgs_answer = questionary.text(
-            "Extra packages to install (optional):",
-            instruction="comma-separated, e.g. htop, curl  —  leave blank for none",
-            default=pkgs_default,
-        ).ask()
-        if pkgs_answer is None:
-            sys.exit(0)
-        extra_packages = [p.strip() for p in pkgs_answer.split(",") if p.strip()]
+    # ── Package profile + extra packages ──
+    package_profile, profile_packages, profile_tags = prompt_package_profile(cfg, deploy, silent)
+    extra_packages = prompt_extra_packages(deploy, silent)
 
     # ── IP address — blank or "dhcp" = DHCP mode ──
     deploy_ip = str(deploy.get("ip_address", ""))
@@ -1176,54 +1064,10 @@ def main() -> None:
         prefix_len = ""
         gateway = ""
 
-    # ── Node selection (filtered by resources) ──
+    # ── Node selection ──
     memory_mb = int(float(memory_gb_str) * 1024)
-    filtered_nodes = [n for n in nodes if node_passes_filter(n, memory_mb, cpu_threshold, ram_threshold)]
-
-    if not filtered_nodes:
-        console.print(
-            f"[yellow]Warning: No nodes pass the resource filter "
-            f"(CPU <85%, RAM after +{memory_gb_str} GB <95%). Showing all nodes.[/yellow]"
-        )
-        filtered_nodes = nodes
-
-    best_node = filtered_nodes[0]
-
-    if silent:
-        node_name = str(deploy.get("node", best_node["name"]))
-        if not any(n["name"] == node_name for n in nodes):
-            console.print(f"[red]ERROR: Node '{node_name}' from deployment file is not online.[/red]")
-            sys.exit(1)
-        console.print(f"  [dim]Node (from deployment file): {node_name}[/dim]")
-    else:
-        deploy_node = str(deploy.get("node", ""))
-        node_choices = []
-        for n in filtered_nodes:
-            is_best = n["name"] == best_node["name"]
-            suffix = " [deploy file]" if n["name"] == deploy_node else ""
-            node_choices.append(questionary.Choice(
-                title=(
-                    f"{'★ ' if is_best else '  '}"
-                    f"{n['name']}  —  "
-                    f"{bytes_to_gb(n['free_mem'])} GB free / "
-                    f"{bytes_to_gb(n['maxmem'])} GB RAM  "
-                    f"(CPU: {n['cpu'] * 100:.0f}%){suffix}"
-                ),
-                value=n["name"],
-            ))
-        default_node = (
-            deploy_node if any(n["name"] == deploy_node for n in filtered_nodes)
-            else best_node["name"]
-        )
-        hidden = len(nodes) - len(filtered_nodes)
-        hint = f" ({hidden} node(s) hidden — over resource threshold)" if hidden else ""
-        node_name = questionary.select(
-            f"Select Proxmox node (★ = most free RAM){hint}:",
-            choices=node_choices,
-            default=default_node,
-        ).ask()
-        if node_name is None:
-            sys.exit(0)
+    node_name = prompt_node_selection(nodes, deploy, silent, memory_mb, memory_gb_str,
+                                      cpu_threshold, ram_threshold)
 
     # ── Cloud image storage + image selection ──
     catalog = load_cloud_images()

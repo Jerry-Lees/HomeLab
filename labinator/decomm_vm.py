@@ -35,26 +35,12 @@ from modules.lib import (
     random_caps,
     flush_stdin,
     confirm_destruction,
+    load_deployment_json,
+    list_deployment_files,
     SKULL,
 )
 
 console = Console()
-
-
-# ─────────────────────────────────────────────
-# Deployment file helpers
-# ─────────────────────────────────────────────
-
-def list_deployment_files() -> list[Path]:
-    deployments_dir = Path(__file__).parent / "deployments" / "vms"
-    if not deployments_dir.exists():
-        return []
-    return sorted(deployments_dir.glob("*.json"))
-
-
-def load_deployment_file(path: Path) -> dict:
-    with open(path) as f:
-        return json.load(f) or {}
 
 
 # ─────────────────────────────────────────────
@@ -141,10 +127,10 @@ def main() -> None:
         if not deploy_path.exists():
             console.print(f"[red]ERROR: Deployment file not found: {deploy_path}[/red]")
             sys.exit(1)
-        deploy = load_deployment_file(deploy_path)
+        deploy = load_deployment_json(deploy_path)
     else:
         # List available VM deployment files and let user pick
-        deploy_files = list_deployment_files()
+        deploy_files = list_deployment_files("vms")
         if not deploy_files:
             console.print("[red]No VM deployment files found in deployments/vms/ folder.[/red]")
             console.print("Only VMs deployed via deploy_vm.py can be decommissioned this way.")
@@ -152,7 +138,7 @@ def main() -> None:
 
         choices = []
         for f in deploy_files:
-            d = load_deployment_file(f)
+            d = load_deployment_json(f)
             ip = d.get("assigned_ip") or d.get("ip_address", "?")
             label = (
                 f"{d.get('hostname', f.stem):<20}  "
@@ -171,7 +157,7 @@ def main() -> None:
             console.print("\n[yellow]Aborted.[/yellow]")
             sys.exit(0)
 
-        deploy = load_deployment_file(deploy_path)
+        deploy = load_deployment_json(deploy_path)
 
     # Scary confirmation (skipped in silent mode)
     if args.silent:

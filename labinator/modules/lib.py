@@ -475,3 +475,216 @@ def run_ansible_inventory_update(cfg: dict, hostname: str, ip: str, password: st
         )
     else:
         console.print(f"  [green]✓ Inventory updated on {dev_server}[/green]")
+
+
+# ─────────────────────────────────────────────
+# Deploy: Proxmox helpers
+# ─────────────────────────────────────────────
+
+def get_nodes_with_load(proxmox: ProxmoxAPI) -> list[dict]:
+    """Return online nodes sorted by free RAM (descending)."""
+    nodes = []
+    for node in proxmox.nodes.get():
+        if node.get("status") == "online":
+            maxmem = node.get("maxmem", 0)
+            mem = node.get("mem", 0)
+            nodes.append({
+                "name": node["node"],
+                "free_mem": maxmem - mem,
+                "maxmem": maxmem,
+                "mem": mem,
+                "cpu": node.get("cpu", 0),
+                "maxcpu": node.get("maxcpu", 1),
+            })
+    return sorted(nodes, key=lambda x: -x["free_mem"])
+
+
+def bytes_to_gb(b: int) -> str:
+    return f"{b / (1024 ** 3):.1f}"
+
+
+def get_next_vmid(proxmox: ProxmoxAPI) -> int:
+    return int(proxmox.cluster.nextid.get())
+
+
+def wait_for_ssh(host: str, timeout: int = 300) -> None:
+    """Poll until SSH port 22 accepts TCP connections."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            with socket.create_connection((host, 22), timeout=5):
+                return
+        except (socket.timeout, ConnectionRefusedError, OSError):
+            time.sleep(5)
+    raise TimeoutError(f"SSH on {host}:22 did not become reachable within {timeout}s")
+
+
+def node_ssh_host(cfg: dict, node_name: str) -> str:
+    """Construct the SSH hostname for a Proxmox node."""
+    domain = cfg["proxmox"].get("node_domain", "")
+    return f"{node_name}.{domain}" if domain else node_name
+
+
+def node_passes_filter(n: dict, memory_mb: int, cpu_threshold: float = 0.85,
+                       ram_threshold: float = 0.95) -> bool:
+    """Return True if a node can accommodate the requested resources."""
+    if n["cpu"] >= cpu_threshold:
+        return False
+    if n["maxmem"] > 0:
+        used_after = n["mem"] + memory_mb * 1024 * 1024
+        if used_after / n["maxmem"] >= ram_threshold:
+            return False
+    return True
+
+
+def check_ansible() -> None:
+    """Ensure ansible-playbook is available."""
+    result = subprocess.run(["which", "ansible-playbook"], capture_output=True)
+    if result.returncode != 0:
+        raise RuntimeError("ansible-playbook not found. Install Ansible: apt install ansible")
+
+
+# ─────────────────────────────────────────────
+# Deploy: interactive wizard helpers
+# ─────────────────────────────────────────────
+
+def q(widget_fn, *args, d: dict | None = None, key: str | None = None,
+      silent: bool = False, cast=str, **kwargs):
+    """Ask a question, using deployment file value as default or skipping in silent mode."""
+    val = cast(d[key]) if (d and key and key in d and d[key] is not None) else None
+    if val is not None and silent:
+        return val
+    if val is not None:
+        kwargs["default"] = val
+    result = widget_fn(*args, **kwargs).ask()
+    if result is None:
+        sys.exit(0)
+    return result
+
+
+def load_deployment_file(path: str) -> dict:
+    """Load a deployment JSON; print error and exit if the file is not found."""
+    p = Path(path)
+    if not p.exists():
+        console.print(f"[red]ERROR: Deployment file not found: {path}[/red]")
+        sys.exit(1)
+    with open(p) as f:
+        return json.load(f) or {}
+
+
+def load_deployment_json(path: Path) -> dict:
+    """Load a deployment JSON file (bare — no exit on missing)."""
+    with open(path) as f:
+        return json.load(f) or {}
+
+
+def list_deployment_files(kind: str) -> list[Path]:
+    """Return sorted list of deployment JSON files for 'vms' or 'lxc'."""
+    deployments_dir = _ROOT / "deployments" / kind
+    if not deployments_dir.exists():
+        return []
+    return sorted(deployments_dir.glob("*.json"))
+
+
+def prompt_package_profile(cfg: dict, deploy: dict, silent: bool) -> tuple[str, list, list]:
+    """Interactive package profile selection.
+
+    Returns (package_profile, profile_packages, profile_tags).
+    """
+    profiles = cfg.get("package_profiles", {})
+    deploy_profile = (deploy.get("package_profile", "") or "") if deploy else ""
+    if silent:
+        package_profile = deploy_profile
+        if package_profile and package_profile not in profiles:
+            console.print(
+                f"[yellow]Warning: package_profile '{package_profile}' not found in config "
+                f"— skipping.[/yellow]"
+            )
+            package_profile = ""
+        profile_packages, profile_tags = resolve_profile(package_profile, profiles)
+    elif profiles:
+        profile_choices = [questionary.Choice(title="[none]", value="")] + [
+            questionary.Choice(title=name, value=name) for name in profiles
+        ]
+        package_profile = questionary.select(
+            "Package profile (optional):",
+            choices=profile_choices,
+            default=deploy_profile if deploy_profile in profiles else "",
+        ).ask()
+        if package_profile is None:
+            sys.exit(0)
+        profile_packages, profile_tags = resolve_profile(package_profile, profiles)
+    else:
+        package_profile = ""
+        profile_packages = []
+        profile_tags = []
+    return package_profile, profile_packages, profile_tags
+
+
+def prompt_extra_packages(deploy: dict, silent: bool) -> list[str]:
+    """Interactive extra packages prompt. Returns list of package names."""
+    deploy_extra_pkgs = deploy.get("extra_packages", []) if deploy else []
+    if silent:
+        return deploy_extra_pkgs
+    pkgs_default = ", ".join(deploy_extra_pkgs) if deploy_extra_pkgs else ""
+    pkgs_answer = questionary.text(
+        "Extra packages to install (optional):",
+        instruction="comma-separated, e.g. htop, curl  —  leave blank for none",
+        default=pkgs_default,
+    ).ask()
+    if pkgs_answer is None:
+        sys.exit(0)
+    return [p.strip() for p in pkgs_answer.split(",") if p.strip()]
+
+
+def prompt_node_selection(nodes: list[dict], deploy: dict, silent: bool,
+                          memory_mb: int, memory_gb_str: str,
+                          cpu_threshold: float, ram_threshold: float) -> str:
+    """Interactive node selection with resource filtering. Returns node name."""
+    filtered_nodes = [n for n in nodes if node_passes_filter(n, memory_mb, cpu_threshold, ram_threshold)]
+    if not filtered_nodes:
+        console.print(
+            f"[yellow]Warning: No nodes pass the resource filter "
+            f"(CPU <85%, RAM after +{memory_gb_str} GB <95%). Showing all nodes.[/yellow]"
+        )
+        filtered_nodes = nodes
+
+    best_node = filtered_nodes[0]
+
+    if silent:
+        node_name = str(deploy.get("node", best_node["name"]))
+        if not any(n["name"] == node_name for n in nodes):
+            console.print(f"[red]ERROR: Node '{node_name}' from deployment file is not online.[/red]")
+            sys.exit(1)
+        console.print(f"  [dim]Node (from deployment file): {node_name}[/dim]")
+        return node_name
+
+    deploy_node = str(deploy.get("node", ""))
+    node_choices = []
+    for n in filtered_nodes:
+        is_best = n["name"] == best_node["name"]
+        suffix = " [deploy file]" if n["name"] == deploy_node else ""
+        node_choices.append(questionary.Choice(
+            title=(
+                f"{'★ ' if is_best else '  '}"
+                f"{n['name']}  —  "
+                f"{bytes_to_gb(n['free_mem'])} GB free / "
+                f"{bytes_to_gb(n['maxmem'])} GB RAM  "
+                f"(CPU: {n['cpu'] * 100:.0f}%){suffix}"
+            ),
+            value=n["name"],
+        ))
+    default_node = (
+        deploy_node if any(n["name"] == deploy_node for n in filtered_nodes)
+        else best_node["name"]
+    )
+    hidden = len(nodes) - len(filtered_nodes)
+    hint = f" ({hidden} node(s) hidden — over resource threshold)" if hidden else ""
+    node_name = questionary.select(
+        f"Select Proxmox node (★ = most free RAM){hint}:",
+        choices=node_choices,
+        default=default_node,
+    ).ask()
+    if node_name is None:
+        sys.exit(0)
+    return node_name
