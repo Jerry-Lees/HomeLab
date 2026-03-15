@@ -135,6 +135,16 @@ package_profiles:
 # Leave blank to install nothing extra. The field is always saved in the deployment JSON
 # so re-deploys from the same file will reinstall the same extra packages.
 
+# Preflight checks — per-deployment override for the automatic preflight that runs
+# before every deploy. Not set here in config.yaml — this is a per-deployment JSON field:
+#
+#   "preflight": true    (default — run all preflight checks before deploying)
+#   "preflight": false   (skip preflight for this specific deployment — use with care)
+#
+# The --yolo flag overrides per-warning behavior (continues through warnings but still
+# blocks on failures). The --preflight flag runs checks and exits without deploying.
+# See the Command-Line Reference in README.md for the full flag interaction table.
+
 # DNS registration
 # Set enabled: false to skip automatic DNS registration and manage records manually.
 # provider: selects the DNS integration backend. Currently only 'bind' is implemented;
