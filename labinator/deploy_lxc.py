@@ -61,6 +61,7 @@ from modules.lib import (
     _check_ipv4,
     validate_config,
     resolve_profile,
+    dns_precheck,
     run_ansible_add_dns,
     run_ansible_inventory_update,
     get_nodes_with_load,
@@ -68,7 +69,7 @@ from modules.lib import (
     get_next_vmid,
     wait_for_ssh,
     node_ssh_host,
-    check_ansible,
+    run_preflight,
     q,
     load_deployment_file,
     prompt_package_profile,
@@ -505,13 +506,6 @@ def bootstrap_container(cfg: dict, node_name: str, vmid: int, password: str,
 # Ansible runners
 # ─────────────────────────────────────────────
 
-def check_sshpass() -> None:
-    """Ensure sshpass is available for password-based Ansible connections."""
-    result = subprocess.run(["which", "sshpass"], capture_output=True)
-    if result.returncode != 0:
-        raise RuntimeError("sshpass not found. Install it: apt install sshpass")
-
-
 def run_ansible_post_deploy(container_ip: str, password: str, hostname: str, nameserver: str, searchdomain: str, cfg: dict = None, profile_packages: list = (), extra_packages: list = ()) -> None:
     """Run the post-deploy Ansible playbook against the new container."""
     ansible_dir = Path(__file__).parent / "ansible"
@@ -676,6 +670,14 @@ def main() -> None:
         "--dry-run", action="store_true",
         help="Validate config + deployment file and print what would happen without making any changes",
     )
+    parser.add_argument(
+        "--preflight", action="store_true",
+        help="Run preflight connectivity and dependency checks then exit",
+    )
+    parser.add_argument(
+        "--yolo", action="store_true",
+        help="Skip preflight checks and deploy immediately",
+    )
     args = parser.parse_args()
 
     if args.validate:
@@ -683,6 +685,13 @@ def main() -> None:
 
     if args.dry_run:
         run_dry_run(args)  # exits 0 or 1
+
+    if args.preflight:
+        cfg = load_config()
+        deploy = load_deployment_file(args.deploy_file) if args.deploy_file else {}
+        run_preflight(cfg, kind="lxc", silent=args.silent, verbose=True,
+                      deploy=deploy if args.deploy_file else None, yolo=args.yolo)
+        sys.exit(0)
 
     if args.silent and not args.deploy_file:
         parser.error("--silent requires --deploy-file")
@@ -713,8 +722,11 @@ def main() -> None:
         console.print(f"[dim]Silent mode — deploying from: {args.deploy_file}[/dim]\n")
 
     # Pre-flight checks
-    check_ansible()
-    check_sshpass()
+    if not deploy.get("preflight", True):
+        console.print("[yellow]⚡ preflight: false in deploy file — checks skipped.[/yellow]")
+    else:
+        run_preflight(cfg, kind="lxc", silent=silent, verbose=True,
+                      deploy=deploy if args.deploy_file else None, yolo=args.yolo)
 
     # ── Connect to Proxmox ──
     with console.status("[bold green]Connecting to Proxmox cluster..."):
@@ -1052,7 +1064,13 @@ def main() -> None:
     # Register DNS
     # ═══════════════════════════════════════════
     console.print("[bold cyan]─── Step 6/7: Registering DNS records ───[/bold cyan]")
-    run_ansible_add_dns(cfg, hostname, container_ip)
+    dns_action = dns_precheck(cfg, hostname, container_ip, silent=silent)
+    if dns_action == "abort":
+        sys.exit(1)
+    elif dns_action == "proceed":
+        run_ansible_add_dns(cfg, hostname, container_ip)
+    else:
+        console.print("  [dim]DNS registration skipped — existing record kept.[/dim]")
 
     # ═══════════════════════════════════════════
     # Update Ansible inventory

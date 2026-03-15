@@ -21,12 +21,18 @@ A command-line wizard for provisioning, configuring, and onboarding LXC containe
   - [Authorizing SSH Key on Proxmox Nodes](#authorizing-ssh-key-on-proxmox-nodes)
   - [config.yaml Reference](#configyaml-reference)
   - [cloud-images.yaml](#cloud-imagesyaml)
+- [Command-Line Reference](#command-line-reference)
+  - [deploy_lxc.py and deploy_vm.py flags](#deploy_lxcpy-and-deploy_vmpy-flags)
+  - [decomm_lxc.py and decomm_vm.py flags](#decomm_lxcpy-and-decomm_vmpy-flags)
+  - [Common combinations](#common-combinations)
+- [Preflight Checks](#preflight-checks)
 - [Usage — deploy_lxc.py](#usage--deploy_lxcpy)
   - [Interactive Mode](#interactive-mode)
   - [Deploy from File](#deploy-from-file)
   - [Silent Mode](#silent-non-interactive-mode)
   - [Validate Mode](#validate-mode)
   - [Dry-Run Mode](#dry-run-mode)
+  - [Preflight Mode](#preflight-mode)
   - [Prompt Walkthrough](#walkthrough-lxc-prompt-order)
   - [Deployment Steps](#the-7-lxc-deployment-steps)
 - [Usage — decomm_lxc.py](#usage--decomm_lxcpy)
@@ -36,6 +42,7 @@ A command-line wizard for provisioning, configuring, and onboarding LXC containe
   - [Silent Mode](#silent-non-interactive-mode-1)
   - [Validate Mode](#validate-mode-1)
   - [Dry-Run Mode](#dry-run-mode-1)
+  - [Preflight Mode](#preflight-mode-1)
   - [Prompt Walkthrough](#walkthrough-vm-prompt-order)
   - [Deployment Steps](#the-7-vm-deployment-steps)
 - [Usage — decomm_vm.py](#usage--decomm_vmpy)
@@ -44,6 +51,7 @@ A command-line wizard for provisioning, configuring, and onboarding LXC containe
 - [Package Profiles](#package-profiles)
 - [Installed Packages](#installed-packages)
 - [Post-Deployment State](#post-deployment-state)
+- [porter Integration](#porter-integration)
 - [Ansible Playbooks](#ansible-playbooks)
 - [Troubleshooting](#troubleshooting)
 - [Submitting an Issue](#submitting-an-issue)
@@ -64,10 +72,11 @@ An interactive wizard that fully provisions and onboards an LXC container:
 6. Starts the container and polls for a DHCP IP address
 7. Bootstraps the container via `pct exec` on the Proxmox node (before SSH is available): installs openssh-server, enables root SSH login, converts the DHCP-assigned address to a permanent static netplan configuration
 8. Runs the Ansible post-deploy playbook: hostname, timezone, NTP, users, ~50 standard tools, SNMP, full apt dist-upgrade
-9. Registers DNS A and PTR records on the BIND server
+9. Registers DNS A and PTR records on the BIND server — with a pre-check that detects existing records and prompts to overwrite, skip, or abort
 10. Updates the Ansible inventory on the development server and sets up SSH key auth from dev server to new container
 11. Saves a deployment file to `deployments/lxc/<hostname>.json`
-12. Prints a connection summary
+12. Runs preflight checks at startup — verifies Proxmox API, SSH keys, Ansible, DNS and inventory servers, and (if a deploy file is provided) checks whether the hostname already resolves in DNS and whether the static IP is already in use
+13. Prints a connection summary
 
 ### decomm_lxc.py
 
@@ -95,10 +104,11 @@ An interactive wizard that fully provisions and onboards a QEMU virtual machine 
 8. Configures cloud-init: injects the controller's SSH public key, sets hostname, password, network (static or DHCP)
 9. Starts the VM and waits for SSH (static IP) or polls the QEMU guest agent for the assigned IP (DHCP)
 10. Runs the Ansible post-deploy-vm playbook: waits for cloud-init first-boot to complete, then configures hostname, timezone, NTP, users, tools, SNMP, QEMU guest agent, and a full system upgrade — using OS-appropriate commands for the detected guest family (Debian/RedHat/Suse)
-11. Registers DNS A and PTR records on the BIND server
+11. Registers DNS A and PTR records on the BIND server — with a pre-check that detects existing records and prompts to overwrite, skip, or abort
 12. Updates the Ansible inventory on the development server
-13. Saves a deployment file to `deployments/vms/<hostname>.json`
-14. Prints a connection summary
+13. Runs preflight checks at startup — verifies Proxmox API, SSH keys, Ansible, DNS and inventory servers, and (if a deploy file is provided) checks whether the hostname already resolves in DNS and whether the static IP is already in use
+14. Saves a deployment file to `deployments/vms/<hostname>.json`
+15. Prints a connection summary
 
 ### decomm_vm.py
 
@@ -431,6 +441,98 @@ All entries must be cloud-init capable images. The wizard shows existing cached 
 
 ---
 
+## Command-Line Reference
+
+### deploy_lxc.py and deploy_vm.py flags
+
+| Flag | Description |
+|---|---|
+| `--deploy-file FILE` | Load deployment JSON to pre-fill prompts (or drive `--silent`) |
+| `--silent` | Non-interactive: use all values from `--deploy-file` without prompting. Requires `--deploy-file`. Exits 1 on any preflight warning or failure |
+| `--validate` | Parse and validate `config.yaml` (and deploy file if given) then exit. No Proxmox connection |
+| `--dry-run` | Validate config + deploy file and print a full step-by-step plan without making any changes |
+| `--preflight` | Run all preflight connectivity and dependency checks then exit. Add `--deploy-file` to also check DNS hostname and static IP |
+| `--yolo` | Run preflight but continue through warnings without prompting. Fatal failures still block the deploy |
+
+### decomm_lxc.py and decomm_vm.py flags
+
+| Flag | Description |
+|---|---|
+| `--deploy-file FILE` | Load deployment JSON directly, skipping the interactive list |
+| `--purge` | Also delete the local deployment JSON file after decommissioning |
+| `--silent` | Skip the confirmation challenge (requires `--deploy-file`) |
+
+### Common combinations
+
+| Goal | Command |
+|---|---|
+| Check your environment is ready | `./deploy_lxc.py --preflight` |
+| Check environment + verify a specific deploy file | `./deploy_lxc.py --preflight --deploy-file deployments/lxc/myserver.json` |
+| Re-deploy interactively from a saved file | `./deploy_lxc.py --deploy-file deployments/lxc/myserver.json` |
+| Fully automated deploy (CI/CD, scripted) | `./deploy_lxc.py --deploy-file deployments/lxc/myserver.json --silent` |
+| Automated deploy, skip preflight for this host | Set `"preflight": false` in the JSON, then `--silent` |
+| Deploy without being blocked by preflight warnings | `./deploy_lxc.py --deploy-file deployments/lxc/myserver.json --yolo` |
+| Verify config without touching Proxmox | `./deploy_lxc.py --validate` |
+| See exactly what would happen without doing it | `./deploy_lxc.py --dry-run --deploy-file deployments/lxc/myserver.json` |
+| Decomm and delete the deployment file | `./decomm_lxc.py --deploy-file deployments/lxc/myserver.json --purge` |
+| Scripted decomm (no confirmation prompt) | `./decomm_lxc.py --deploy-file deployments/lxc/myserver.json --silent` |
+
+> **Flag interaction table — preflight behavior:**
+>
+> | Flags | Warnings | Fatal failures |
+> |---|---|---|
+> | _(none)_ | Continue / Retry / Abort prompt | Continue / Retry / Abort prompt |
+> | `--yolo` | Continue silently | Continue / Retry / Abort prompt |
+> | `--silent` | Exit 1 | Exit 1 |
+> | `--silent --yolo` | Continue silently | Exit 1 |
+> | `"preflight": false` in deploy file | Skipped entirely | Skipped entirely |
+
+---
+
+## Preflight Checks
+
+Both deploy scripts run a preflight check suite automatically at the start of every deployment — **before** any prompts are shown or Proxmox resources are created. The results are displayed as a table. If all checks pass you see a single `✓ Preflight checks passed.` line. If any check fails or warns, the full table is shown.
+
+Run standalone (check your environment and exit without deploying):
+```bash
+./deploy_lxc.py --preflight
+./deploy_lxc.py --preflight --deploy-file deployments/lxc/myserver.json
+```
+
+### Checks performed
+
+| Check | Fatal? | What it verifies |
+|---|---|---|
+| Config valid | Yes | `config.yaml` parses without errors and required fields are present |
+| Proxmox API reachable | Yes | TCP connect to port 8006 on each host in `proxmox.hosts`. Shows `X/Y host(s)` with names of unreachable hosts |
+| Proxmox API auth | Yes | API token is accepted (`GET /version`) |
+| SSH key on disk | Warning | `proxmox.ssh_key` file exists at the configured path |
+| Proxmox node SSH | Warning | SSH key is accepted by each node in the `nodes:` list. Shows `X/Y node(s)` with names of failing nodes |
+| Ansible installed | Yes | `ansible-playbook` is on PATH (skipped if `ansible.enabled: false`) |
+| sshpass installed | Yes (LXC only) | `sshpass` is on PATH |
+| DNS server reachable | Warning | TCP connect to port 22 on `dns.server` (skipped if `dns.enabled: false`) |
+| DNS server SSH auth | Warning | Key-based SSH to `dns.ssh_user@dns.server` succeeds |
+| DNS hostname check | Warning | If `--deploy-file` provided: queries DNS server directly for the hostname — warns if a record already exists (existing host may be orphaned) |
+| Static IP in use | **Fatal** | If `--deploy-file` provided and `ip_address` is set: pings the IP — **fails if it responds** (duplicate IP prevention) |
+| Inventory server reachable | Warning | TCP connect to port 22 on `ansible_inventory.server` |
+| Inventory SSH auth | Warning | Key-based SSH to the inventory server succeeds |
+
+Fatal failures block the deploy (or in `--silent` mode, exit 1 immediately). Warning-level checks print a yellow `⚠ warn` row but allow the deploy to proceed after the Continue/Retry/Abort prompt.
+
+### Skipping preflight for a specific deployment
+
+Add `"preflight": false` to the deployment JSON:
+```json
+{
+  "hostname": "myserver",
+  "preflight": false,
+  ...
+}
+```
+This is useful for hosts that are intentionally replacing an existing server (where the DNS and IP will already be in use) or in automation where you've pre-validated externally.
+
+---
+
 ## Usage — deploy_lxc.py
 
 ### Interactive Mode
@@ -477,6 +579,17 @@ python3 deploy_lxc.py --dry-run --deploy-file deployments/lxc/myserver.json
 Validates config and deployment file, then prints a full summary of what _would_ happen — hostname, node, template, resources, packages, tags, and each numbered step — without connecting to Proxmox, running Ansible, or modifying anything. Exits 0 on success.
 
 Without `--deploy-file`, only the config is validated and a brief message is printed. With `--deploy-file`, a full deployment summary and step-by-step plan are shown. Useful for sanity-checking a deployment file before a real run.
+
+### Preflight Mode
+
+```bash
+python3 deploy_lxc.py --preflight
+python3 deploy_lxc.py --preflight --deploy-file deployments/lxc/myserver.json
+```
+
+Runs all preflight checks and exits without deploying. Without `--deploy-file`, checks infrastructure only. With `--deploy-file`, also checks whether the hostname already has a DNS record and whether the static IP is already in use.
+
+Add `--silent` to make it script-friendly (exits 0 = all clear, 1 = any issue). Add `--yolo` to exit 0 on warnings and only fail on fatal checks.
 
 ---
 
@@ -537,8 +650,13 @@ Queried live from the selected node. Ubuntu versions are listed first.
 **Step 4 — Bootstrap via pct exec:**
 Runs entirely on the Proxmox node before SSH is available. Installs openssh-server, sets passwords, enables root SSH login, then detects the DHCP-assigned IP and gateway and writes a permanent netplan configuration that locks in the same address as a static assignment.
 
-**Step 6 — DNS:**
-A and PTR records are written directly to the BIND zone files and `rndc reload` is called. If a record for the hostname already exists with a different IP (redeploying after deletion), it is updated in-place. If the reverse zone file doesn't exist for the subnet, PTR is skipped gracefully.
+**Step 6 — DNS pre-check + registration:**
+Before writing any records, the configured DNS server is queried directly (`dig @<dns.server>`) for the hostname. If a record already exists:
+- **Same IP as deploy file:** shows an idempotent notice — continues but warns the existing host will be orphaned
+- **Different IP:** shows both IPs and prompts: **[O]verwrite**, **[S]kip DNS**, **[A]bort**
+- **Multiple records:** shows all existing records with count, then prompts
+
+In `--silent` mode, existing records are overwritten automatically with a logged warning. If the record does not exist, A and PTR records are written to the BIND zone files and `rndc reload` is called. If the reverse zone file doesn't exist, PTR is skipped gracefully.
 
 **Step 7 — Inventory + SSH key:**
 Runs `ssh-keyscan` and `ssh-copy-id` from the development server to the new container so Ansible can connect with key-based auth immediately. The keyscan step is non-fatal — `ssh-copy-id` uses `StrictHostKeyChecking=no` regardless.
@@ -615,6 +733,17 @@ Validates config and deployment file, then prints a full summary of what _would_
 
 Without `--deploy-file`, only the config is validated and a brief message is printed. With `--deploy-file`, a full deployment summary and step-by-step plan are shown.
 
+### Preflight Mode
+
+```bash
+python3 deploy_vm.py --preflight
+python3 deploy_vm.py --preflight --deploy-file deployments/vms/myserver.json
+```
+
+Runs all preflight checks and exits without deploying. Without `--deploy-file`, checks infrastructure only. With `--deploy-file`, also checks whether the hostname already has a DNS record and whether the static IP is already in use.
+
+Add `--silent` to make it script-friendly (exits 0 = all clear, 1 = any issue). Add `--yolo` to exit 0 on warnings and only fail on fatal checks.
+
 ---
 
 ### Walkthrough: VM Prompt Order
@@ -681,6 +810,14 @@ For static IPs, the script polls TCP port 22 until SSH accepts connections. For 
 **Step 5 — Ansible with cloud-init wait:**
 The playbook waits for `/run/cloud-init/result.json` to exist before making any configuration changes. This file is written by cloud-init when all first-boot stages complete, and works reliably across all supported OS families.
 
+**Step 6 — DNS pre-check + registration:**
+Before writing any records, the configured DNS server is queried directly (`dig @<dns.server>`) for the hostname. If a record already exists:
+- **Same IP as deploy file:** shows an idempotent notice — continues but warns the existing host will be orphaned
+- **Different IP:** shows both IPs and prompts: **[O]verwrite**, **[S]kip DNS**, **[A]bort**
+- **Multiple records:** shows all existing records with count, then prompts
+
+In `--silent` mode, existing records are overwritten automatically with a logged warning. If the record does not exist, A and PTR records are written to the BIND zone files and `rndc reload` is called. If the reverse zone file doesn't exist, PTR is skipped gracefully.
+
 ---
 
 ## Usage — decomm_vm.py
@@ -731,11 +868,14 @@ JSON is used rather than YAML so the files are usable directly as API payloads w
   "password": "changeme",
   "ip_address": "10.20.20.150",
   "prefix_len": "24",
-  "deployed_at": "2026-03-06 14:22:00"
+  "deployed_at": "2026-03-06 14:22:00",
+  "preflight": true
 }
 ```
 
 If the `template_volid` stored in the file is no longer present on the node (e.g. the template was deleted or a newer version downloaded), the script falls back to the first available template on the node and prints a warning.
+
+**`preflight`** — controls whether preflight checks run before this deployment. Defaults to `true`. Set to `false` to skip all preflight checks for this specific host (equivalent to passing `--yolo` and disabling the fatal checks). Use with care — see [Preflight Checks](#preflight-checks).
 
 ### VM deployment file (`deployments/vms/<hostname>.json`)
 
@@ -760,7 +900,8 @@ If the `template_volid` stored in the file is no longer present on the node (e.g
   "ip_address": "10.20.20.200",
   "prefix_len": "24",
   "gateway": "10.20.20.1",
-  "deployed_at": "2026-03-06 10:00:00"
+  "deployed_at": "2026-03-06 10:00:00",
+  "preflight": true
 }
 ```
 
@@ -775,6 +916,8 @@ If the `template_volid` stored in the file is no longer present on the node (e.g
 **`ip_address`** — `"dhcp"` if DHCP mode was used, otherwise the configured static IP.
 
 **`assigned_ip`** — present only for DHCP deployments; records the actual IP assigned at boot time.
+
+**`preflight`** — controls whether preflight checks run before this deployment. Defaults to `true`. Set to `false` to skip all preflight checks for this specific host (equivalent to passing `--yolo` and disabling the fatal checks). Use with care — see [Preflight Checks](#preflight-checks).
 
 ---
 
@@ -922,6 +1065,52 @@ The following lists reflect the **Debian/Ubuntu** package names:
 | DNS | A + PTR registered on BIND | A + PTR registered on BIND |
 | Ansible inventory | Added to configured group | Added to configured group |
 | Deployment file | `deployments/lxc/<hostname>.json` | `deployments/vms/<hostname>.json` |
+
+---
+
+## porter Integration
+
+[porter](https://github.com/jlees/porter) is a dual-pane terminal file manager built for homelabs and sysadmin work. It is now functional and integrates with labinator for snapshot-based deployments.
+
+### What porter does
+
+porter lets you connect to a running reference server (via SSH/SFTP), browse its filesystem, and cherry-pick configuration files into an archive. The archive contains the files with full permissions and ownership preserved, plus a `manifest.yaml` that documents local users, active systemd services, and installed packages.
+
+### The snapshot workflow
+
+1. Configure and validate a reference server manually (or using labinator)
+2. Use porter to take a filesystem snapshot of the reference server
+3. Use porter's "Build Archive from Diff" to select changed/new files and produce a `.tar.gz` with a `manifest.yaml`
+4. Store the archive alongside your deployment files
+5. Use the archive at deploy time to lay down the reference configuration on a fresh container
+
+### manifest.yaml
+
+The sidecar manifest included in every porter archive contains:
+
+| Field | Contents |
+|---|---|
+| `porter_manifest` | Version, timestamp, hostname, source directory |
+| `os` | OS name, version, kernel, arch from `/etc/os-release` |
+| `local_users` | Non-system users (uid 1000–60000) to create before extraction |
+| `systemd_services.active` | Services that were running on the source — re-enable after extraction |
+| `packages.installed` | Full package list from the source (informational reference) |
+| `files` | Per-file entries: path, status (`MOD`/`NEW`), permissions, owner, sha256 |
+
+### Labinator ingestion (planned)
+
+When a porter archive is referenced in a deployment, labinator will:
+1. Check `os` — warn if source and target OS families differ
+2. Create any `local_users` not already present on the target
+3. Extract the archive (`sudo tar -xzf <archive> -C /`)
+4. Enable and start services listed in `systemd_services.active`
+5. Optionally verify extracted file integrity against the `sha256` hashes
+
+> **Note:** The manifest schema is documented in `snapshot-manifest-specs.md` in the project root.
+
+### Current status
+
+porter is functional. Snapshots can be taken from reference servers and the archives are structured correctly for labinator ingestion. The labinator ingestion step (reading a porter archive and applying it during deployment) is planned as a future feature.
 
 ---
 
@@ -1172,6 +1361,32 @@ qm stop 200 && qm destroy 200 --purge     # VM
 **Option B — Fix in-place**
 
 Re-run specific Ansible playbooks manually against the host's IP. See [Ansible Playbooks](#ansible-playbooks).
+
+---
+
+### Preflight check fails: "Static IP in use"
+The IP address in your deploy file is already responding to ping. Another host is using it. Either:
+- Decommission the existing host first: `./decomm_lxc.py --deploy-file deployments/lxc/myserver.json`
+- Remove `ip_address` from the deployment JSON to use DHCP instead
+- If you're intentionally replacing the host, add `"preflight": false` to the deploy file
+
+---
+
+### Preflight check warns: "DNS hostname check"
+The hostname already resolves in DNS — an existing host is registered with that name. The existing host will be orphaned (no DNS record) after the new deployment registers its own record. Decommission the old host first with `decomm_lxc.py` or `decomm_vm.py` before redeploying.
+
+---
+
+### Preflight check warns: "Proxmox node SSH" for one node
+One node in your `nodes:` list rejected SSH key auth. This is a warning (non-fatal) because deployments target a single node and the API still works. Fix:
+```bash
+ssh-copy-id -i ~/.ssh/id_rsa root@proxmoxNN.example.com
+```
+
+---
+
+### "--silent" exits 1 on preflight warnings
+`--silent` mode is strict — it exits 1 on both warnings and fatal failures. To allow warnings through in silent/automated mode, add `--yolo` alongside `--silent`. To skip preflight entirely for a specific host, set `"preflight": false` in the deployment JSON.
 
 ---
 
