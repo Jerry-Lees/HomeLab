@@ -144,6 +144,7 @@ package_profiles:
 # The --yolo flag overrides per-warning behavior (continues through warnings but still
 # blocks on failures). The --preflight flag runs checks and exits without deploying.
 # See the Command-Line Reference in README.md for the full flag interaction table.
+preflight: true
 
 # DNS registration
 # Set enabled: false to skip automatic DNS registration and manage records manually.
