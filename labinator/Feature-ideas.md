@@ -1136,7 +1136,7 @@ Porter generates a `manifest.yaml` inside each archive documenting the source OS
 users, active systemd services, installed packages, and per-file SHA-256 checksums.
 Labinator reads this manifest to drive the post-extract workflow.
 
-**Manifest spec:** `snapshot-manifest-specs.md` in this repo — full schema, archive layout,
+**Manifest spec:** `docs/specs/porter-snapshot-manifest.md` — full schema, archive layout,
 labinator integration steps, and caveats. Read this before implementing.
 
 ### Archive storage
