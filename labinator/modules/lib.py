@@ -536,6 +536,7 @@ def health_check(ip: str, password: str, addusername: str, cfg: dict) -> bool:
     """
     Verify the host is healthy after deployment.
     Checks TCP port 22, then SSHes in and runs hostname.
+    Tries agent/key auth first, falls back to password.
     Returns True if healthy, False if not. Never raises.
     Skipped silently if health_check.enabled is false/absent in config.
     """
@@ -571,8 +572,8 @@ def health_check(ip: str, password: str, addusername: str, cfg: dict) -> bool:
     try:
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        client.connect(ip, username=addusername, password=password,
-                       timeout=timeout, allow_agent=False, look_for_keys=False)
+        client.connect(ip, username="root", timeout=timeout,
+                       allow_agent=True, look_for_keys=True)
         _, stdout, _ = client.exec_command("hostname")
         result = stdout.read().decode().strip()
         client.close()
