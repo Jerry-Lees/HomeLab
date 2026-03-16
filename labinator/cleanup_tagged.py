@@ -2,14 +2,16 @@
 """
 Proxmox Tagged Resource Cleanup
 ================================
-Finds all VMs and LXC containers tagged 'auto-deploy' across the entire
-Proxmox cluster and offers to decommission them interactively.
+Finds all VMs and LXC containers tagged with a given Proxmox tag (default:
+'auto-deploy') across the entire cluster and offers to decommission them
+interactively.
 
   - Displays a table of all tagged resources (node, type, VMID, status, IP)
-  - Lets you select which ones to decommission (multi-select)
-  - Runs the same scary confirmation challenge for each selection
-  - Stops and destroys the VM/container, removes DNS and inventory entries
+  - Per-resource action: Keep / Promote / Decomm
   - --dry-run: list matching resources and exit without touching anything
+  - --list-file: read a pre-built action list from a JSON file
+  - --silent: skip interactive prompts and scary confirmation challenge
+  - --tag TAG: scan for a different tag (validated — alphanumeric, -, _, .)
 
 THIS IS IRREVERSIBLE. Use with extreme caution.
 """
@@ -36,11 +38,14 @@ from rich.text import Text
 from modules.lib import (
     load_config,
     connect_proxmox,
-    wait_for_task,
     remove_dns,
     remove_from_inventory,
     confirm_destruction,
     flush_stdin,
+    stop_and_destroy,
+    promote_resource,
+    decomm_resource,
+    process_action_list,
     SKULL,
 )
 
@@ -62,7 +67,7 @@ def _validate_tag(value: str) -> str:
 
 
 # ─────────────────────────────────────────────
-# Proxmox scanning
+# IP resolution
 # ─────────────────────────────────────────────
 
 def _is_valid_ipv4(s: str) -> bool:
@@ -77,8 +82,6 @@ def _is_valid_ipv4(s: str) -> bool:
 
 def _extract_ip_from_config(config: dict) -> str:
     """Step 1: Pull IP from Proxmox VM/LXC config (static IPs only)."""
-    # VMs: ipconfig0 = "ip=x.x.x.x/24,gw=..."
-    # LXCs: net0 = "name=eth0,bridge=vmbr0,ip=x.x.x.x/24,..."
     for key in ("ipconfig0", "net0", "net1"):
         val = config.get(key, "")
         for part in val.split(","):
@@ -88,7 +91,7 @@ def _extract_ip_from_config(config: dict) -> str:
 
 
 def _ip_from_deploy_json(hostname: str, kind: str) -> str:
-    """Step 2: Check the local deployment JSON for a stored IP (assigned_ip / ip_address)."""
+    """Step 2: Check the local deployment JSON for a stored IP."""
     folder = "lxc" if kind == "lxc" else "vms"
     path = _ROOT / "deployments" / folder / f"{hostname}.json"
     if not path.exists():
@@ -102,7 +105,7 @@ def _ip_from_deploy_json(hostname: str, kind: str) -> str:
 
 
 def _ip_from_proxmox_api(proxmox: ProxmoxAPI, node: str, vmid: str, kind: str) -> str:
-    """Step 2: Ask Proxmox for live interface data (works for running containers/VMs)."""
+    """Step 3: Ask Proxmox for live interface data (works for running containers/VMs)."""
     try:
         if kind == "lxc":
             ifaces = proxmox.nodes(node).lxc(vmid).interfaces.get()
@@ -126,7 +129,7 @@ def _ip_from_proxmox_api(proxmox: ProxmoxAPI, node: str, vmid: str, kind: str) -
 
 
 def _ip_from_dns(hostname: str, cfg: dict) -> str:
-    """Step 3: DNS lookup — try configured DNS server first, then system resolver."""
+    """Step 4: DNS lookup — try configured DNS server first, then system resolver."""
     dns_server = cfg.get("dns", {}).get("server", "")
 
     if dns_server:
@@ -153,12 +156,6 @@ def _ip_from_dns(hostname: str, cfg: dict) -> str:
 
 def _resolve_ip(proxmox: ProxmoxAPI, node: str, vmid: str, kind: str,
                 hostname: str, config: dict, cfg: dict) -> str:
-    """Resolve a resource's IP using every available method in order:
-    1. Proxmox config (static IP)
-    2. Local deployment JSON (assigned_ip from deploy time)
-    3. Proxmox live interfaces API (running containers/VMs)
-    4. DNS lookup (configured server, then system resolver)
-    """
     return (
         _extract_ip_from_config(config)
         or _ip_from_deploy_json(hostname, kind)
@@ -168,19 +165,22 @@ def _resolve_ip(proxmox: ProxmoxAPI, node: str, vmid: str, kind: str,
     )
 
 
+# ─────────────────────────────────────────────
+# Proxmox scanning
+# ─────────────────────────────────────────────
+
 def _has_tag(resource: dict, tag: str) -> bool:
     tags_raw = resource.get("tags", "") or ""
     return tag in [t.strip() for t in tags_raw.replace(";", ",").split(",")]
 
 
 def scan_tagged_resources(proxmox: ProxmoxAPI, cfg: dict, tag: str = DEFAULT_TAG) -> list[dict]:
-    """Return list of dicts describing every auto-deploy tagged VM/LXC in the cluster."""
+    """Return list of dicts describing every tagged VM/LXC in the cluster."""
     found = []
 
     for node_info in proxmox.nodes.get():
         node = node_info["node"]
 
-        # LXC containers
         try:
             for ct in proxmox.nodes(node).lxc.get():
                 if not _has_tag(ct, tag):
@@ -200,11 +200,11 @@ def scan_tagged_resources(proxmox: ProxmoxAPI, cfg: dict, tag: str = DEFAULT_TAG
                     "ip":          _resolve_ip(proxmox, node, str(vmid), "lxc", hostname, px_cfg, cfg),
                     "tags":        ct.get("tags", ""),
                     "matched_tag": tag,
+                    "action":      "keep",
                 })
         except Exception as e:
             console.print(f"  [yellow]Warning: could not list LXCs on {node}: {e}[/yellow]")
 
-        # QEMU VMs
         try:
             for vm in proxmox.nodes(node).qemu.get():
                 if not _has_tag(vm, tag):
@@ -224,6 +224,7 @@ def scan_tagged_resources(proxmox: ProxmoxAPI, cfg: dict, tag: str = DEFAULT_TAG
                     "ip":          _resolve_ip(proxmox, node, str(vmid), "vm", hostname, px_cfg, cfg),
                     "tags":        vm.get("tags", ""),
                     "matched_tag": tag,
+                    "action":      "keep",
                 })
         except Exception as e:
             console.print(f"  [yellow]Warning: could not list VMs on {node}: {e}[/yellow]")
@@ -236,11 +237,11 @@ def scan_tagged_resources(proxmox: ProxmoxAPI, cfg: dict, tag: str = DEFAULT_TAG
 # ─────────────────────────────────────────────
 
 def print_resource_table(resources: list[dict], title: str = "") -> None:
-    t = Table(title=title or f"Resources tagged '{TAG}'", border_style="red")
-    t.add_column("#",        style="dim",          width=4)
+    t = Table(title=title or f"Resources tagged '{DEFAULT_TAG}'", border_style="red")
+    t.add_column("#",        style="dim",    width=4)
     t.add_column("Hostname", style="bold")
-    t.add_column("Type",     style="cyan",         width=6)
-    t.add_column("VMID",     style="yellow",       width=7)
+    t.add_column("Type",     style="cyan",   width=6)
+    t.add_column("VMID",     style="yellow", width=7)
     t.add_column("Node",     style="magenta")
     t.add_column("Status",   style="green")
     t.add_column("IP",       style="blue")
@@ -264,96 +265,95 @@ def print_resource_table(resources: list[dict], title: str = "") -> None:
     console.print(t)
 
 
+def print_summary(result: dict) -> None:
+    lines = ["[bold red]Cleanup Complete[/bold red]\n"]
+    if result["decommissioned"]:
+        lines.append("[green]Decommissioned:[/green]")
+        for h in result["decommissioned"]:
+            lines.append(f"  [green]✓ {h}[/green]")
+    if result["promoted"]:
+        lines.append("\n[cyan]Promoted to production:[/cyan]")
+        for h in result["promoted"]:
+            lines.append(f"  [cyan]✓ {h}[/cyan]")
+    if result["kept"]:
+        lines.append("\n[yellow]Kept (no changes):[/yellow]")
+        for h in result["kept"]:
+            lines.append(f"  [yellow]- {h}[/yellow]")
+    if result.get("already_gone"):
+        lines.append("\n[yellow]Already gone (DNS + inventory cleaned up):[/yellow]")
+        for h in result["already_gone"]:
+            lines.append(f"  [yellow]⚠ {h}[/yellow]")
+    if result["aborted"]:
+        lines.append("\n[red]Aborted (confirmation failed or error):[/red]")
+        for h in result["aborted"]:
+            lines.append(f"  [red]✗ {h}[/red]")
+    console.print(Panel(
+        "\n".join(lines),
+        border_style="red",
+        title=f"[bold red]{SKULL}  Done[/bold red]",
+    ))
+
+
 # ─────────────────────────────────────────────
-# Decommission helpers
+# List-file loading
 # ─────────────────────────────────────────────
 
-def stop_and_destroy(proxmox: ProxmoxAPI, resource: dict) -> None:
-    node     = resource["node"]
-    vmid     = resource["vmid"]
-    hostname = resource["hostname"]
-    kind     = resource["kind"]
-
-    api = proxmox.nodes(node).lxc(vmid) if kind == "lxc" else proxmox.nodes(node).qemu(vmid)
-    kind_label = "Container" if kind == "lxc" else "VM"
-
-    # Check existence
+def load_list_file(path: Path) -> dict:
+    """Load --list-file JSON and return a dict keyed by hostname -> action.
+    Each entry must have 'hostname' and 'action' (keep/promote/decomm).
+    'vmid' is optional but used to disambiguate duplicate hostnames.
+    """
+    VALID_ACTIONS = {"keep", "promote", "decomm"}
     try:
-        status = api.status.current.get()
-    except Exception:
-        console.print(f"  [yellow]{kind_label} {vmid} not found on {node} — may already be deleted.[/yellow]")
-        return
-
-    # Stop if running
-    if status.get("status") == "running":
-        console.print(f"  [dim]Stopping {kind_label.lower()} {vmid} ({hostname})...[/dim]")
-        try:
-            task = api.status.stop.post()
-            wait_for_task(proxmox, node, task, timeout=60)
-            console.print(f"  [green]✓ {kind_label} stopped[/green]")
-        except Exception as e:
-            console.print(f"  [yellow]Warning: could not stop cleanly: {e}[/yellow]")
-
-    # Destroy
-    console.print(f"  [dim]Destroying {kind_label.lower()} {vmid}...[/dim]")
-    try:
-        task = api.delete(**{"purge": 1, "destroy-unreferenced-disks": 1})
-        wait_for_task(proxmox, node, task, timeout=120)
-        console.print(f"  [green]✓ {kind_label} {vmid} destroyed[/green]")
+        with open(path) as f:
+            entries = json.load(f)
     except Exception as e:
-        console.print(f"  [red]✗ Failed to destroy {kind_label.lower()}: {e}[/red]")
-        raise
+        console.print(f"[red]ERROR: Could not read list file '{path}': {e}[/red]")
+        sys.exit(1)
+
+    if not isinstance(entries, list):
+        console.print("[red]ERROR: List file must be a JSON array of objects.[/red]")
+        sys.exit(1)
+
+    result = {}
+    for i, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            console.print(f"[red]ERROR: List file entry {i} is not an object.[/red]")
+            sys.exit(1)
+        hostname = entry.get("hostname", "").strip()
+        action   = entry.get("action",   "").strip().lower()
+        vmid     = str(entry.get("vmid", "")).strip()
+        if not hostname:
+            console.print(f"[red]ERROR: List file entry {i} missing 'hostname'.[/red]")
+            sys.exit(1)
+        if action not in VALID_ACTIONS:
+            console.print(f"[red]ERROR: List file entry {i} has invalid action '{action}'. "
+                          f"Must be one of: {', '.join(sorted(VALID_ACTIONS))}[/red]")
+            sys.exit(1)
+        key = f"{hostname}:{vmid}" if vmid else hostname
+        result[key] = action
+
+    return result
 
 
-def promote_resource(proxmox: ProxmoxAPI, resource: dict) -> None:
-    """Remove the matched tag from a resource, promoting it to a regular managed host."""
-    node     = resource["node"]
-    vmid     = resource["vmid"]
-    kind     = resource["kind"]
-    tag      = resource["matched_tag"]
-    tags_raw = resource.get("tags", "") or ""
+def apply_list_file(resources: list[dict], action_map: dict) -> None:
+    """Set 'action' on each resource based on the list file. Unmatched = keep."""
+    for r in resources:
+        # Try hostname:vmid first, then hostname alone
+        key_full = f"{r['hostname']}:{r['vmid']}"
+        key_host = r["hostname"]
+        if key_full in action_map:
+            r["action"] = action_map[key_full]
+        elif key_host in action_map:
+            r["action"] = action_map[key_host]
+        # else stays "keep" (default set during scan)
 
-    # Rebuild tag string without the matched tag
-    existing = [t.strip() for t in tags_raw.replace(";", ",").split(",") if t.strip()]
-    updated  = [t for t in existing if t != tag]
-    new_tags = ";".join(updated)
-
-    api = proxmox.nodes(node).lxc(vmid) if kind == "lxc" else proxmox.nodes(node).qemu(vmid)
-    api.config.put(tags=new_tags)
-    console.print(f"  [green]✓ Tag '{TAG}' removed — {resource['hostname']} promoted to production[/green]")
-
-
-def decomm_resource(proxmox: ProxmoxAPI, cfg: dict, resource: dict, idx: int, total: int) -> None:
-    hostname = resource["hostname"]
-    console.print()
-    console.print(f"[bold red]── Decommissioning {idx}/{total}: {hostname} ──[/bold red]")
-
-    # Build a minimal deploy dict compatible with remove_dns / remove_from_inventory
-    deploy = {
-        "hostname":    hostname,
-        "node":        resource["node"],
-        "vmid":        resource["vmid"],
-        "assigned_ip": resource["ip"],
-        "ip_address":  resource["ip"],
-    }
-
-    # Step 1: destroy
-    console.print("[bold red]─── Step 1/3: Destroying Proxmox resource ───[/bold red]")
-    try:
-        stop_and_destroy(proxmox, resource)
-    except Exception as e:
-        console.print(f"[red]✗ Destruction failed: {e}[/red]")
-        console.print("[yellow]Continuing with DNS and inventory cleanup anyway...[/yellow]")
-
-    # Step 2: DNS
-    console.print("[bold red]─── Step 2/3: Removing DNS records ───[/bold red]")
-    remove_dns(cfg, deploy)
-
-    # Step 3: inventory
-    console.print("[bold red]─── Step 3/3: Removing from Ansible inventory ───[/bold red]")
-    remove_from_inventory(cfg, deploy)
-
-    console.print(f"  [green]✓ {hostname} decommissioned[/green]")
+    # Warn about list file entries that didn't match anything
+    matched_keys = {f"{r['hostname']}:{r['vmid']}" for r in resources} | {r["hostname"] for r in resources}
+    for key, action in action_map.items():
+        base = key.split(":")[0]
+        if key not in matched_keys and base not in matched_keys:
+            console.print(f"  [yellow]Warning: list file entry '{key}' not found in cluster — skipped.[/yellow]")
 
 
 # ─────────────────────────────────────────────
@@ -369,7 +369,8 @@ def main() -> None:
             "  python3 cleanup_tagged.py\n"
             "  python3 cleanup_tagged.py --dry-run\n"
             f"  python3 cleanup_tagged.py --tag {DEFAULT_TAG}\n"
-            "  python3 cleanup_tagged.py --tag my-custom-tag --dry-run"
+            "  python3 cleanup_tagged.py --list-file cleanup-plan.json\n"
+            "  python3 cleanup_tagged.py --list-file cleanup-plan.json --silent"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -384,8 +385,21 @@ def main() -> None:
             "Alphanumeric, hyphens, underscores, and dots only, max 64 chars."
         ),
     )
+    parser.add_argument(
+        "--list-file", metavar="FILE",
+        help="JSON file pre-specifying actions per resource. "
+             "Format: [{\"hostname\": \"x\", \"action\": \"decomm|promote|keep\", \"vmid\": \"111\"}]",
+    )
+    parser.add_argument(
+        "--silent", action="store_true",
+        help="Skip interactive prompts and scary confirmation challenge. Requires --list-file.",
+    )
     args = parser.parse_args()
     tag = args.tag
+
+    if args.silent and not args.list_file:
+        console.print("[red]ERROR: --silent requires --list-file (no interactive selection in silent mode)[/red]")
+        sys.exit(1)
 
     console.print()
     console.print(Panel.fit(
@@ -422,97 +436,52 @@ def main() -> None:
         console.print(f"[yellow]Dry run — {len(resources)} resource(s) found. No changes made.[/yellow]")
         sys.exit(0)
 
-    # Per-resource action selection
-    decommissioned = []
-    promoted = []
-    kept = []
-    aborted = []
-
-    decomm_queue = []  # collect decomm targets, then run in one pass
-
-    for resource in resources:
-        hostname = resource["hostname"]
-        console.print(
-            f"[bold]{hostname}[/bold]  "
-            f"[cyan]{resource['kind'].upper()}[/cyan]  "
-            f"vmid=[yellow]{resource['vmid']}[/yellow]  "
-            f"node=[magenta]{resource['node']}[/magenta]  "
-            f"ip=[blue]{resource['ip'] or 'DHCP/unknown'}[/blue]"
-        )
-        flush_stdin()
-        action = questionary.select(
-            f"What do you want to do with {hostname}?",
-            choices=[
-                questionary.Choice("Keep    — leave it alone, come back later", value="keep"),
-                questionary.Choice("Promote — remove the auto-deploy tag (it's prod now)", value="promote"),
-                questionary.Choice("Decomm  — permanently destroy it", value="decomm"),
-            ],
-        ).ask()
-
-        if action is None or action == "keep":
-            kept.append(hostname)
-        elif action == "promote":
-            promoted.append(resource)
-        else:
-            decomm_queue.append(resource)
+    # ── Assign actions ──
+    if args.list_file:
+        action_map = load_list_file(Path(args.list_file))
+        apply_list_file(resources, action_map)
+        console.print(f"[dim]Actions loaded from: {args.list_file}[/dim]")
         console.print()
-
-    # Promote
-    if promoted:
-        console.print("[bold]── Promoting resources ──[/bold]")
-        for resource in promoted:
-            try:
-                promote_resource(proxmox, resource)
-            except Exception as e:
-                console.print(f"  [red]✗ Failed to promote {resource['hostname']}: {e}[/red]")
-                kept.append(resource["hostname"])
-                continue
+        # Show what will happen
+        for r in resources:
+            action_color = {"decomm": "red", "promote": "cyan", "keep": "yellow"}.get(r["action"], "white")
+            console.print(
+                f"  [{action_color}]{r['action']:<8}[/{action_color}]  "
+                f"[bold]{r['hostname']}[/bold]  "
+                f"[cyan]{r['kind'].upper()}[/cyan]  vmid=[yellow]{r['vmid']}[/yellow]"
+            )
         console.print()
+    else:
+        # Interactive per-resource selection
+        for resource in resources:
+            hostname = resource["hostname"]
+            console.print(
+                f"[bold]{hostname}[/bold]  "
+                f"[cyan]{resource['kind'].upper()}[/cyan]  "
+                f"vmid=[yellow]{resource['vmid']}[/yellow]  "
+                f"node=[magenta]{resource['node']}[/magenta]  "
+                f"ip=[blue]{resource['ip'] or 'DHCP/unknown'}[/blue]"
+            )
+            flush_stdin()
+            action = questionary.select(
+                f"What do you want to do with {hostname}?",
+                choices=[
+                    questionary.Choice("Keep    — leave it alone, come back later", value="keep"),
+                    questionary.Choice("Promote — remove the tag (it's prod now)",  value="promote"),
+                    questionary.Choice("Decomm  — permanently destroy it",           value="decomm"),
+                ],
+            ).ask()
+            resource["action"] = action if action is not None else "keep"
+            console.print()
 
-    # Decomm
-    if decomm_queue:
-        console.print(f"[bold red]{len(decomm_queue)} resource(s) queued for decommission.[/bold red]")
-        console.print()
+    # ── Execute ──
+    result = process_action_list(
+        resources, proxmox, cfg,
+        skip_confirmation=args.silent,
+    )
 
-    decomm_count = 0
-    for resource in decomm_queue:
-        flush_stdin()
-        if not confirm_destruction(resource, kind=resource["kind"]):
-            aborted.append(resource["hostname"])
-            continue
-        try:
-            decomm_count += 1
-            decomm_resource(proxmox, cfg, resource, decomm_count, len(decomm_queue))
-            decommissioned.append(resource["hostname"])
-        except Exception as e:
-            console.print(f"[red]Unexpected error decommissioning {resource['hostname']}: {e}[/red]")
-            aborted.append(resource["hostname"])
-
-    # Summary
     console.print()
-    lines = [f"[bold red]Cleanup Complete[/bold red]\n"]
-    if decommissioned:
-        lines.append("[green]Decommissioned:[/green]")
-        for h in decommissioned:
-            lines.append(f"  [green]✓ {h}[/green]")
-    if promoted:
-        lines.append("\n[cyan]Promoted to production:[/cyan]")
-        for r in promoted:
-            if r["hostname"] not in kept:
-                lines.append(f"  [cyan]✓ {r['hostname']}[/cyan]")
-    if kept:
-        lines.append("\n[yellow]Kept (no changes):[/yellow]")
-        for h in kept:
-            lines.append(f"  [yellow]- {h}[/yellow]")
-    if aborted:
-        lines.append("\n[red]Aborted (confirmation failed or error):[/red]")
-        for h in aborted:
-            lines.append(f"  [red]✗ {h}[/red]")
-    console.print(Panel(
-        "\n".join(lines),
-        border_style="red",
-        title=f"[bold red]{SKULL}  Done[/bold red]",
-    ))
+    print_summary(result)
 
 
 if __name__ == "__main__":
