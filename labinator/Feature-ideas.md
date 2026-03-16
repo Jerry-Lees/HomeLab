@@ -1255,3 +1255,37 @@ after a successful decommission, consistent with `decomm_vm.py --purge` / `decom
   in `expire.py` by deleting the file after a successful `"decommissioned"` return.
 - `already_gone` entries: optionally also delete the JSON (the resource is gone, file is stale).
 - Show deleted file path in the summary panel.
+
+---
+
+## Example cleanup_tagged action list files
+
+Create example `--list-file` JSON files in a dedicated `examples/` folder covering all
+supported scenarios. These would be committed to the repo as reference/documentation.
+
+### Suggested examples
+
+| File | Scenario |
+|---|---|
+| `examples/list-file-keep-all.json` | All entries set to `keep` — safe dry-run style |
+| `examples/list-file-decomm-all.json` | All entries set to `decomm` |
+| `examples/list-file-promote-all.json` | All entries set to `promote` (remove auto-deploy tag) |
+| `examples/list-file-mixed.json` | Mix of keep, decomm, and promote entries |
+| `examples/list-file-invalid-action.json` | Entry with invalid action — demonstrates error handling |
+| `examples/list-file-ghost-host.json` | Hostname not found in cluster — demonstrates skip/warning |
+
+### Action field values
+
+```json
+[
+  {"hostname": "test-lxc",   "action": "keep"},
+  {"hostname": "test-vm",    "vmid": "113", "action": "decomm"},
+  {"hostname": "prod-thing", "action": "promote"}
+]
+```
+
+### Implementation notes
+
+- Add `examples/` directory to the repo with a README or header comment in each file.
+- Reference these files in the README `--list-file` section.
+- `vmid` field is optional — useful when two hosts share a hostname across LXC/VM.
