@@ -1215,3 +1215,43 @@ targeted `chown` fixes.
 - `--dry-run` shows the app name and archive path in the summary table.
 - This is LXC-focused initially — VM equivalent is possible but cloud-init handles most
   VM app config differently (user-data scripts, etc.).
+
+---
+
+## Node Selector: Show Storage Free Alongside RAM and CPU
+
+**Current behaviour:** Node selection prompt shows free RAM / total RAM + CPU%.
+
+**Requested:** Also show usable storage free on each node — specifically the storage pools
+that accept VMs/containers (i.e. `content` includes `images` or `rootdir`).
+
+### Implementation notes
+
+- Proxmox API: `GET /nodes/{node}/storage?content=images` (for VMs) or `content=rootdir`
+  (for LXC). Returns `avail`, `total`, `used` in bytes per storage pool.
+- Sum `avail` across all eligible pools on the node, or show the largest single pool.
+- Update `prompt_node_selection()` in `modules/lib.py` to include a storage column.
+- Update `get_nodes()` (or wherever node data is fetched) to pull storage info per node
+  at the same time as RAM/CPU so it's one round of API calls.
+- Display format suggestion:
+  `★ proxmoxb06  —  RAM: 489.9 GB free / 503.8 GB  |  Disk: 1.2 TB free  (CPU: 2%)`
+- Sort order stays RAM-based (★ = most free RAM) unless we decide to add a combined score.
+
+---
+
+## expire.py --reap: Add --purge to delete deployment JSON files
+
+**Current behaviour:** `expire.py --reap` decommissions expired resources but leaves the
+deployment JSON files in `deployments/lxc/` and `deployments/vms/`. The files keep showing
+up in `--check` output as expired indefinitely.
+
+**Requested:** Add `--purge` flag to `expire.py --reap` that deletes the deployment JSON
+after a successful decommission, consistent with `decomm_vm.py --purge` / `decomm_lxc.py --purge`.
+
+### Implementation notes
+
+- Add `--purge` argparse flag to `expire.py`
+- Pass `purge=True` through to `decomm_resource()` in `lib.py`, or handle post-decomm
+  in `expire.py` by deleting the file after a successful `"decommissioned"` return.
+- `already_gone` entries: optionally also delete the JSON (the resource is gone, file is stale).
+- Show deleted file path in the summary panel.
