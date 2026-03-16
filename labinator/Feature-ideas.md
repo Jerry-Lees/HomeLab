@@ -811,6 +811,39 @@ environments, or users without modifying `config.yaml`.
 
 ---
 
+## cleanup_tagged.py — Pre-defined Action List (--list-file)
+
+Allow a hand-crafted JSON file to drive `cleanup_tagged.py` non-interactively, specifying
+which resources to keep, promote, or decomm without going through the interactive per-resource
+prompt.
+
+### Usage
+
+```bash
+python3 cleanup_tagged.py --list-file cleanup-plan.json
+python3 cleanup_tagged.py --list-file cleanup-plan.json --dry-run
+```
+
+### File format (proposed)
+
+```json
+[
+  { "hostname": "test-lxc",     "vmid": "111", "action": "decomm"  },
+  { "hostname": "labinator",    "vmid": "134", "action": "promote" },
+  { "hostname": "test-sandbox", "vmid": "135", "action": "keep"    }
+]
+```
+
+### Implementation notes
+
+- Decomm actions still require the scary confirmation challenge unless `--silent` is also passed.
+- Any resource found in the cluster but not in the list file is treated as `keep` by default.
+- Any entry in the list file that doesn't match a tagged resource in the cluster is warned and skipped.
+- `--dry-run` shows what would happen without making any changes.
+- Pairs naturally with `expire.py --reap` if TTL is implemented.
+
+---
+
 ## Post-Deploy Hook Scripts — Plugins and Extensibility
 
 After a successful deployment (or decommission), run user-defined scripts or Ansible

@@ -21,6 +21,12 @@ venv/
 *.swp
 *.bak
 
+# Test plans (ephemeral — deleted as tests pass)
+test-plan.md
+
+# Known bugs (local tracking only)
+known-bugs.md
+
 # Deployment records (real deployments — examples are tracked explicitly)
 deployments/lxc/*.json
 deployments/vms/*.json

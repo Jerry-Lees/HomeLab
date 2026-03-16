@@ -13,6 +13,10 @@
   "bridge": "vmbr0",
   "password": "changeme",
   "ip_address": "172.16.0.150",
+  "assigned_ip": "172.16.0.150",
   "prefix_len": "24",
-  "deployed_at": "2026-03-05 22:45:00"
+  "deployed_at": "2026-03-05 22:45:00",
+  "ttl": "7d",
+  "expires_at": "2026-03-12T22:45:00.000000+00:00",
+  "preflight": true
 }

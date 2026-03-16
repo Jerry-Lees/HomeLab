@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-# vm-onboard setup script
+# labinator setup script
 # Installs ALL required system packages and Python dependencies
 # ============================================================
 set -euo pipefail
@@ -16,7 +16,7 @@ fail() { echo -e "${RED}✗ ERROR:${NC} $*"; exit 1; }
 section() { echo ""; echo "─── $* ───"; }
 
 echo "=============================================="
-echo "  vm-onboard — Dependency Setup"
+echo "  labinator — Dependency Setup"
 echo "=============================================="
 
 # ──────────────────────────────────────────────
@@ -119,7 +119,7 @@ ok "pip upgraded: $($PIP --version)"
 section "Python packages (from requirements.txt)"
 
 if [ ! -f requirements.txt ]; then
-    fail "requirements.txt not found. Run this script from the vm-onboard directory."
+    fail "requirements.txt not found. Run this script from the labinator directory."
 fi
 
 echo "Installing packages — this may take a minute..."

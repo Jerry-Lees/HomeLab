@@ -70,6 +70,8 @@ from modules.lib import (
     wait_for_ssh,
     node_ssh_host,
     run_preflight,
+    parse_ttl,
+    expires_at_from_ttl,
     q,
     load_deployment_file,
     prompt_package_profile,
@@ -570,7 +572,8 @@ def save_deployment_file(hostname: str, vmid: int, node_name: str,
                          cpus_str: str, memory_gb_str: str, disk_gb_str: str,
                          storage: str, vlan_str: str, bridge: str,
                          password: str, container_ip: str, prefix_len: str,
-                         cfg: dict, package_profile: str = "", extra_packages: list = ()) -> None:
+                         cfg: dict, package_profile: str = "",
+                         extra_packages: list = (), ttl: str = "") -> None:
     domain = cfg["proxmox"].get("node_domain", "")
     fqdn = f"{hostname}.{domain}" if domain else hostname
     deployments_dir = Path(__file__).parent / "deployments" / "lxc"
@@ -591,11 +594,15 @@ def save_deployment_file(hostname: str, vmid: int, node_name: str,
         "bridge": bridge,
         "password": password,
         "ip_address": container_ip,
+        "assigned_ip": container_ip,
         "prefix_len": prefix_len,
         "package_profile": package_profile,
         "extra_packages": list(extra_packages),
         "deployed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
+    if ttl:
+        data["ttl"] = ttl
+        data["expires_at"] = expires_at_from_ttl(ttl)
     with open(deploy_file, "w") as f:
         json.dump(data, f, indent=2)
     console.print(f"  [dim]Deployment file saved: {deploy_file}[/dim]")
@@ -678,7 +685,22 @@ def main() -> None:
         "--yolo", action="store_true",
         help="Skip preflight checks and deploy immediately",
     )
+    parser.add_argument(
+        "--ttl", metavar="TTL",
+        help="Time-to-live for this deployment (e.g. 7d, 24h, 2w, 30m). "
+             "Stores 'expires_at' in the deployment JSON for use with expire.py.",
+    )
     args = parser.parse_args()
+
+    # Validate --ttl early so we fail fast before any Proxmox work
+    ttl = None
+    if args.ttl:
+        try:
+            parse_ttl(args.ttl)
+            ttl = args.ttl
+        except ValueError as e:
+            console.print(f"[red]ERROR: {e}[/red]")
+            sys.exit(1)
 
     if args.validate:
         run_validate(args)  # exits 0 or 1
@@ -710,8 +732,8 @@ def main() -> None:
 
     console.print()
     console.print(Panel.fit(
-        Text("Proxmox LXC Deploy Wizard", style="bold cyan"),
-        subtitle="[dim]github: vm-onboard[/dim]",
+        Text("Proxmox LXC Deploy Wizard\n", style="bold cyan", justify="center") +
+        Text("github.com: Jerry-Lees/HomeLab/labinator", style="dim cyan", justify="center"),
         border_style="cyan",
     ))
     console.print()
@@ -893,6 +915,8 @@ def main() -> None:
     table.add_row("Network",     f"{bridge}.{vlan_str}  (DHCP)")
     tags_display = ";".join(["auto-deploy"] + profile_tags) if profile_tags else "auto-deploy"
     table.add_row("Tags",        tags_display)
+    if ttl:
+        table.add_row("TTL / Expires", f"{ttl}  (expires {expires_at_from_ttl(ttl)[:19]} UTC)")
     table.add_row("Users",       f"root, {addusername} (same password)")
     table.add_row("Timezone",    cfg.get("timezone", "UTC"))
     table.add_row("NTP",         ", ".join(cfg.get("ntp", {}).get("servers", ["pool.ntp.org"])))
@@ -1085,6 +1109,7 @@ def main() -> None:
         password, container_ip, prefix_len, cfg,
         package_profile=package_profile,
         extra_packages=extra_packages,
+        ttl=ttl or "",
     )
 
     # Health check (optional — runs if health_check.enabled in config)

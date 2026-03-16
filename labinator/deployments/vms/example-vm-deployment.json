@@ -15,8 +15,12 @@
   "vlan": 220,
   "bridge": "vmbr0",
   "password": "changeme",
-  "ip_address": "172.16.0.200",
+  "ip_address": "dhcp",
+  "assigned_ip": "172.16.0.200",
   "prefix_len": "24",
   "gateway": "172.16.0.1",
-  "deployed_at": "2026-03-06 10:00:00"
+  "deployed_at": "2026-03-06 10:00:00",
+  "ttl": "1d",
+  "expires_at": "2026-03-07T10:00:00.000000+00:00",
+  "preflight": true
 }
