@@ -46,6 +46,7 @@ A command-line wizard for provisioning, configuring, and onboarding LXC containe
   - [Prompt Walkthrough](#walkthrough-vm-prompt-order)
   - [Deployment Steps](#the-7-vm-deployment-steps)
 - [Usage — decomm_vm.py](#usage--decomm_vmpy)
+- [Usage — cleanup_tagged.py](#usage--cleanup_taggedpy)
 - [Deployment Files](#deployment-files)
 - [Deployment Defaults](#deployment-defaults)
 - [Package Profiles](#package-profiles)
@@ -840,6 +841,60 @@ Runs 4 steps after confirmation:
 VM destruction uses `purge=1` and `destroy-unreferenced-disks=1` to remove all associated disk volumes.
 
 > Only VMs with a `deployments/vms/*.json` file can be decommissioned this way.
+
+---
+
+## Usage — cleanup_tagged.py
+
+Scans **every node in the cluster** for VMs and LXC containers carrying a given Proxmox tag (default: `auto-deploy`) and lets you decide what to do with each one interactively.
+
+```bash
+python3 cleanup_tagged.py                             # scan for 'auto-deploy' tagged resources
+python3 cleanup_tagged.py --dry-run                   # list matching resources and exit
+python3 cleanup_tagged.py --tag my-custom-tag         # scan for a different tag
+python3 cleanup_tagged.py --tag my-custom-tag --dry-run
+```
+
+### Flags
+
+| Flag | Description |
+|---|---|
+| `--dry-run` | Print the resource table and exit. No changes made. |
+| `--tag TAG` | Tag to scan for. Default: `auto-deploy`. Alphanumeric, hyphens, underscores, dots only; max 64 chars. Validated at startup. |
+
+### IP resolution order
+
+For each tagged resource, the script resolves the IP using these sources in order, stopping at the first hit:
+
+1. **Proxmox config** — static IP from the resource's `ipconfig0` / `net0` config key
+2. **Deployment JSON** — `assigned_ip` or `ip_address` from the local `deployments/lxc/` or `deployments/vms/` file (populated at deploy time, covers DHCP-assigned IPs)
+3. **Proxmox live interfaces API** — queries the running guest directly (requires qemu-guest-agent for VMs)
+4. **DNS lookup** — tries the configured DNS server first (`dns.server` in `config.yaml`), then falls back to the system resolver
+
+If none of these resolve, IP is shown as `unknown/DHCP` in the table.
+
+### Per-resource actions
+
+After displaying the resource table, the script prompts for each resource individually:
+
+| Action | Effect |
+|---|---|
+| **Keep** | Leave it alone. No changes. Appears in the summary as Kept. |
+| **Promote** | Removes the matched tag from the resource in Proxmox. The resource stays running and is no longer flagged as temporary. |
+| **Decomm** | Permanently destroys the resource. Runs the same full destruction sequence as `decomm_lxc.py` / `decomm_vm.py`: stops and destroys in Proxmox (purging all disks), removes DNS A + PTR records, removes from Ansible inventory. Requires the random-caps challenge confirmation. |
+
+Decomm operations are queued and confirmed one at a time after the action selection pass completes.
+
+> `preflight: false` in a deployment JSON has no effect here — no preflight checks run in `cleanup_tagged.py`.
+
+### Summary panel
+
+After all actions complete, a summary panel is printed with four buckets:
+
+- **Decommissioned** — fully destroyed
+- **Promoted to production** — tag removed, kept running
+- **Kept (no changes)** — skipped
+- **Aborted** — confirmation failed or an error occurred during destruction
 
 ---
 
