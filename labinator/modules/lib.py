@@ -214,7 +214,7 @@ def confirm_destruction(deploy: dict, kind: str = "VM") -> bool:
     hostname = deploy["hostname"]
     vmid = deploy.get("vmid", "???")
     node = deploy.get("node", "???")
-    ip = deploy.get("ip_address", "???")
+    ip = deploy.get("ip_address") or deploy.get("ip", "???")
 
     challenge = random_caps("yes")
 
