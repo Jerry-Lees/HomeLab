@@ -1,0 +1,5 @@
+[
+  {"hostname": "test-lxc-01",  "action": "decomm"},
+  {"hostname": "test-vm-01",   "action": "nuke"},
+  {"hostname": "staging-web",  "action": "keep"}
+]

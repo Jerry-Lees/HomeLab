@@ -1,0 +1,6 @@
+[
+  {"hostname": "test-lxc-01",  "action": "decomm"},
+  {"hostname": "test-vm-01",   "action": "decomm"},
+  {"hostname": "staging-web",  "action": "promote"},
+  {"hostname": "dev-db-01",    "action": "keep"}
+]
