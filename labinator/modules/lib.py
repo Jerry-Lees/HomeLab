@@ -763,20 +763,56 @@ def run_ansible_inventory_update(cfg: dict, hostname: str, ip: str, password: st
 # Deploy: Proxmox helpers
 # ─────────────────────────────────────────────
 
-def get_nodes_with_load(proxmox: ProxmoxAPI) -> list[dict]:
-    """Return online nodes sorted by free RAM (descending)."""
+def smart_size(b: int) -> str:
+    """Convert bytes to a human-readable size string with auto-scaling units."""
+    if b <= 0:
+        return "0 B"
+    units = ["B", "KB", "MB", "GB", "TB", "PB"]
+    val = float(b)
+    for unit in units[:-1]:
+        if val < 1024:
+            return f"{val:.1f} {unit}"
+        val /= 1024
+    # val is now in PB
+    if val > 10:
+        return f"{val:.1f} PB!!! 😱"
+    return f"{val:.1f} PB"
+
+
+def get_nodes_with_load(proxmox: ProxmoxAPI, storage_content: str = "images") -> list[dict]:
+    """Return online nodes sorted by free RAM (descending).
+
+    storage_content: Proxmox content type to sum for free disk display.
+      'images'  — VM disk storage (deploy_vm.py)
+      'rootdir' — LXC root disk storage (deploy_lxc.py)
+    """
     nodes = []
     for node in proxmox.nodes.get():
         if node.get("status") == "online":
             maxmem = node.get("maxmem", 0)
             mem = node.get("mem", 0)
+            name = node["node"]
+            local_disk = 0
+            shared_disk = 0
+            try:
+                for s in proxmox.nodes(name).storage.get(enabled=1):
+                    if storage_content in s.get("content", ""):
+                        avail = s.get("avail", 0)
+                        if s.get("shared", 0):
+                            shared_disk += avail
+                        else:
+                            local_disk += avail
+            except Exception:
+                pass
             nodes.append({
-                "name": node["node"],
+                "name": name,
                 "free_mem": maxmem - mem,
                 "maxmem": maxmem,
                 "mem": mem,
                 "cpu": node.get("cpu", 0),
                 "maxcpu": node.get("maxcpu", 1),
+                "local_disk": local_disk,
+                "shared_disk": shared_disk,
             })
     return sorted(nodes, key=lambda x: -x["free_mem"])
 
@@ -1286,18 +1322,31 @@ def prompt_node_selection(nodes: list[dict], deploy: dict, silent: bool,
         return node_name
 
     deploy_node = str(deploy.get("node", ""))
+    max_name_len   = max(len(n["name"]) for n in filtered_nodes)
+    max_ram_len    = max(len(f"{smart_size(n['free_mem'])} free / {smart_size(n['maxmem'])}") for n in filtered_nodes)
+    max_shared_len = max(len(smart_size(n['shared_disk'])) for n in filtered_nodes)
+    max_local_len  = max(len(smart_size(n['local_disk']))  for n in filtered_nodes)
+    max_cpu_len    = max(len(f"{n['cpu'] * 100:.0f}%")     for n in filtered_nodes)
     node_choices = []
     for n in filtered_nodes:
         is_best = n["name"] == best_node["name"]
-        suffix = " [deploy file]" if n["name"] == deploy_node else ""
+        suffix = "  [deploy file]" if n["name"] == deploy_node else ""
+        ram_str    = f"{smart_size(n['free_mem'])} free / {smart_size(n['maxmem'])}".ljust(max_ram_len)
+        shared_str = smart_size(n['shared_disk']).ljust(max_shared_len)
+        local_str  = smart_size(n['local_disk']).ljust(max_local_len)
+        cpu_str    = f"{n['cpu'] * 100:.0f}%".ljust(max_cpu_len)
         node_choices.append(questionary.Choice(
-            title=(
-                f"{'★ ' if is_best else '  '}"
-                f"{n['name']}  —  "
-                f"{bytes_to_gb(n['free_mem'])} GB free / "
-                f"{bytes_to_gb(n['maxmem'])} GB RAM  "
-                f"(CPU: {n['cpu'] * 100:.0f}%){suffix}"
-            ),
+            title=[
+                ("", "★ " if is_best else "  "),
+                ("bold", n["name"].ljust(max_name_len)),
+                ("", "  —  "),
+                ("bold", "RAM:"),
+                ("", f" [{ram_str}]  "),
+                ("bold", "Disk:"),
+                ("", f" [{local_str} (local) - {shared_str} (shared)]  "),
+                ("bold", "CPU:"),
+                ("", f" [{cpu_str}]{suffix}"),
+            ],
             value=n["name"],
         ))
     default_node = (

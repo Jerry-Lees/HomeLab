@@ -754,7 +754,7 @@ def main() -> None:
     with console.status("[bold green]Connecting to Proxmox cluster..."):
         try:
             proxmox = connect_proxmox(cfg)
-            nodes = get_nodes_with_load(proxmox)
+            nodes = get_nodes_with_load(proxmox, storage_content="rootdir")
         except Exception as e:
             console.print(f"[red]Failed to connect to Proxmox: {e}[/red]")
             sys.exit(1)
