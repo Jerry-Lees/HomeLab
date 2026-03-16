@@ -1615,7 +1615,7 @@ Or re-run `./setup.sh` to reinstall all dependencies.
 
 **Before opening an issue:**
 - Read the [Troubleshooting](#troubleshooting) section
-- Verify your `config.yaml` is correctly filled in
+- Verify your `config.yaml` is correctly filled in \(Please be certain to redact sensitive information with `**redacted**`\)
 - Verify all [Prerequisites](#prerequisites) are met
 
 **Open a GitHub Issue with the following:**
@@ -1665,9 +1665,20 @@ Or re-run `./setup.sh` to reinstall all dependencies.
 - [ ] Step 7 — Ansible inventory update
 - [ ] decomm_vm.py — decommission
 
+### Suggested Severity
+<!-- Pick one — we may adjust when triaging -->
+- [ ] Critical — blocks deployment entirely
+- [ ] High — risk of data loss or silent failure
+- [ ] Medium — functional breakage, but a workaround exists
+- [ ] Low — cosmetic or minor inconvenience
+
 ### What did you expect to happen?
 
 ### What actually happened?
+<!-- Include exact error messages or output snippets here -->
+
+### Workaround
+<!-- Did you find any way to work around this? If none, say so explicitly. -->
 
 ### Full terminal output
 <!-- Paste complete output. Redact passwords and token secrets. -->
