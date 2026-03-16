@@ -12,12 +12,14 @@ import ipaddress
 import json
 import os
 import random
+import re
 import socket
 import subprocess
 import sys
 import termios
 import time
 import tty
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import paramiko
@@ -263,6 +265,192 @@ def confirm_destruction(deploy: dict, kind: str = "VM") -> bool:
     console.print("\n[bold red]Confirmed. Proceeding with decommission...[/bold red]")
     console.print()
     return True
+
+
+# ─────────────────────────────────────────────
+# TTL / expiry helpers
+# ─────────────────────────────────────────────
+
+_TTL_RE = re.compile(r'^(\d+)(m|h|d|w)$')
+
+def parse_ttl(ttl_str: str) -> timedelta:
+    """Parse a TTL string (e.g. '7d', '24h', '2w', '30m') into a timedelta.
+    Raises ValueError on invalid format."""
+    m = _TTL_RE.match(ttl_str.strip().lower())
+    if not m:
+        raise ValueError(
+            f"Invalid TTL '{ttl_str}': use a number followed by m/h/d/w "
+            "(e.g. 30m, 24h, 7d, 2w)"
+        )
+    n, unit = int(m.group(1)), m.group(2)
+    return {"m": timedelta(minutes=n), "h": timedelta(hours=n),
+            "d": timedelta(days=n),   "w": timedelta(weeks=n)}[unit]
+
+
+def expires_at_from_ttl(ttl_str: str) -> str:
+    """Return an ISO 8601 UTC timestamp string for now + ttl_str."""
+    return (datetime.now(timezone.utc) + parse_ttl(ttl_str)).isoformat()
+
+
+# ─────────────────────────────────────────────
+# Decommission pipeline (shared with cleanup_tagged + expire)
+# ─────────────────────────────────────────────
+
+def stop_and_destroy(proxmox: ProxmoxAPI, resource: dict) -> bool:
+    """Stop (if running) and permanently destroy a VM or LXC container.
+    Returns True if destroyed, False if already gone."""
+    node       = resource["node"]
+    vmid       = resource["vmid"]
+    hostname   = resource["hostname"]
+    kind       = resource["kind"]
+    api        = proxmox.nodes(node).lxc(vmid) if kind == "lxc" else proxmox.nodes(node).qemu(vmid)
+    kind_label = "Container" if kind == "lxc" else "VM"
+
+    try:
+        status = api.status.current.get()
+    except Exception:
+        console.print(f"  [yellow]{kind_label} {vmid} not found on {node} — may already be deleted.[/yellow]")
+        return False
+
+    if status.get("status") == "running":
+        console.print(f"  [dim]Stopping {kind_label.lower()} {vmid} ({hostname})...[/dim]")
+        try:
+            task = api.status.stop.post()
+            wait_for_task(proxmox, node, task, timeout=60)
+            console.print(f"  [green]✓ {kind_label} stopped[/green]")
+        except Exception as e:
+            console.print(f"  [yellow]Warning: could not stop cleanly: {e}[/yellow]")
+
+    console.print(f"  [dim]Destroying {kind_label.lower()} {vmid}...[/dim]")
+    try:
+        task = api.delete(**{"purge": 1, "destroy-unreferenced-disks": 1})
+        wait_for_task(proxmox, node, task, timeout=120)
+        console.print(f"  [green]✓ {kind_label} {vmid} destroyed[/green]")
+    except Exception as e:
+        console.print(f"  [red]✗ Failed to destroy {kind_label.lower()}: {e}[/red]")
+        raise
+    return True
+
+
+def promote_resource(proxmox: ProxmoxAPI, resource: dict) -> None:
+    """Remove the matched tag from a resource in Proxmox (promotes it to production)."""
+    node     = resource["node"]
+    vmid     = resource["vmid"]
+    kind     = resource["kind"]
+    tag      = resource.get("matched_tag", "auto-deploy")
+    tags_raw = resource.get("tags", "") or ""
+
+    existing = [t.strip() for t in tags_raw.replace(";", ",").split(",") if t.strip()]
+    updated  = [t for t in existing if t != tag]
+    new_tags = ";".join(updated)
+
+    api = proxmox.nodes(node).lxc(vmid) if kind == "lxc" else proxmox.nodes(node).qemu(vmid)
+    api.config.put(tags=new_tags)
+    console.print(f"  [green]✓ Tag '{tag}' removed — {resource['hostname']} promoted to production[/green]")
+
+
+def decomm_resource(proxmox: ProxmoxAPI, cfg: dict, resource: dict,
+                    idx: int = 1, total: int = 1) -> str:
+    """Full decommission: stop+destroy in Proxmox, remove DNS, remove from inventory.
+    Returns 'decommissioned' if destroyed, 'already_gone' if not found in Proxmox."""
+    hostname = resource["hostname"]
+    console.print()
+    console.print(f"[bold red]── Decommissioning {idx}/{total}: {hostname} ──[/bold red]")
+
+    deploy = {
+        "hostname":    hostname,
+        "node":        resource["node"],
+        "vmid":        resource["vmid"],
+        "assigned_ip": resource.get("ip", ""),
+        "ip_address":  resource.get("ip", ""),
+    }
+
+    console.print("[bold red]─── Step 1/3: Destroying Proxmox resource ───[/bold red]")
+    already_gone = False
+    try:
+        destroyed = stop_and_destroy(proxmox, resource)
+        if not destroyed:
+            already_gone = True
+    except Exception as e:
+        console.print(f"[red]✗ Destruction failed: {e}[/red]")
+        console.print("[yellow]Continuing with DNS and inventory cleanup anyway...[/yellow]")
+
+    console.print("[bold red]─── Step 2/3: Removing DNS records ───[/bold red]")
+    remove_dns(cfg, deploy)
+
+    console.print("[bold red]─── Step 3/3: Removing from Ansible inventory ───[/bold red]")
+    remove_from_inventory(cfg, deploy)
+
+    if already_gone:
+        console.print(f"  [yellow]⚠ {hostname} was already gone — DNS and inventory cleaned up[/yellow]")
+        return "already_gone"
+    console.print(f"  [green]✓ {hostname} decommissioned[/green]")
+    return "decommissioned"
+
+
+def process_action_list(resources: list, proxmox: ProxmoxAPI, cfg: dict,
+                        skip_confirmation: bool = False) -> dict:
+    """Execute keep/promote/decomm actions on a list of resource dicts.
+
+    Each resource must have an 'action' key: 'keep' | 'promote' | 'decomm'.
+    Returns a summary dict with keys: decommissioned, already_gone, promoted, kept, aborted.
+    skip_confirmation=True skips the scary challenge (for --silent / automated modes).
+    """
+    decommissioned: list = []
+    already_gone:   list = []
+    promoted:       list = []
+    kept:           list = []
+    aborted:        list = []
+
+    # Promote first (non-destructive)
+    promote_list = [r for r in resources if r.get("action") == "promote"]
+    if promote_list:
+        console.print("[bold]── Promoting resources ──[/bold]")
+        for resource in promote_list:
+            try:
+                promote_resource(proxmox, resource)
+                promoted.append(resource["hostname"])
+            except Exception as e:
+                console.print(f"  [red]✗ Failed to promote {resource['hostname']}: {e}[/red]")
+                aborted.append(resource["hostname"])
+        console.print()
+
+    # Kept
+    for r in resources:
+        if r.get("action") == "keep":
+            kept.append(r["hostname"])
+
+    # Decomm
+    decomm_queue = [r for r in resources if r.get("action") == "decomm"]
+    if decomm_queue:
+        console.print(f"[bold red]{len(decomm_queue)} resource(s) queued for decommission.[/bold red]")
+        console.print()
+
+    decomm_count = 0
+    for resource in decomm_queue:
+        if not skip_confirmation:
+            flush_stdin()
+            if not confirm_destruction(resource, kind=resource["kind"]):
+                aborted.append(resource["hostname"])
+                continue
+        try:
+            decomm_count += 1
+            status = decomm_resource(proxmox, cfg, resource, decomm_count, len(decomm_queue))
+            if status == "already_gone":
+                already_gone.append(resource["hostname"])
+            else:
+                decommissioned.append(resource["hostname"])
+        except Exception as e:
+            console.print(f"[red]Unexpected error decommissioning {resource['hostname']}: {e}[/red]")
+            aborted.append(resource["hostname"])
+
+    return {
+        "decommissioned": decommissioned,
+        "already_gone":   already_gone,
+        "promoted":       promoted,
+        "kept":           kept,
+        "aborted":        aborted,
+    }
 
 
 # ─────────────────────────────────────────────
