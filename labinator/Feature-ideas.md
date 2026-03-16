@@ -1219,27 +1219,6 @@ targeted `chown` fixes.
 
 ---
 
-## Node Selector: Show Storage Free Alongside RAM and CPU
-
-**Current behaviour:** Node selection prompt shows free RAM / total RAM + CPU%.
-
-**Requested:** Also show usable storage free on each node — specifically the storage pools
-that accept VMs/containers (i.e. `content` includes `images` or `rootdir`).
-
-### Implementation notes
-
-- Proxmox API: `GET /nodes/{node}/storage?content=images` (for VMs) or `content=rootdir`
-  (for LXC). Returns `avail`, `total`, `used` in bytes per storage pool.
-- Sum `avail` across all eligible pools on the node, or show the largest single pool.
-- Update `prompt_node_selection()` in `modules/lib.py` to include a storage column.
-- Update `get_nodes()` (or wherever node data is fetched) to pull storage info per node
-  at the same time as RAM/CPU so it's one round of API calls.
-- Display format suggestion:
-  `★ proxmoxb06  —  RAM: 489.9 GB free / 503.8 GB  |  Disk: 1.2 TB free  (CPU: 2%)`
-- Sort order stays RAM-based (★ = most free RAM) unless we decide to add a combined score.
-
----
-
 ## expire.py --reap: Add --purge to delete deployment JSON files
 
 **Current behaviour:** `expire.py --reap` decommissions expired resources but leaves the
