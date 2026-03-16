@@ -293,8 +293,8 @@ myserver ansible_host=myserver.example.com ansible_python_interpreter=/usr/bin/p
 ## Installation
 
 ```bash
-git clone <your-repo-url> ~/projects/labinator
-cd ~/projects/labinator
+git clone https://github.com/Jerry-Lees/HomeLab.git
+cd HomeLab/labinator
 cp config.yaml.example config.yaml
 ./setup.sh
 ```
