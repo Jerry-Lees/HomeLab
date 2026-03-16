@@ -1127,16 +1127,17 @@ This approach sidesteps the two bad alternatives:
 
 The archive approach lets the admin do the hard work once, then captures the result.
 
-### Prerequisite: porter must be built first
+### Prerequisite: porter is ready
 
-The `.tar.gz` deployment archives are built using **porter** — a standalone dual-pane
-terminal file manager (see `~/projects/porter/Feature-ideas.md`). Porter connects to the
-reference container via SSH/SFTP, lets you browse its filesystem and cherry-pick config
-files, and packs them into an archive with permissions and ownership fully preserved.
+The `.tar.gz` deployment archives are built using **porter** — porter is functional and
+producing archives. See `~/projects/porter/Feature-ideas.md` for porter's own roadmap.
 
-Porter also generates a sidecar `labinator-manifest.yaml` that documents any custom
-users/groups and pre/post-extract commands, so labinator can handle ownership correctly
-on the destination container. Build porter before implementing this feature.
+Porter generates a `manifest.yaml` inside each archive documenting the source OS, local
+users, active systemd services, installed packages, and per-file SHA-256 checksums.
+Labinator reads this manifest to drive the post-extract workflow.
+
+**Manifest spec:** `snapshot-manifest-specs.md` in this repo — full schema, archive layout,
+labinator integration steps, and caveats. Read this before implementing.
 
 ### Archive storage
 
