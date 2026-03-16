@@ -1,4 +1,4 @@
-# vm-onboard
+# labinator
 
 A command-line wizard for provisioning, configuring, and onboarding LXC containers and QEMU virtual machines in a Proxmox VE homelab cluster. Handles the full lifecycle from resource creation through post-deployment configuration, DNS registration, and Ansible inventory registration — in a single guided session. Companion decommission scripts reverse the process cleanly.
 
@@ -47,6 +47,7 @@ A command-line wizard for provisioning, configuring, and onboarding LXC containe
   - [Deployment Steps](#the-7-vm-deployment-steps)
 - [Usage — decomm_vm.py](#usage--decomm_vmpy)
 - [Usage — cleanup_tagged.py](#usage--cleanup_taggedpy)
+- [Usage — expire.py](#usage--expirepy)
 - [Deployment Files](#deployment-files)
 - [Deployment Defaults](#deployment-defaults)
 - [Package Profiles](#package-profiles)
@@ -123,6 +124,20 @@ Permanently destroys a VM deployed via `deploy_vm.py`:
 6. Removes the host from the Ansible inventory
 7. Reports the local deployment file path (use `--purge` to also delete it)
 
+### cleanup_tagged.py
+
+Scans every node in the cluster for VMs and LXC containers tagged with a given Proxmox tag (default: `auto-deploy`) and lets you decide what to do with each one. Can be run interactively or driven by a pre-built action list for fully automated cleanup windows. See [Usage — cleanup_tagged.py](#usage--cleanup_taggedpy).
+
+### expire.py
+
+Manages deployment TTLs. Scans all deployment JSON files for an `expires_at` field and reports on or acts on expired and expiring-soon deployments:
+
+- **`--check`** — prints a table of expired and expiring-soon hosts. No Proxmox connection needed.
+- **`--reap`** — decommissions all expired hosts (stop/destroy, DNS, inventory). Same full pipeline as the decomm scripts.
+- **`--renew HOSTNAME --ttl Xd`** — extends the TTL of a deployment by updating its JSON file.
+
+Deployments without an `expires_at` field are ignored entirely.
+
 ---
 
 ## Project Layout
@@ -133,15 +148,17 @@ labinator/
 ├── decomm_lxc.py                  # LXC decommission script
 ├── deploy_vm.py                   # QEMU VM provisioning wizard
 ├── decomm_vm.py                   # QEMU VM decommission script
+├── cleanup_tagged.py              # Cluster-wide tag-based cleanup
+├── expire.py                      # Deployment TTL manager (check/reap/renew)
 ├── config.yaml                    # Credentials + defaults (excluded from git)
 ├── config.yaml.example            # Documented config template (committed)
 ├── cloud-images.yaml              # Cloud image catalog for deploy_vm.py
 ├── requirements.txt               # Python dependencies
 ├── setup.sh                       # First-time setup script
-├── .gitignore                     # Excludes config.yaml and .venv
+├── .gitignore                     # Excludes config.yaml, .venv, and test files
 ├── modules/
 │   ├── __init__.py                # Package marker
-│   └── lib.py                     # Shared functions used by all four scripts
+│   └── lib.py                     # Shared functions used by all scripts
 ├── deployments/
 │   ├── lxc/                       # One JSON file per deployed LXC container
 │   │   └── myserver.json
@@ -276,8 +293,8 @@ myserver ansible_host=myserver.example.com ansible_python_interpreter=/usr/bin/p
 ## Installation
 
 ```bash
-git clone <your-repo-url> ~/projects/vm-onboard
-cd ~/projects/vm-onboard
+git clone <your-repo-url> ~/projects/labinator
+cd ~/projects/labinator
 cp config.yaml.example config.yaml
 ./setup.sh
 ```
@@ -449,6 +466,7 @@ All entries must be cloud-init capable images. The wizard shows existing cached 
 | Flag | Description |
 |---|---|
 | `--deploy-file FILE` | Load deployment JSON to pre-fill prompts (or drive `--silent`) |
+| `--ttl TTL` | Set a TTL for the deployment (e.g. `7d`, `24h`, `2w`, `30m`). Stores `ttl` and `expires_at` in the deployment JSON. Shown in the confirmation summary. Deployments with a TTL are tracked by `expire.py`. |
 | `--silent` | Non-interactive: use all values from `--deploy-file` without prompting. Requires `--deploy-file`. Exits 1 on any preflight warning or failure |
 | `--validate` | Parse and validate `config.yaml` (and deploy file if given) then exit. No Proxmox connection |
 | `--dry-run` | Validate config + deploy file and print a full step-by-step plan without making any changes |
@@ -846,13 +864,14 @@ VM destruction uses `purge=1` and `destroy-unreferenced-disks=1` to remove all a
 
 ## Usage — cleanup_tagged.py
 
-Scans **every node in the cluster** for VMs and LXC containers carrying a given Proxmox tag (default: `auto-deploy`) and lets you decide what to do with each one interactively.
+Scans **every node in the cluster** for VMs and LXC containers carrying a given Proxmox tag (default: `auto-deploy`) and lets you decide what to do with each one — interactively, or via a pre-built action list file.
 
 ```bash
-python3 cleanup_tagged.py                             # scan for 'auto-deploy' tagged resources
-python3 cleanup_tagged.py --dry-run                   # list matching resources and exit
-python3 cleanup_tagged.py --tag my-custom-tag         # scan for a different tag
-python3 cleanup_tagged.py --tag my-custom-tag --dry-run
+python3 cleanup_tagged.py                                          # interactive scan for 'auto-deploy' tagged resources
+python3 cleanup_tagged.py --dry-run                                # list matching resources and exit
+python3 cleanup_tagged.py --tag my-custom-tag                      # scan for a different tag
+python3 cleanup_tagged.py --list-file cleanup-plan.json            # load actions from a file
+python3 cleanup_tagged.py --list-file cleanup-plan.json --silent   # run unattended, no confirmation prompts
 ```
 
 ### Flags
@@ -861,6 +880,8 @@ python3 cleanup_tagged.py --tag my-custom-tag --dry-run
 |---|---|
 | `--dry-run` | Print the resource table and exit. No changes made. |
 | `--tag TAG` | Tag to scan for. Default: `auto-deploy`. Alphanumeric, hyphens, underscores, dots only; max 64 chars. Validated at startup. |
+| `--list-file FILE` | Load a pre-built JSON action list. See [Action List File](#action-list-file) below. |
+| `--silent` | Skip interactive prompts and the scary confirmation challenge. Requires `--list-file`. |
 
 ### IP resolution order
 
@@ -887,14 +908,136 @@ Decomm operations are queued and confirmed one at a time after the action select
 
 > `preflight: false` in a deployment JSON has no effect here — no preflight checks run in `cleanup_tagged.py`.
 
+### Action List File
+
+The `--list-file` flag accepts a JSON file that pre-specifies an action for each resource. This separates the *decision* of what to do from the *execution* — review and approve the plan file, then hand it to `--silent` to run unattended.
+
+```json
+[
+  {"hostname": "test-lxc",    "action": "keep"},
+  {"hostname": "staging-web", "action": "promote"},
+  {"hostname": "old-db",      "vmid": "123", "action": "decomm"}
+]
+```
+
+**Fields:**
+
+| Field | Required | Description |
+|---|---|---|
+| `hostname` | Yes | Must match the resource name as reported by Proxmox |
+| `action` | Yes | One of `keep`, `promote`, or `decomm` |
+| `vmid` | No | Used to disambiguate when two resources share the same hostname |
+
+**Matching:** Resources are matched by `hostname:vmid` first, then `hostname` alone. Resources in the cluster that have no matching entry in the file default to `keep`. List file entries that don't match any cluster resource produce a warning and are skipped — they do not cause an error.
+
+**Typical workflow:**
+
+```bash
+# 1. See what's tagged
+./cleanup_tagged.py --dry-run
+
+# 2. Build a plan file based on the output
+vim cleanup-plan.json
+
+# 3. Dry-run with the plan to verify actions
+./cleanup_tagged.py --list-file cleanup-plan.json --dry-run
+
+# 4. Execute — review confirmation challenge per decomm
+./cleanup_tagged.py --list-file cleanup-plan.json
+
+# 5. Or execute fully unattended
+./cleanup_tagged.py --list-file cleanup-plan.json --silent
+```
+
 ### Summary panel
 
-After all actions complete, a summary panel is printed with four buckets:
+After all actions complete, a summary panel is printed with five buckets:
 
-- **Decommissioned** — fully destroyed
-- **Promoted to production** — tag removed, kept running
+- **Decommissioned** — fully destroyed (stopped, disks purged, DNS removed, inventory cleaned)
+- **Already gone** — Proxmox resource not found; DNS and inventory were still cleaned up
+- **Promoted to production** — tag removed, resource kept running
 - **Kept (no changes)** — skipped
 - **Aborted** — confirmation failed or an error occurred during destruction
+
+The **Already gone** bucket is important in production: it means the JSON file existed but the Proxmox resource had already been deleted by other means. The script handles this gracefully — DNS and inventory are still cleaned up — and reports it separately so it doesn't look like a successful decommission.
+
+---
+
+## Usage — expire.py
+
+Manages deployment TTLs. Scans `deployments/lxc/*.json` and `deployments/vms/*.json` for the `expires_at` field and reports on or acts on expired and expiring-soon deployments. Deployments without `expires_at` are ignored.
+
+```bash
+./expire.py --check                          # show expired and expiring-soon (default)
+./expire.py --check --warning 3d             # flag deployments expiring within 3 days
+./expire.py --reap                           # decommission all expired deployments
+./expire.py --reap --silent                  # reap without confirmation prompts
+./expire.py --renew myserver --ttl 7d        # extend myserver's TTL by 7 days
+./expire.py --renew myserver --ttl 7d --kind lxc  # disambiguate when lxc/ and vms/ have the same hostname
+```
+
+### Flags
+
+| Flag | Description |
+|---|---|
+| `--check` | Print a table of expired and expiring-soon hosts. Default mode if no other mode given. No Proxmox connection needed. |
+| `--reap` | Connect to Proxmox and decommission all expired deployments. Full pipeline: stop+destroy, DNS, inventory. |
+| `--renew HOSTNAME` | Extend the TTL of a deployment. Updates `ttl` and `expires_at` in the JSON file. Requires `--ttl`. |
+| `--ttl TTL` | TTL for `--renew` (e.g. `7d`, `24h`, `2w`, `30m`). See [TTL Format](#ttl-format). |
+| `--warning TTL` | How far ahead to flag as expiring-soon. Default: `48h`. Accepts same format as `--ttl`. |
+| `--silent` | Skip the confirmation challenge when reaping. |
+| `--kind lxc\|vm` | Disambiguate `--renew` when both `deployments/lxc/` and `deployments/vms/` contain the same hostname. |
+
+### TTL Format
+
+TTLs use a number followed by a unit:
+
+| Unit | Meaning | Example |
+|---|---|---|
+| `m` | minutes | `30m` |
+| `h` | hours | `24h` |
+| `d` | days | `7d` |
+| `w` | weeks | `2w` |
+
+All TTL arguments across `deploy_lxc.py`, `deploy_vm.py`, and `expire.py` use the same format.
+
+### --check output
+
+```
+┏━━━━━━━━━━━━━┳━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┓
+┃ Hostname    ┃ Type ┃ VMID    ┃ Node       ┃ TTL   ┃ Expires / Expired                    ┃ Status        ┃
+┡━━━━━━━━━━━━━╇━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━┩
+│ old-test    │ LXC  │ 111     │ proxmox01  │ 2d    │ 2024-01-01 00:00 UTC  (806d ago)     │ EXPIRED       │
+│ staging-vm  │ VM   │ 113     │ proxmox01  │ 1d    │ 2026-03-17 02:40 UTC  (24h left)     │ expiring soon │
+└─────────────┴──────┴─────────┴────────────┴───────┴──────────────────────────────────────┴───────────────┘
+```
+
+Expired entries are shown in red. Expiring-soon entries are shown in yellow. The warning window defaults to `48h` and is configurable with `--warning`.
+
+### --reap behavior
+
+`--reap` runs the same full decommission pipeline as the decomm scripts:
+
+1. Stop and destroy the Proxmox resource
+2. Remove DNS A + PTR records from BIND
+3. Remove from Ansible inventory
+
+If the Proxmox resource is already gone (stale JSON file), it proceeds with DNS and inventory cleanup and reports the host as **Already gone** rather than **Decommissioned** — so you always know the true state.
+
+### --renew examples
+
+```bash
+# Extend by 7 days (searches lxc/ then vms/ automatically)
+./expire.py --renew myserver --ttl 7d
+
+# Extend specifically the LXC version when both lxc/ and vms/ have myserver.json
+./expire.py --renew myserver --ttl 7d --kind lxc
+
+# Extend specifically the VM version
+./expire.py --renew myserver --ttl 7d --kind vm
+```
+
+`--renew` only updates the JSON file — no Proxmox connection needed.
 
 ---
 
@@ -922,11 +1065,20 @@ JSON is used rather than YAML so the files are usable directly as API payloads w
   "bridge": "vmbr0",
   "password": "changeme",
   "ip_address": "10.20.20.150",
+  "assigned_ip": "10.20.20.150",
   "prefix_len": "24",
   "deployed_at": "2026-03-06 14:22:00",
+  "ttl": "7d",
+  "expires_at": "2026-03-13T14:22:00.000000+00:00",
   "preflight": true
 }
 ```
+
+**`ttl`** — the TTL string passed at deploy time (e.g. `7d`). Present only if `--ttl` was used. Used by `expire.py` for display in the expiry table.
+
+**`expires_at`** — ISO 8601 UTC timestamp calculated from the TTL at deploy time. `expire.py` reads this field to determine expiry status. If absent, the deployment is ignored by `expire.py`.
+
+**`assigned_ip`** — the actual IP address assigned to the container (same as `ip_address` for static assignments; the DHCP-assigned IP for DHCP deployments). Used by the decomm pipeline for DNS record removal.
 
 If the `template_volid` stored in the file is no longer present on the node (e.g. the template was deleted or a newer version downloaded), the script falls back to the first available template on the node and prints a warning.
 
@@ -952,10 +1104,13 @@ If the `template_volid` stored in the file is no longer present on the node (e.g
   "vlan": 220,
   "bridge": "vmbr0",
   "password": "changeme",
-  "ip_address": "10.20.20.200",
+  "ip_address": "dhcp",
+  "assigned_ip": "10.20.20.200",
   "prefix_len": "24",
   "gateway": "10.20.20.1",
   "deployed_at": "2026-03-06 10:00:00",
+  "ttl": "1d",
+  "expires_at": "2026-03-07T10:00:00.000000+00:00",
   "preflight": true
 }
 ```
@@ -1466,7 +1621,7 @@ Or re-run `./setup.sh` to reinstall all dependencies.
 **Open a GitHub Issue with the following:**
 
 ```
-## Issue Report — vm-onboard
+## Issue Report — labinator
 
 ### Summary
 <!-- One sentence describing what went wrong -->
@@ -1479,7 +1634,7 @@ Or re-run `./setup.sh` to reinstall all dependencies.
 | Ansible version | ansible --version |
 | proxmoxer version | pip show proxmoxer |
 | Proxmox VE version | shown in Proxmox UI top-right |
-| vm-onboard version / commit | git rev-parse --short HEAD |
+| labinator version / commit | git rev-parse --short HEAD |
 
 ### Which script and step failed?
 **LXC (deploy_lxc.py):**
@@ -1492,6 +1647,12 @@ Or re-run `./setup.sh` to reinstall all dependencies.
 - [ ] Step 6 — DNS registration
 - [ ] Step 7 — Ansible inventory update
 - [ ] decomm_lxc.py — decommission
+
+**Cleanup / Expiry:**
+- [ ] cleanup_tagged.py — interactive or --list-file mode
+- [ ] expire.py --check
+- [ ] expire.py --reap
+- [ ] expire.py --renew
 
 **VM (deploy_vm.py):**
 - [ ] Startup / config / Proxmox connection
