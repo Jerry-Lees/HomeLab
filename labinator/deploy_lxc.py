@@ -630,6 +630,9 @@ def check_node_resources(proxmox: ProxmoxAPI, node_name: str,
         # Check storage space
         for s in proxmox.nodes(node_name).storage.get(enabled=1):
             if s["storage"] == storage:
+                # lvmthin pools report avail=0 (thin-provisioned — no hard free space limit)
+                if s.get("type") == "lvmthin":
+                    break
                 avail = s.get("avail", 0)
                 needed = disk_gb * 1024 ** 3
                 if avail < needed:

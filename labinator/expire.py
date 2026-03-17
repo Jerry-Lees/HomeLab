@@ -7,6 +7,7 @@ acts on expired / expiring-soon deployments.
 
   --check               Print a table of expired and expiring-soon hosts (default)
   --reap                Decommission all expired hosts (stop/destroy, DNS, inventory)
+  --reap --purge        Same as --reap, but also delete the deployment JSON file after success
   --renew HOSTNAME      Extend the TTL of an existing deployment
   --ttl TTL             New TTL for --renew (e.g. 7d, 24h, 2w, 30m)
   --warning-hours N     Hours ahead to flag as expiring-soon (default: 48)
@@ -210,6 +211,8 @@ def main() -> None:
             "  python3 expire.py --check\n"
             "  python3 expire.py --reap\n"
             "  python3 expire.py --reap --silent\n"
+            "  python3 expire.py --reap --purge\n"
+            "  python3 expire.py --reap --purge --silent\n"
             "  python3 expire.py --renew test-lxc --ttl 7d\n"
             "  python3 expire.py --check --warning 3d"
         ),
@@ -232,6 +235,8 @@ def main() -> None:
                         help="How far ahead to flag as expiring-soon (default: 48h, e.g. 2d, 6h, 30m)")
     parser.add_argument("--silent", action="store_true",
                         help="Skip confirmation challenge when reaping")
+    parser.add_argument("--purge",  action="store_true",
+                        help="Delete deployment JSON file after successful reap (requires --reap)")
     parser.add_argument("--yolo",   action="store_true",
                         help="Continue through warnings; blocked by failures")
 
@@ -306,10 +311,28 @@ def main() -> None:
             console.print(f"[red]Failed to connect to Proxmox: {e}[/red]")
             sys.exit(1)
 
+    # Build hostname → deploy_file map before reaping (entries may be mutated)
+    deploy_file_map = {e["hostname"]: e["deploy_file"] for e in expired}
+
     result = process_action_list(
         expired, proxmox, cfg,
         skip_confirmation=args.silent,
     )
+
+    # Purge deployment JSON files for successfully cleaned-up hosts
+    purged   = []
+    unpurged = []
+    if args.purge:
+        purgeable = set(result["decommissioned"]) | set(result.get("already_gone", []))
+        for hostname in purgeable:
+            deploy_file = deploy_file_map.get(hostname)
+            if deploy_file and Path(deploy_file).exists():
+                try:
+                    Path(deploy_file).unlink()
+                    purged.append(hostname)
+                except Exception as e:
+                    console.print(f"  [yellow]Warning: could not delete {deploy_file}: {e}[/yellow]")
+                    unpurged.append(hostname)
 
     # Summary
     console.print()
@@ -326,6 +349,14 @@ def main() -> None:
         lines.append("\n[red]Aborted (confirmation failed or error):[/red]")
         for h in result["aborted"]:
             lines.append(f"  [red]✗ {h}[/red]")
+    if purged:
+        lines.append("\n[dim]Deployment files deleted (--purge):[/dim]")
+        for h in purged:
+            lines.append(f"  [dim]✓ {h}.json[/dim]")
+    if unpurged:
+        lines.append("\n[yellow]Deployment files NOT deleted (delete manually):[/yellow]")
+        for h in unpurged:
+            lines.append(f"  [yellow]⚠ {h}.json[/yellow]")
     console.print(Panel(
         "\n".join(lines),
         border_style="red",
