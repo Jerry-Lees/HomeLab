@@ -394,6 +394,10 @@ def main() -> None:
         "--silent", action="store_true",
         help="Skip interactive prompts and scary confirmation challenge. Requires --list-file.",
     )
+    parser.add_argument(
+        "--config", metavar="FILE",
+        help="Path to an alternate config file (default: config.yaml in project root)",
+    )
     args = parser.parse_args()
     tag = args.tag
 
@@ -413,7 +417,7 @@ def main() -> None:
     ))
     console.print()
 
-    cfg = load_config()
+    cfg = load_config(args.config)
 
     with console.status("[bold]Connecting to Proxmox cluster..."):
         try:

@@ -239,6 +239,8 @@ def main() -> None:
                         help="Delete deployment JSON file after successful reap (requires --reap)")
     parser.add_argument("--yolo",   action="store_true",
                         help="Continue through warnings; blocked by failures")
+    parser.add_argument("--config", metavar="FILE",
+                        help="Path to an alternate config file (default: config.yaml in project root)")
 
     args = parser.parse_args()
 
@@ -302,7 +304,7 @@ def main() -> None:
     console.print(f"[bold red]{len(expired)} expired deployment(s) to decommission.[/bold red]")
     console.print()
 
-    cfg = load_config()
+    cfg = load_config(args.config)
 
     with console.status("[bold red]Connecting to Proxmox cluster..."):
         try:

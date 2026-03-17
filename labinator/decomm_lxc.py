@@ -107,6 +107,10 @@ def main() -> None:
         "--silent", action="store_true",
         help="Non-interactive mode: skip confirmation challenge (requires --deploy-file)",
     )
+    parser.add_argument(
+        "--config", metavar="FILE",
+        help="Path to an alternate config file (default: config.yaml in project root)",
+    )
     args = parser.parse_args()
 
     if args.silent and not args.deploy_file:
@@ -171,7 +175,7 @@ def main() -> None:
         sys.exit(0)
 
     # Load config and connect to Proxmox
-    cfg = load_config()
+    cfg = load_config(args.config)
 
     with console.status("[bold red]Connecting to Proxmox cluster..."):
         try:

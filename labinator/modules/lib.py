@@ -64,10 +64,10 @@ def write_history(entry: dict) -> None:
 # Config
 # ─────────────────────────────────────────────
 
-def load_config() -> dict:
-    config_path = _ROOT / "config.yaml"
+def load_config(path: str | Path | None = None) -> dict:
+    config_path = Path(path) if path else _ROOT / "config.yaml"
     if not config_path.exists():
-        console.print(f"[red]ERROR: config.yaml not found at {config_path}[/red]")
+        console.print(f"[red]ERROR: config file not found at {config_path}[/red]")
         console.print("Copy config.yaml.example to config.yaml and fill in your credentials.")
         sys.exit(1)
     with open(config_path) as f:
@@ -1130,16 +1130,18 @@ def _pf_inventory_ssh_auth(cfg: dict) -> _PF:
 
 
 def run_preflight(cfg: dict, kind: str, silent: bool = False, verbose: bool = False,
-                  deploy: dict | None = None, yolo: bool = False) -> None:
+                  deploy: dict | None = None, yolo: bool = False,
+                  config_path: Path | None = None) -> None:
     """Run preflight checks. Prints results table on any failure (always if verbose).
 
-    kind:    "lxc" or "vm"
-    silent:  exit 1 on warnings OR fatal failures — no prompts
-    verbose: always print the full table (used by --preflight standalone)
-    deploy:  if provided, also check DNS hostname and static IP
-    yolo:    continue through warnings without prompting; still blocks on fatal failures
+    kind:        "lxc" or "vm"
+    silent:      exit 1 on warnings OR fatal failures — no prompts
+    verbose:     always print the full table (used by --preflight standalone)
+    deploy:      if provided, also check DNS hostname and static IP
+    yolo:        continue through warnings without prompting; still blocks on fatal failures
+    config_path: path to config file (defaults to config.yaml in project root)
     """
-    cfg_path = _ROOT / "config.yaml"
+    cfg_path = config_path or (_ROOT / "config.yaml")
 
     while True:
         with console.status("[dim]Running preflight checks...[/dim]"):

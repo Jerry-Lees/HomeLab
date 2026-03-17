@@ -929,6 +929,10 @@ def main() -> None:
         help="Time-to-live for this deployment (e.g. 7d, 24h, 2w, 30m). "
              "Stores 'expires_at' in the deployment JSON for use with expire.py.",
     )
+    parser.add_argument(
+        "--config", metavar="FILE",
+        help="Path to an alternate config file (default: config.yaml in project root)",
+    )
     args = parser.parse_args()
 
     # Validate --ttl early so we fail fast before any Proxmox work
@@ -947,16 +951,17 @@ def main() -> None:
         run_dry_run(args)   # exits 0 or 1
 
     if args.preflight:
-        cfg = load_config()
+        cfg = load_config(args.config)
         deploy = load_deployment_file(args.deploy_file) if args.deploy_file else {}
         run_preflight(cfg, kind="vm", silent=args.silent, verbose=True,
-                      deploy=deploy if args.deploy_file else None, yolo=args.yolo)
+                      deploy=deploy if args.deploy_file else None, yolo=args.yolo,
+                      config_path=Path(args.config) if args.config else None)
         sys.exit(0)
 
     if args.silent and not args.deploy_file:
         parser.error("--silent requires --deploy-file")
 
-    cfg = load_config()
+    cfg = load_config(args.config)
     defaults = cfg["defaults"]
     addusername = defaults.get("addusername", "admin")
     cpu_threshold = float(defaults.get("cpu_threshold", 0.85))
