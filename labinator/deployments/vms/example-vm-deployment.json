@@ -20,7 +20,7 @@
   "prefix_len": "24",
   "gateway": "172.16.0.1",
   "deployed_at": "2026-03-06 10:00:00",
-  "ttl": "1d",
-  "expires_at": "2026-03-07T10:00:00.000000+00:00",
+  "ttl": "7d",
+  "expires_at": "2026-03-23T10:00:00+00:00",
   "preflight": true
 }
