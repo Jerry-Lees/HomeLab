@@ -1,5 +1,38 @@
 # Feature Ideas
 
+## Interactive Config File Wizard (`setup.py` / `configure.py`)
+
+Walk the user through creating a `config.yaml` interactively instead of requiring them
+to manually copy and edit `config.yaml.example`. Useful for first-time setup and for
+generating alternate config files for different clusters.
+
+### Behavior
+
+- Ask each required field with a prompt, description, and example value.
+- Validate input inline (e.g. IP format, non-empty strings, valid token format).
+- Write the completed config to `config.yaml` (or a path specified by `--output`).
+- `setup.sh` (the existing installer) should invoke this automatically if `config.yaml`
+  does not exist after dependencies are installed.
+
+### Usage
+
+```bash
+./configure.py                        # creates config.yaml interactively
+./configure.py --output prod.yaml     # create an alternate config file
+```
+
+### Implementation notes
+
+- Use `questionary` for prompts — consistent with the rest of labinator.
+- Group prompts by section (proxmox, dns, ansible_inventory, defaults, etc.).
+- Offer sensible defaults where possible (e.g. `dns.enabled: true`, `vlan: 220`).
+- After writing the file, always offer to run `--preflight` against it immediately.
+  Preflight already includes config validation as its first check (`Config valid`) so
+  there is no need for a separate `validate_config()` call — preflight covers it and
+  also verifies connectivity, SSH keys, DNS, and inventory in one pass.
+
+---
+
 ## LXC Feature Flags (Profile-Driven + Manual Override)
 
 LXC containers share the host kernel, so Proxmox must explicitly grant access to kernel
@@ -688,49 +721,6 @@ always find creative ways to specify VLANs that don't exist yet.
 - Low implementation cost — one API call already available via proxmoxer.
 - Low priority in practice (experienced users will catch this), but a good safety net for
   new users or automation scenarios.
-
----
-
-## --config Flag — Alternate Configuration File
-
-Support multiple configuration files so labinator can target different Proxmox clusters,
-environments, or users without modifying `config.yaml`.
-
-### Usage
-
-```bash
-./deploy_vm.py                             # uses config.yaml (default)
-./deploy_vm.py --config prod.yaml          # alternate config in project root
-./deploy_vm.py --config ~/configs/lab.yaml # absolute or relative path
-```
-
-### Behavior
-
-- If `--config` is not passed, use `config.yaml` in the project root — no change from
-  current behavior.
-- If `--config` is passed, print a notice before any other output:
-  ```
-  Using alternate configuration: /home/dad/configs/prod.yaml
-  ```
-- If the specified file does not exist, do not fall back silently. Instead:
-  - **Interactive mode:** warn the user and offer two choices:
-    - `[U]se default config.yaml instead`
-    - `[E]xit and correct the path`
-  - **Silent mode (`--silent`):** print an error and exit 1 immediately — do not fall
-    back silently, as a silent fallback could deploy to the wrong cluster.
-- The `--validate` and `--dry-run` flags respect `--config` and validate/preview against
-  the specified file.
-
-### Implementation notes
-
-- Add `--config` argument to all four scripts (`deploy_lxc.py`, `deploy_vm.py`,
-  `decomm_lxc.py`, `decomm_vm.py`) and to `modules/lib.py`'s `load_config()` function.
-- `load_config()` already takes a path — wire `args.config` through to it.
-- Store the resolved config path in the deployment JSON under `config_file` for reference
-  (useful when auditing which environment a host was deployed to).
-- Common use cases: separate `lab.yaml` and `prod.yaml` for different clusters;
-  per-user configs with different API tokens; a `readonly.yaml` with a read-only API
-  token for `status.py`-style queries.
 
 ---
 
