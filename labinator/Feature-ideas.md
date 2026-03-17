@@ -657,38 +657,6 @@ network stack.
 
 ---
 
-## DNS Pre-Check Before Registration
-
-Before attempting to register a DNS record, verify whether the hostname already resolves —
-catching stale records, naming collisions, or a redeployment of a host that wasn't fully
-decommissioned.
-
-This has already caused real pain: a hostname that still resolved from a previous deployment
-caused silent failures that required manual cleanup.
-
-### Behavior
-
-- At Step 6 (DNS registration), do a DNS lookup for `<hostname>.<searchdomain>` before
-  writing anything to the zone file.
-- **If it resolves to the same IP as the new deployment:** print a notice and skip (idempotent).
-- **If it resolves to a different IP:** warn the user with both IPs and ask:
-  - `[O]verwrite the existing record`
-  - `[S]kip DNS registration`
-  - `[A]bort deployment`
-- **If it doesn't resolve:** proceed normally.
-- In `--silent` mode: overwrite automatically and log a warning to the history log.
-
-### Implementation notes
-
-- Use Python's `socket.getaddrinfo()` or `dns.resolver` (dnspython) for the lookup.
-- Run the check against the configured `dns.server` directly (not the system resolver) to
-  avoid cache skew: `dig @<dns.server> <fqdn>`.
-- Also check for a stale PTR record at the expected reverse address and warn if it points
-  to a different hostname.
-- No new dependencies if using `socket` — or add `dnspython` for richer control.
-
----
-
 ## VLAN Existence Check Before Deploy
 
 Before creating a VM or LXC on a VLAN, verify that the bridge/VLAN interface actually
@@ -829,55 +797,6 @@ LABINATOR_DEPLOY_FILE=/home/dad/projects/HomeLab/labinator/deployments/lxc/myser
   environment variable interface.
 - This replaces the need for built-in Cacti, Netbox, Uptime Kuma, etc. integrations for
   users who prefer scripting their own.
-
----
-
-## Preflight Checklist
-
-Before connecting to Proxmox or creating anything, verify that all external dependencies
-are reachable and correctly configured. Fail fast with a clear, actionable message rather
-than dying 10 minutes into a deploy with a cryptic error.
-
-### Checks performed
-
-| Check | How |
-|---|---|
-| `config.yaml` valid | parse + schema check (already in `--validate`) |
-| Proxmox API reachable | TCP connect to port 8006 on each configured host |
-| Proxmox API auth valid | lightweight API call (`GET /version`) with the configured token |
-| SSH key exists on disk | `os.path.exists(cfg["proxmox"]["ssh_key"])` |
-| SSH key accepted by Proxmox nodes | `ssh -o BatchMode=yes root@node echo OK` |
-| DNS server reachable (if enabled) | TCP connect to port 22 on `dns.server` |
-| DNS server SSH auth valid (if enabled) | `ssh -o BatchMode=yes root@dns_server echo OK` |
-| Ansible installed on controller | `which ansible-playbook` |
-| `sshpass` installed (LXC only) | `which sshpass` |
-| Inventory server reachable (if enabled) | TCP connect + SSH auth check |
-| Sufficient free disk on target node | query via API before creation |
-
-### Usage
-
-```bash
-./deploy_vm.py --preflight          # run checks and exit (no deploy)
-./deploy_lxc.py --preflight
-```
-
-Preflight also runs automatically at the start of every deploy. If a check fails:
-- **Interactive:** print the failed check with a suggested fix and ask:
-  `[C]ontinue anyway`, `[R]etry this check`, `[A]bort`
-- **Silent mode:** print error and exit 1.
-
-If `--preflight` was not explicitly passed and a check fails, offer to run the full
-preflight report so the user can see everything that's wrong at once — not just the
-first failure.
-
-### Implementation notes
-
-- Add `run_preflight(cfg, kind)` to `modules/lib.py` (kind = "lxc" or "vm").
-- Each check is a small function that returns `(passed: bool, message: str)`.
-- Print results as a rich table: ✓ green / ✗ red / ⚠ yellow (warning, non-fatal).
-- Log preflight results to the deployment history log.
-- Most checks are fast (sub-second TCP connects). SSH auth checks add ~1-2s each.
-  Total preflight time should be under 10 seconds.
 
 ---
 
