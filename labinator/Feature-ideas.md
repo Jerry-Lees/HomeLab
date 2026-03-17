@@ -968,14 +968,12 @@ This approach sidesteps the two bad alternatives:
 
 The archive approach lets the admin do the hard work once, then captures the result.
 
-### Prerequisite: porter is ready
+### How archives are built
 
-The `.tar.gz` deployment archives are built using **porter** — porter is functional and
-producing archives. See `~/projects/porter/Feature-ideas.md` for porter's own roadmap.
-
-Porter generates a `manifest.yaml` inside each archive documenting the source OS, local
-users, active systemd services, installed packages, and per-file SHA-256 checksums.
-Labinator reads this manifest to drive the post-extract workflow.
+The `.tar.gz` deployment archives are built using **porter**, which is functional and
+producing archives. Porter generates a `manifest.yaml` inside each archive documenting
+the source OS, local users, active systemd services, installed packages, and per-file
+SHA-256 checksums. Labinator reads this manifest to drive the post-extract workflow.
 
 **Manifest spec:** `docs/specs/porter-snapshot-manifest.md` — full schema, archive layout,
 labinator integration steps, and caveats. Read this before implementing.
@@ -1057,25 +1055,6 @@ targeted `chown` fixes.
 - `--dry-run` shows the app name and archive path in the summary table.
 - This is LXC-focused initially — VM equivalent is possible but cloud-init handles most
   VM app config differently (user-data scripts, etc.).
-
----
-
-## expire.py --reap: Add --purge to delete deployment JSON files
-
-**Current behaviour:** `expire.py --reap` decommissions expired resources but leaves the
-deployment JSON files in `deployments/lxc/` and `deployments/vms/`. The files keep showing
-up in `--check` output as expired indefinitely.
-
-**Requested:** Add `--purge` flag to `expire.py --reap` that deletes the deployment JSON
-after a successful decommission, consistent with `decomm_vm.py --purge` / `decomm_lxc.py --purge`.
-
-### Implementation notes
-
-- Add `--purge` argparse flag to `expire.py`
-- Pass `purge=True` through to `decomm_resource()` in `lib.py`, or handle post-decomm
-  in `expire.py` by deleting the file after a successful `"decommissioned"` return.
-- `already_gone` entries: optionally also delete the JSON (the resource is gone, file is stale).
-- Show deleted file path in the summary panel.
 
 ---
 
