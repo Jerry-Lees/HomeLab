@@ -1,21 +1,5 @@
 # Feature Ideas
 
-## Shared Library Module
-
-`deploy_lxc.py`, `deploy_vm.py`, `decomm_lxc.py`, and `decomm_vm.py` duplicate significant code
-(config loading, Proxmox connection, `wait_for_task`, DNS helpers, Ansible inventory steps).
-Extract into a `lib.py` (or `labinator/lib.py`) shared module.
-
-### Implementation notes
-
-- Functions to extract: `load_config()`, `connect_proxmox()`, `wait_for_task()`, DNS add/remove
-  wrappers, Ansible inventory add/remove wrappers, `health_check()`, `resolve_profile()`,
-  `validate_config()`.
-- All four scripts import from `lib` — no behaviour changes, just deduplication.
-- Makes adding new integrations (Netbox, Cacti, etc.) a single-place change.
-
----
-
 ## LXC Feature Flags (Profile-Driven + Manual Override)
 
 LXC containers share the host kernel, so Proxmox must explicitly grant access to kernel
@@ -112,35 +96,6 @@ already-deployed container or VM without a full redeploy.
   `POST /nodes/{node}/qemu/{vmid}/resize`.
 - Updates the deployment JSON with the new values after a successful resize.
 - Warn if resizing down (Proxmox does not support disk shrink).
-
----
-
-## Auto-Expire / VM TTL
-
-Assign a time-to-live to a deployment so test VMs don't accumulate and quietly consume
-resources indefinitely.
-
-### Usage
-
-```bash
-python3 deploy_vm.py --deploy-file deployments/vms/test-thing.json --ttl 7d
-python3 expire.py --check      # scan for expired or expiring-soon deployments
-python3 expire.py --reap       # decomm all expired VMs/LXCs automatically
-```
-
-### Implementation notes
-
-- Store `expires_at` (ISO 8601 timestamp) in the deployment JSON at deploy time when
-  `--ttl` is specified. TTL format: `7d`, `24h`, `2w`, etc.
-- `expire.py --check` reads all deployment JSONs, compares `expires_at` to now, and
-  prints a table of expired and expiring-soon (within 48h) hosts.
-- `expire.py --reap` calls the normal decomm logic for each expired host — same DNS,
-  inventory, and Proxmox cleanup as a manual decomm.
-- Optional: send a warning notification (email, Slack, ntfy.sh) N hours before expiry.
-- Optional: `--renew` flag to extend the TTL on an existing deployment without redeploying.
-- Pairs naturally with a cron job or systemd timer to run `expire.py --reap` nightly.
-- The REST API (see above) can expose a `POST /api/deployments/{hostname}/renew` endpoint
-  for TTL extension without shell access.
 
 ---
 
@@ -808,39 +763,6 @@ environments, or users without modifying `config.yaml`.
 - Common use cases: separate `lab.yaml` and `prod.yaml` for different clusters;
   per-user configs with different API tokens; a `readonly.yaml` with a read-only API
   token for `status.py`-style queries.
-
----
-
-## cleanup_tagged.py — Pre-defined Action List (--list-file)
-
-Allow a hand-crafted JSON file to drive `cleanup_tagged.py` non-interactively, specifying
-which resources to keep, promote, or decomm without going through the interactive per-resource
-prompt.
-
-### Usage
-
-```bash
-python3 cleanup_tagged.py --list-file cleanup-plan.json
-python3 cleanup_tagged.py --list-file cleanup-plan.json --dry-run
-```
-
-### File format (proposed)
-
-```json
-[
-  { "hostname": "test-lxc",     "vmid": "111", "action": "decomm"  },
-  { "hostname": "labinator",    "vmid": "134", "action": "promote" },
-  { "hostname": "test-sandbox", "vmid": "135", "action": "keep"    }
-]
-```
-
-### Implementation notes
-
-- Decomm actions still require the scary confirmation challenge unless `--silent` is also passed.
-- Any resource found in the cluster but not in the list file is treated as `keep` by default.
-- Any entry in the list file that doesn't match a tagged resource in the cluster is warned and skipped.
-- `--dry-run` shows what would happen without making any changes.
-- Pairs naturally with `expire.py --reap` if TTL is implemented.
 
 ---
 
