@@ -76,6 +76,7 @@ from modules.lib import (
     prompt_extra_packages,
     prompt_node_selection,
     write_history,
+    check_vlan_exists,
 )
 
 console = Console()
@@ -1195,6 +1196,9 @@ def main() -> None:
         if not confirm:
             console.print("[yellow]Deployment cancelled.[/yellow]")
             sys.exit(0)
+
+    # ── VLAN existence check ──
+    check_vlan_exists(proxmox, node_name, bridge, vlan_str, silent=silent)
 
     # ═══════════════════════════════════════════
     # Step 1/6: Create VM

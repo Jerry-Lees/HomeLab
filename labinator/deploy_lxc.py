@@ -78,6 +78,7 @@ from modules.lib import (
     prompt_extra_packages,
     prompt_node_selection,
     write_history,
+    check_vlan_exists,
 )
 
 console = Console()
@@ -949,6 +950,9 @@ def main() -> None:
         console.print("[red]Deployment aborted. Resources may have changed since node selection.[/red]")
         sys.exit(1)
     console.print("[green]✓ Resources verified[/green]")
+
+    # ── VLAN existence check ──
+    check_vlan_exists(proxmox, node_name, bridge, vlan_str, silent=silent)
 
     # ═══════════════════════════════════════════
     # Create the container

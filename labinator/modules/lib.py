@@ -1239,6 +1239,62 @@ def run_preflight(cfg: dict, kind: str, silent: bool = False, verbose: bool = Fa
 
 
 # ─────────────────────────────────────────────
+# VLAN existence check
+# ─────────────────────────────────────────────
+
+def check_vlan_exists(proxmox: "ProxmoxAPI", node: str, bridge: str, vlan: int | str,
+                      silent: bool = False) -> None:
+    """Verify that the requested VLAN is reachable on the target node before deploying.
+
+    Checks for either:
+      - An interface named {bridge}.{vlan} in the node's network list, OR
+      - A VLAN-aware bridge named {bridge} (Proxmox VLAN-aware mode — individual
+        sub-interfaces don't appear, but any VLAN tag is valid)
+
+    Non-fatal by design:
+      - silent=True : warn and continue
+      - silent=False: prompt the user to continue or abort
+    On any API error the check is silently skipped.
+    """
+    vlan_str = str(vlan)
+    iface_name = f"{bridge}.{vlan_str}"
+    try:
+        interfaces = proxmox.nodes(node).network.get()
+    except Exception:
+        console.print(f"  [dim]VLAN check skipped (could not query network interfaces on {node})[/dim]")
+        return
+
+    iface_names = {i.get("iface", "") for i in interfaces}
+    # VLAN-aware bridge: the bridge itself accepts any 802.1q tag — sub-interfaces won't appear
+    vlan_aware = any(
+        i.get("iface") == bridge and i.get("bridge_vlan_aware")
+        for i in interfaces
+    )
+
+    if iface_name in iface_names or vlan_aware:
+        reason = "VLAN-aware bridge" if vlan_aware and iface_name not in iface_names else iface_name
+        console.print(f"  [green]✓ VLAN {vlan_str} verified on {node} ({reason})[/green]")
+        return
+
+    # Not found — advisory warning
+    console.print(
+        f"  [yellow]⚠  VLAN {vlan_str} ({iface_name}) not found on {node}.[/yellow]\n"
+        f"  [dim]The container may boot with no network. Verify the VLAN exists on the node.[/dim]"
+    )
+    if silent:
+        console.print("  [dim]--silent: continuing despite missing VLAN.[/dim]")
+        return
+
+    proceed = questionary.confirm(
+        f"VLAN {vlan_str} was not found on {node}. Continue anyway?",
+        default=False,
+    ).ask()
+    if not proceed:
+        console.print("[yellow]Deployment aborted.[/yellow]")
+        sys.exit(0)
+
+
+# ─────────────────────────────────────────────
 # Deploy: interactive wizard helpers
 # ─────────────────────────────────────────────
 

@@ -690,40 +690,6 @@ network stack.
 
 ---
 
-## VLAN Existence Check Before Deploy
-
-Before creating a VM or LXC on a VLAN, verify that the bridge/VLAN interface actually
-exists and is active on the target Proxmox node.
-
-Proxmox will happily create the container with a broken network interface and report
-success — you won't discover the problem until the VM boots with no network. Users will
-always find creative ways to specify VLANs that don't exist yet.
-
-### Behavior
-
-- After node selection and before container/VM creation, query the target node's network
-  interfaces via the Proxmox API (`GET /nodes/{node}/network`).
-- Check that `vmbr0` (or the configured bridge) exists and is active.
-- Check that a VLAN interface `vmbr0.<vlan>` exists, or that the bridge supports VLAN-aware
-  tagging (Proxmox VLAN-aware bridge mode).
-- If the VLAN interface is not found:
-  - **Non-silent:** warn the user and ask whether to continue anyway or abort.
-  - **Silent mode:** warn and continue (non-fatal — the user may be creating the VLAN
-    simultaneously, or knows it will be created by another process).
-- This check is advisory, not a hard block — Proxmox may use VLAN-aware bridges where
-  individual `vmbr0.<vlan>` interfaces don't appear in the network list.
-
-### Implementation notes
-
-- API endpoint: `GET /nodes/{node}/network` returns all interfaces with their type and state.
-- Look for an interface named `{bridge}.{vlan}` or a bridge with `bridge_vlan_aware: 1`
-  that covers the requested VLAN range.
-- Low implementation cost — one API call already available via proxmoxer.
-- Low priority in practice (experienced users will catch this), but a good safety net for
-  new users or automation scenarios.
-
----
-
 ## Post-Deploy Hook Scripts — Plugins and Extensibility
 
 After a successful deployment (or decommission), run user-defined scripts or Ansible
