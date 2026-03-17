@@ -32,7 +32,7 @@ import time
 import subprocess
 import tempfile
 import textwrap
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 
@@ -75,6 +75,7 @@ from modules.lib import (
     prompt_package_profile,
     prompt_extra_packages,
     prompt_node_selection,
+    write_history,
 )
 
 console = Console()
@@ -885,6 +886,7 @@ def derive_gateway(ip: str) -> str:
 # ─────────────────────────────────────────────
 
 def main() -> None:
+    _start_time = time.time()
     parser = argparse.ArgumentParser(
         prog="deploy_vm.py",
         description="Proxmox VM Deploy Wizard — cloud-init VM provisioning tool",
@@ -1430,6 +1432,20 @@ def main() -> None:
 
     # Health check (optional — runs if health_check.enabled in config)
     health_check(vm_ip, password, addusername, cfg)
+
+    write_history({
+        "timestamp":        datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"),
+        "user":             os.getenv("USER") or os.getenv("LOGNAME") or "unknown",
+        "action":           "deploy",
+        "type":             "vm",
+        "hostname":         hostname,
+        "fqdn":             f"{hostname}.{cfg['proxmox'].get('node_domain', '')}".strip("."),
+        "node":             node_name,
+        "vmid":             next_vmid,
+        "ip":               vm_ip,
+        "result":           "success",
+        "duration_seconds": round(time.time() - _start_time),
+    })
 
     # ═══════════════════════════════════════════
     # Done!

@@ -45,6 +45,22 @@ _ROOT = Path(__file__).parent.parent
 
 
 # ─────────────────────────────────────────────
+# History log
+# ─────────────────────────────────────────────
+
+def write_history(entry: dict) -> None:
+    """Append a deployment event to deployments/history.log (one JSON object per line).
+    Warns but never fails if the log is unwritable."""
+    log_path = _ROOT / "deployments" / "history.log"
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(log_path, "a") as f:
+            f.write(json.dumps(entry) + "\n")
+    except Exception as e:
+        console.print(f"  [dim yellow]Warning: could not write history log: {e}[/dim yellow]")
+
+
+# ─────────────────────────────────────────────
 # Config
 # ─────────────────────────────────────────────
 
@@ -354,6 +370,7 @@ def decomm_resource(proxmox: ProxmoxAPI, cfg: dict, resource: dict,
     """Full decommission: stop+destroy in Proxmox, remove DNS, remove from inventory.
     Returns 'decommissioned' if destroyed, 'already_gone' if not found in Proxmox."""
     hostname = resource["hostname"]
+    _decomm_start = time.time()
     console.print()
     console.print(f"[bold red]── Decommissioning {idx}/{total}: {hostname} ──[/bold red]")
 
@@ -381,6 +398,19 @@ def decomm_resource(proxmox: ProxmoxAPI, cfg: dict, resource: dict,
     console.print("[bold red]─── Step 3/3: Removing from Ansible inventory ───[/bold red]")
     remove_from_inventory(cfg, deploy)
 
+    result = "already_gone" if already_gone else "decommissioned"
+    write_history({
+        "timestamp":        datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"),
+        "user":             os.getenv("USER") or os.getenv("LOGNAME") or "unknown",
+        "action":           "decomm",
+        "type":             resource.get("kind", "unknown"),
+        "hostname":         hostname,
+        "node":             resource.get("node", "?"),
+        "vmid":             resource.get("vmid", "?"),
+        "ip":               resource.get("ip", ""),
+        "result":           result,
+        "duration_seconds": round(time.time() - _decomm_start),
+    })
     if already_gone:
         console.print(f"  [yellow]⚠ {hostname} was already gone — DNS and inventory cleaned up[/yellow]")
         return "already_gone"

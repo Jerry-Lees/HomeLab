@@ -34,7 +34,7 @@ import time
 import subprocess
 import tempfile
 import textwrap
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import json
@@ -77,6 +77,7 @@ from modules.lib import (
     prompt_package_profile,
     prompt_extra_packages,
     prompt_node_selection,
+    write_history,
 )
 
 console = Console()
@@ -649,6 +650,7 @@ def check_node_resources(proxmox: ProxmoxAPI, node_name: str,
 # ─────────────────────────────────────────────
 
 def main() -> None:
+    _start_time = time.time()
     # ── Parse CLI arguments ──
     parser = argparse.ArgumentParser(
         prog="deploy_lxc.py",
@@ -1117,6 +1119,20 @@ def main() -> None:
 
     # Health check (optional — runs if health_check.enabled in config)
     health_check(container_ip, password, addusername, cfg)
+
+    write_history({
+        "timestamp":        datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"),
+        "user":             os.getenv("USER") or os.getenv("LOGNAME") or "unknown",
+        "action":           "deploy",
+        "type":             "lxc",
+        "hostname":         hostname,
+        "fqdn":             f"{hostname}.{cfg['proxmox'].get('node_domain', '')}".strip("."),
+        "node":             node_name,
+        "vmid":             next_vmid,
+        "ip":               container_ip,
+        "result":           "success",
+        "duration_seconds": round(time.time() - _start_time),
+    })
 
     # ═══════════════════════════════════════════
     # Done!

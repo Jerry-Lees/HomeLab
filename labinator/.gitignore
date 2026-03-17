@@ -24,6 +24,10 @@ venv/
 # Test plans (ephemeral — deleted as tests pass)
 test-plan.md
 
+# Log files
+**/*.log
+*.log
+
 # Deployment records (real deployments — examples are tracked explicitly)
 deployments/lxc/*.json
 deployments/vms/*.json

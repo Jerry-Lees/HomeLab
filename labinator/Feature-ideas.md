@@ -806,6 +806,12 @@ If a deploy fails partway through — after the VM/LXC is created in Proxmox but
 all steps complete — offer to automatically roll back by running the full decomm sequence
 on the newly created host.
 
+**Also covers:** History log failure entries. Currently `write_history()` only logs
+successful deploys/decomms. Failure logging requires wrapping `main()` in each script
+with try/except, tracking which step failed, and writing a `"result": "failed"` entry
+with `failed_step` and `failure_reason` fields. This should be implemented alongside
+rollback since both require the same error-handling infrastructure.
+
 Currently the script warns and exits, leaving a half-configured host behind that must be
 cleaned up manually. Rollback makes the tool feel safe to use, especially in `--silent`
 automation contexts.
@@ -836,66 +842,6 @@ automation contexts.
 - The rollback itself calls `decomm_vm()` / `decomm_lxc()` from the shared library —
   same functions as the decomm scripts.
 - Add `rollback_on_failure: false` to `config.yaml` as an opt-in for automated pipelines.
-
----
-
-## Deployment History Log
-
-Append every deploy and decomm event to a persistent audit log so there is always a
-record of what happened, who did it, when, and whether it succeeded.
-
-Even a user-writable plaintext log is better than no log — it catches "who deployed that
-mystery VM last Tuesday?" and "what step failed on Friday's deploy?"
-
-### Log location
-
-`deployments/history.log` — committed directory, log file gitignored (or kept, your choice).
-
-### Log format (one JSON object per line — easy to grep and parse)
-
-```json
-{
-  "timestamp": "2026-03-08T14:22:00",
-  "user": "dad",
-  "action": "deploy",
-  "type": "vm",
-  "hostname": "myserver",
-  "fqdn": "myserver.lees-family.io",
-  "node": "proxmox02",
-  "vmid": 142,
-  "ip": "10.20.20.150",
-  "result": "success",
-  "failed_step": null,
-  "failure_reason": null,
-  "duration_seconds": 187,
-  "deploy_file": "deployments/vms/myserver.json",
-  "config_file": "config.yaml",
-  "rollback": false,
-  "hooks_run": ["./hooks/notify-slack.sh"],
-  "preflight_passed": true
-}
-```
-
-On failure:
-```json
-{
-  ...
-  "result": "failed",
-  "failed_step": 5,
-  "failure_reason": "Ansible: UNREACHABLE — Connection timed out",
-  "rollback": true
-}
-```
-
-### Implementation notes
-
-- Add `write_history(entry: dict, cfg)` to `modules/lib.py`.
-- Call at the end of every deploy/decomm, regardless of success or failure.
-- `user` is `os.getenv("USER") or os.getenv("LOGNAME") or "unknown"`.
-- `duration_seconds` is wall-clock time from script start to finish.
-- Log preflight results, rollback events, and hook outcomes as part of the same entry.
-- If the history log is missing or unwritable, warn but do not fail the deployment.
-- Add a `--history` flag to `status.py` (future) to pretty-print the log as a rich table.
 
 ---
 

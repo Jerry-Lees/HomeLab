@@ -19,7 +19,9 @@ if os.path.exists(_venv) and os.path.realpath(sys.executable) != os.path.realpat
 
 import argparse
 import json
+import time
 import questionary
+from datetime import datetime, timezone
 from pathlib import Path
 from proxmoxer import ProxmoxAPI
 from rich.console import Console
@@ -37,6 +39,7 @@ from modules.lib import (
     confirm_destruction,
     load_deployment_json,
     list_deployment_files,
+    write_history,
     SKULL,
 )
 
@@ -85,6 +88,7 @@ def stop_and_destroy_container(proxmox: ProxmoxAPI, deploy: dict) -> None:
 # ─────────────────────────────────────────────
 
 def main() -> None:
+    _start_time = time.time()
     parser = argparse.ArgumentParser(
         prog="decomm_lxc.py",
         description="Proxmox LXC Decommission Wizard — permanently destroys a container",
@@ -209,6 +213,18 @@ def main() -> None:
 
     # Done
     hostname = deploy.get("hostname", "unknown")
+    write_history({
+        "timestamp":        datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"),
+        "user":             os.getenv("USER") or os.getenv("LOGNAME") or "unknown",
+        "action":           "decomm",
+        "type":             "lxc",
+        "hostname":         hostname,
+        "node":             deploy.get("node", "?"),
+        "vmid":             deploy.get("vmid", "?"),
+        "ip":               deploy.get("assigned_ip") or deploy.get("ip_address", ""),
+        "result":           "success",
+        "duration_seconds": round(time.time() - _start_time),
+    })
     console.print()
     console.print(Panel(
         f"[bold red]Decommission Complete[/bold red]\n\n"
