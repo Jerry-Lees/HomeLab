@@ -1,4 +1,8 @@
+[← Back to README](../../README.md)
+
 # Cleanup Action List File — Schema Reference
+
+### About
 
 The cleanup action list file is a JSON input consumed by `cleanup_tagged.py --list-file`.
 It pre-defines what action to take on each tagged resource, enabling automated or
@@ -124,3 +128,7 @@ error exits immediately with a descriptive message.
 ```
 
 The file is processed without any prompts. All `decomm` actions execute immediately.
+
+---
+
+[← Back to README](../../README.md)
