@@ -1,4 +1,8 @@
+[← Back to README](../../README.md)
+
 # BIND DNS Integration
+
+### About
 
 Labinator registers and removes DNS A records (and PTR records where reverse zones exist)
 on a BIND DNS server via SSH. This happens automatically at the end of every deployment
@@ -112,3 +116,7 @@ works correctly for DHCP deployments even if the IP was never static.
 
 Set `dns.enabled: false` in `config.yaml` to skip all DNS registration and removal.
 DNS records will need to be managed manually.
+
+---
+
+[← Back to README](../../README.md)
