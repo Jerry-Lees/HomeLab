@@ -1,4 +1,8 @@
+[← Back to README](../../README.md)
+
 # cloud-images.yaml — Schema Reference
+
+### About
 
 `cloud-images.yaml` is the catalog of cloud-init capable OS images available for VM
 deployment via `deploy_vm.py`. It defines the display name, download URL, and local
@@ -108,3 +112,7 @@ built-in entries:
 - Ubuntu 22.04 LTS (Jammy)
 
 This ensures the script is always functional even without the catalog file.
+
+---
+
+[← Back to README](../../README.md)
