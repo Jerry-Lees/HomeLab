@@ -888,6 +888,8 @@ def derive_gateway(ip: str) -> str:
 
 def main() -> None:
     _start_time = time.time()
+    if "--?" in sys.argv:
+        sys.argv[sys.argv.index("--?")] = "--help"
     parser = argparse.ArgumentParser(
         prog="deploy_vm.py",
         description="Proxmox VM Deploy Wizard — cloud-init VM provisioning tool",
@@ -900,7 +902,10 @@ def main() -> None:
               python3 deploy_vm.py --validate
               python3 deploy_vm.py --validate --deploy-file deployments/vms/myvm.json
         """),
+        add_help=False,
     )
+    parser.add_argument("--help", action="help", default=argparse.SUPPRESS,
+                        help="show this help message and exit")
     parser.add_argument(
         "--deploy-file", metavar="FILE",
         help="JSON deployment file to pre-fill defaults (saved from a previous run)",

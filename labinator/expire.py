@@ -203,6 +203,8 @@ def do_renew(hostname: str, ttl: str, kind: str = "") -> None:
 # ─────────────────────────────────────────────
 
 def main() -> None:
+    if "--?" in sys.argv:
+        sys.argv[sys.argv.index("--?")] = "--help"
     parser = argparse.ArgumentParser(
         prog="expire.py",
         description="Manage deployment TTLs — check, reap, or renew expiring deployments",
@@ -217,7 +219,10 @@ def main() -> None:
             "  python3 expire.py --check --warning 3d"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        add_help=False,
     )
+    parser.add_argument("--help", action="help", default=argparse.SUPPRESS,
+                        help="show this help message and exit")
 
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--check",  action="store_true",

@@ -89,12 +89,17 @@ def stop_and_destroy_container(proxmox: ProxmoxAPI, deploy: dict) -> None:
 
 def main() -> None:
     _start_time = time.time()
+    if "--?" in sys.argv:
+        sys.argv[sys.argv.index("--?")] = "--help"
     parser = argparse.ArgumentParser(
         prog="decomm_lxc.py",
         description="Proxmox LXC Decommission Wizard — permanently destroys a container",
         epilog="Examples:\n  python3 decomm_lxc.py\n  python3 decomm_lxc.py --deploy-file deployments/lxc/myserver.json --purge",
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        add_help=False,
     )
+    parser.add_argument("--help", action="help", default=argparse.SUPPRESS,
+                        help="show this help message and exit")
     parser.add_argument(
         "--deploy-file", metavar="FILE",
         help="Path to deployment JSON file — skips interactive selection",

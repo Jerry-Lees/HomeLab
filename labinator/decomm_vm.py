@@ -89,12 +89,17 @@ def stop_and_destroy_vm(proxmox: ProxmoxAPI, deploy: dict) -> None:
 
 def main() -> None:
     _start_time = time.time()
+    if "--?" in sys.argv:
+        sys.argv[sys.argv.index("--?")] = "--help"
     parser = argparse.ArgumentParser(
         prog="decomm_vm.py",
         description="Proxmox VM Decommission Wizard — permanently destroys a QEMU VM",
         epilog="Examples:\n  python3 decomm_vm.py\n  python3 decomm_vm.py --deploy-file deployments/vms/myvm.json --purge",
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        add_help=False,
     )
+    parser.add_argument("--help", action="help", default=argparse.SUPPRESS,
+                        help="show this help message and exit")
     parser.add_argument(
         "--deploy-file", metavar="FILE",
         help="Path to deployment JSON file — skips interactive selection",

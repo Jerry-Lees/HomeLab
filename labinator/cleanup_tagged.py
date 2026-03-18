@@ -361,6 +361,8 @@ def apply_list_file(resources: list[dict], action_map: dict) -> None:
 # ─────────────────────────────────────────────
 
 def main() -> None:
+    if "--?" in sys.argv:
+        sys.argv[sys.argv.index("--?")] = "--help"
     parser = argparse.ArgumentParser(
         prog="cleanup_tagged.py",
         description=f"Find and decommission all Proxmox resources matching a tag (default: '{DEFAULT_TAG}')",
@@ -373,7 +375,10 @@ def main() -> None:
             "  python3 cleanup_tagged.py --list-file cleanup-plan.json --silent"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        add_help=False,
     )
+    parser.add_argument("--help", action="help", default=argparse.SUPPRESS,
+                        help="show this help message and exit")
     parser.add_argument(
         "--dry-run", action="store_true",
         help="List all matching resources and exit — no changes made",

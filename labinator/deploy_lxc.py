@@ -653,6 +653,8 @@ def check_node_resources(proxmox: ProxmoxAPI, node_name: str,
 def main() -> None:
     _start_time = time.time()
     # ── Parse CLI arguments ──
+    if "--?" in sys.argv:
+        sys.argv[sys.argv.index("--?")] = "--help"
     parser = argparse.ArgumentParser(
         prog="deploy_lxc.py",
         description="Proxmox LXC Deploy Wizard — interactive provisioning tool",
@@ -666,7 +668,10 @@ def main() -> None:
               python3 deploy_lxc.py --validate --deploy-file deployments/lxc/myserver.json
               python3 deploy_lxc.py --dry-run --deploy-file deployments/lxc/myserver.json
         """),
+        add_help=False,
     )
+    parser.add_argument("--help", action="help", default=argparse.SUPPRESS,
+                        help="show this help message and exit")
     parser.add_argument(
         "--deploy-file", metavar="FILE",
         help="YAML deployment file to pre-fill defaults (saved from a previous run)",
