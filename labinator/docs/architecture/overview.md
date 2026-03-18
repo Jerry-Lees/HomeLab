@@ -1,4 +1,8 @@
+[← Back to README](../../README.md)
+
 # Labinator — Architecture Overview
+
+### About
 
 Labinator is a command-line tool for deploying and managing LXC containers and QEMU VMs
 in a Proxmox VE homelab cluster. It handles the full lifecycle: creation, post-deploy
@@ -152,3 +156,7 @@ provider dispatch logic in the deploy/decomm scripts.
 - `docs/integrations/ansible.md` — Ansible post-deploy and inventory integration
 - `docs/integrations/bind-dns.md` — BIND DNS registration and removal
 - `docs/specs/porter-snapshot-manifest.md` — porter archive manifest spec (future integration)
+
+---
+
+[← Back to README](../../README.md)
