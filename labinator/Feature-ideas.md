@@ -1,5 +1,94 @@
 # Feature Ideas
 
+## Wizard Back-Navigation (ESC to go back)
+
+In the deployment wizards (`deploy_lxc.py`, `deploy_vm.py`) and ideally anywhere a `questionary` prompt is shown, pressing **ESC** should return to the previous question rather than aborting the session. Currently, ESC (or Ctrl+C) exits the script entirely.
+
+### Behavior
+
+- At any prompt, pressing ESC navigates back to the previous prompt with its previously entered value pre-filled as the default.
+- At the first prompt (no previous question), ESC exits gracefully with a clean "Aborted." message — same as today.
+- The back-navigation stack follows the linear prompt order: hostname → CPUs → memory → disk → VLAN → password → IP → node → … and steps backward one at a time.
+- For branching prompts (e.g. prefix/gateway only appear when a static IP is entered), stepping back should re-evaluate the branch — going back from prefix/gateway returns to the IP prompt, not to VLAN.
+
+### Implementation notes
+
+- `questionary` returns `None` when ESC is pressed (same as Ctrl+C for `select`, but distinguishable from Ctrl+C via `KeyboardInterrupt`). The prompt loop would need to detect `None` returns and re-run the previous prompt rather than treating it as abort.
+- The cleanest implementation is likely a prompt loop with an explicit stack: push each collected value onto the stack as you go forward, pop and re-prompt when ESC is detected.
+- `confirm_destruction` in `decomm_lxc.py` / `decomm_vm.py` should explicitly not participate in back-navigation — the typed challenge is a deliberate safety gate.
+
+---
+
+## cleanup_tagged.py — --plan Flag
+
+Add a `--plan` flag that scans the cluster, displays the resource table (same as
+`--dry-run`), then writes a list-file with every found resource set to `action: "keep"`.
+No other action is written — the point is to give the operator a pre-populated file they
+can edit before running for real.
+
+### Behavior
+
+```bash
+./cleanup_tagged.py --plan                              # writes cleanup-plan.json in cwd
+./cleanup_tagged.py --plan --list-file my-plan.json    # writes to specified path instead
+./cleanup_tagged.py --plan --tag my-tag                # scans a different tag
+```
+
+- After writing, print the full path of the saved file so the operator knows exactly
+  where to find it.
+- Exit immediately after writing — `--plan` is standalone and never proceeds to action
+  selection or execution.
+- `--plan` is mutually exclusive with `--silent` and `--dry-run`.
+- Default output path: `cleanup-plan.json` in the current working directory.
+- If `--list-file` is also specified, use that path as the output file instead of the
+  default.
+
+### Implementation notes
+
+- After `print_resource_table()`, check `args.plan`, build a list of
+  `{"hostname": ..., "vmid": ..., "action": "keep"}` dicts, write as JSON, print path,
+  `sys.exit(0)`.
+- Include `vmid` in every entry so the file is unambiguous even if hostnames collide.
+- Update `cleanup.md` to document the new flag.
+
+---
+
+## cleanup_tagged.py — Retag Action
+
+Add a fourth action alongside `keep`, `promote`, and `decomm`: `retag` — replace the
+scanned tag with a different tag rather than simply removing it.
+
+### Usage
+
+```bash
+python3 cleanup_tagged.py --retag-as production
+```
+
+In the interactive picker, the choice would read:
+
+```
+Retag — replace 'auto-deploy' with 'production'
+```
+
+In a list file:
+
+```json
+{"hostname": "staging-web", "action": "retag"}
+```
+
+### Implementation notes
+
+- Add `--retag-as TAG` flag (validated same as `--tag`). If not provided and `retag` is
+  selected interactively, prompt for the target tag.
+- `promote_resource()` in `modules/lib.py` already does `api.config.put(tags=new_tags)`.
+  Retag is the same call but appends the new tag to `updated` before joining, rather than
+  just stripping the old one.
+- `retag` is only valid when `--retag-as` is specified (or entered interactively) — error
+  if a list file specifies `action: retag` without a target tag available.
+- Summary panel gets a fifth bucket: **Retagged** — old tag removed, new tag applied.
+
+---
+
 ## Interactive Config File Wizard (`setup.py` / `configure.py`)
 
 Walk the user through creating a `config.yaml` interactively instead of requiring them
@@ -687,6 +776,101 @@ network stack.
 - Print a one-line banner before handing off: `Connecting to console of myserver (LXC 142) on proxmox02...`
 - Add a note that `qm terminal` requires the VM to have `serial0=socket` configured — which
   `deploy_vm.py` sets automatically, but manually-created VMs may not have it.
+
+---
+
+## Provider Plugin Architecture
+
+The current provider system is aspirational — `config.yaml` has a `provider:` key under
+`dns` and `ansible_inventory`, but the code never dispatches on it. `remove_dns()`,
+`run_ansible_add_dns()`, `dns_precheck()`, `remove_from_inventory()`, and
+`run_ansible_inventory_update()` in `modules/lib.py` all call the BIND / flat_file
+Ansible playbooks unconditionally, regardless of what `provider:` says.
+
+The goal is a true drop-in provider model: to add a new DNS or inventory provider, you
+drop a single Python file into a `modules/providers/` directory. No changes to
+`modules/lib.py` or any deploy/decomm script are needed.
+
+### Design
+
+Each provider type has an abstract base class defining the interface:
+
+```python
+# modules/providers/base.py
+
+class DnsProvider:
+    def precheck(self, cfg, hostname, ip, silent) -> str: ...
+    def register(self, cfg, hostname, ip) -> None: ...
+    def remove(self, cfg, deploy) -> None: ...
+
+class InventoryProvider:
+    def register(self, cfg, hostname, ip, password) -> None: ...
+    def remove(self, cfg, deploy) -> None: ...
+```
+
+Concrete providers implement the interface and are placed in `modules/providers/`:
+
+```
+modules/providers/
+├── base.py              ← abstract base classes
+├── dns_bind.py          ← existing BIND logic, refactored into class
+├── dns_powerdns.py      ← new provider — drop in, no other changes needed
+├── dns_technitium.py    ← new provider — same
+├── inventory_flat_file.py
+├── inventory_awx.py
+└── inventory_semaphore.py
+```
+
+A provider registry in `modules/providers/__init__.py` maps provider names to classes:
+
+```python
+DNS_PROVIDERS = {
+    "bind":       "dns_bind.DnsBindProvider",
+    "powerdns":   "dns_powerdns.PowerDnsProvider",
+    "technitium": "dns_technitium.TechnitiumProvider",
+}
+
+INVENTORY_PROVIDERS = {
+    "flat_file":  "inventory_flat_file.FlatFileProvider",
+    "awx":        "inventory_awx.AwxProvider",
+    "semaphore":  "inventory_semaphore.SemaphoreProvider",
+}
+```
+
+`modules/lib.py` loads the provider at call time using the `provider:` key from
+`config.yaml`, then delegates:
+
+```python
+def remove_dns(cfg, deploy):
+    provider = load_dns_provider(cfg)   # reads cfg["dns"]["provider"], imports class
+    provider.remove(cfg, deploy)
+```
+
+`load_dns_provider()` and `load_inventory_provider()` are the only additions needed in
+`lib.py` — all other functions stay as thin wrappers that delegate to the loaded provider.
+
+### Adding a new provider (end state)
+
+1. Create `modules/providers/dns_myprovider.py` implementing `DnsProvider`
+2. Add `"myprovider": "dns_myprovider.MyProvider"` to the registry in `__init__.py`
+3. Set `dns.provider: myprovider` in `config.yaml`
+
+No changes to `lib.py`, no changes to any deploy or decomm script. The provider is
+discovered and loaded automatically.
+
+### Implementation notes
+
+- Refactor existing BIND and flat_file logic into `dns_bind.py` and
+  `inventory_flat_file.py` first — `lib.py` keeps the same public function signatures,
+  just delegates internally. This is a pure refactor with no behavior change.
+- Use `importlib.import_module()` for lazy loading — providers are only imported when
+  actually needed. This keeps startup fast and means an uninstalled optional dependency
+  (e.g. `python-dotenv` for a future provider) doesn't break the whole tool.
+- The `preflight` checks for DNS and inventory (`_pf_dns_reachable`, `_pf_dns_ssh_auth`,
+  etc.) should also be delegated to the provider — each provider knows what connectivity
+  it needs to check.
+- Unknown provider name → clear error at startup: `Unknown DNS provider: 'myprovider'.
+  Available: bind, powerdns, technitium`.
 
 ---
 
