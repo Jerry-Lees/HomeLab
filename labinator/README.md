@@ -179,7 +179,6 @@ myserver ansible_host=myserver.example.com ansible_python_interpreter=/usr/bin/p
 ```bash
 git clone https://github.com/Jerry-Lees/HomeLab.git
 cd HomeLab/labinator
-cp config.yaml.example config.yaml
 ./setup.sh
 ```
 
@@ -189,6 +188,7 @@ cp config.yaml.example config.yaml
 - Create a Python virtualenv at `.venv/`
 - Install all Python requirements from `requirements.txt`
 - Verify every required Python module imports correctly
+- Ask if you want to run the config wizard (`configure.py`) immediately — say **Y** to build `config.yaml` interactively, or **N** to do it later
 
 The scripts auto-activate the virtualenv at startup, so you can run them with `python3 deploy_lxc.py` directly without sourcing `.venv/bin/activate` first.
 

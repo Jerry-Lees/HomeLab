@@ -180,11 +180,13 @@ echo -e "  ${GREEN}Setup complete — all dependencies installed${NC}"
 echo "=============================================="
 echo ""
 echo "Next steps:"
-echo "  1. Create config.yaml from the example:"
+echo "  1. Configure labinator:"
+echo "     The easy way — run the interactive config wizard:"
+echo "       python3 configure.py"
+echo "     Or manually:"
 echo "       cp config.yaml.example config.yaml"
-echo "     Then edit config.yaml:"
-echo "     → Set proxmox.token_secret  (your Proxmox API token secret)"
-echo "     → Set proxmox.ssh_key       (path to SSH key authorized on all Proxmox nodes)"
+echo "       → Set proxmox.token_secret  (your Proxmox API token secret)"
+echo "       → Set proxmox.ssh_key       (path to SSH key authorized on all Proxmox nodes)"
 echo ""
 echo "  2. Authorize your SSH key on all Proxmox nodes:"
 NODE_CMDS=$("$PYTHON" -c "
@@ -207,10 +209,31 @@ else
 fi
 echo ""
 echo "  3. Run the deploy wizard:"
-echo "       source .venv/bin/activate"
 echo "       python3 deploy_lxc.py"
 echo ""
 echo "  4. To decommission a container:"
 echo "       python3 decomm_lxc.py"
 echo "       python3 decomm_lxc.py --purge   # also deletes local deployment file"
 echo ""
+
+# ──────────────────────────────────────────────
+# Offer to run the config wizard now
+# ──────────────────────────────────────────────
+echo "────────────────────────────────────────────"
+echo ""
+
+# Default answer is Y — just pressing Enter launches the wizard
+read -r -p "Would you like to run the config wizard now? [Y/n] " RUN_WIZARD
+RUN_WIZARD="${RUN_WIZARD:-Y}"
+
+if [[ "$RUN_WIZARD" =~ ^[Yy]$ ]]; then
+    echo ""
+    "$PYTHON" configure.py
+else
+    echo ""
+    echo "No problem. When you're ready, run:"
+    echo "  python3 configure.py          # build config.yaml interactively"
+    echo "  python3 configure.py --edit   # edit an existing config.yaml"
+    echo "  python3 configure.py --validate  # check config.yaml without changing it"
+    echo ""
+fi
