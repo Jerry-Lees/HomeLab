@@ -1,4 +1,8 @@
+[← Back to README](../../README.md)
+
 # Ansible Integration
+
+### About
 
 Labinator uses Ansible for two distinct purposes after a resource is deployed:
 
@@ -136,3 +140,7 @@ the host from the inventory file on the same server using the same settings.
 
 Set `ansible_inventory.enabled: false` in `config.yaml` to skip inventory registration
 while still running the post-deploy configuration playbook.
+
+---
+
+[← Back to README](../../README.md)
