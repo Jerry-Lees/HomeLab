@@ -10,12 +10,29 @@ This will be the first and, hopefully, only challenge in getting running.
 
 ## Table of Contents
 
+- [Config Wizard — The Easy Way](#config-wizard--the-easy-way)
 - [Creating a Proxmox API Token](#creating-a-proxmox-api-token)
 - [Authorizing SSH Key on Proxmox Nodes](#authorizing-ssh-key-on-proxmox-nodes)
 - [config.yaml Reference](#configyaml-reference)
 - [cloud-images.yaml](#cloud-imagesyaml)
 - [--config FILE Flag](#--config-file-flag)
 - [Multi-Node / Failover](#multi-node--failover)
+
+---
+
+## Config Wizard — The Easy Way
+
+Not a fan of editing YAML by hand? `configure.py` walks you through every field interactively, with a one-sentence hint at each prompt. It writes a fully-commented `config.yaml` and validates it immediately when done.
+
+```bash
+python3 configure.py          # build config.yaml from scratch
+python3 configure.py --edit   # edit an existing config.yaml
+python3 configure.py --validate  # check config.yaml without changing anything
+```
+
+See the full wizard docs: **[Config File Wizard](configure.md)**
+
+The rest of this page is the manual field reference — useful for understanding what each setting does, or for making targeted edits to an existing config without running the wizard again. Or if you are a super human YAML editing machine.
 
 ---
 

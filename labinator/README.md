@@ -23,6 +23,7 @@ A command-line wizard for provisioning, configuring, and onboarding LXC containe
 
 labinator manages the complete lifecycle of Proxmox resources across six scripts:
 
+- **`configure.py`** — interactive wizard to build or edit `config.yaml` with per-field hints, autocomplete timezone picker, and immediate validation
 - **`deploy_lxc.py`** — interactive wizard to fully provision and onboard an LXC container (create, bootstrap SSH, run Ansible, register DNS and inventory)
 - **`decomm_lxc.py`** — permanently destroy a container and remove all associated records
 - **`deploy_vm.py`** — interactive wizard to provision and onboard a QEMU VM via cloud-init with multi-OS Ansible post-deploy
@@ -36,6 +37,7 @@ labinator manages the complete lifecycle of Proxmox resources across six scripts
 
 ```
 labinator/
+├── configure.py                   # Interactive config.yaml wizard (build, edit, validate)
 ├── deploy_lxc.py                  # LXC provisioning wizard
 ├── decomm_lxc.py                  # LXC decommission script
 ├── deploy_vm.py                   # QEMU VM provisioning wizard
@@ -197,6 +199,7 @@ The scripts auto-activate the virtualenv at startup, so you can run them with `p
 | Page | Contents |
 |---|---|
 | [docs/configuration.md](docs/configuration.md) | Proxmox API token setup, SSH key auth, full `config.yaml` reference, `cloud-images.yaml`, `--config` flag, multi-node failover |
+| [docs/configure.md](docs/configure.md) | Interactive config wizard — build, edit, and validate `config.yaml` with guided prompts |
 | [docs/deploy-lxc.md](docs/deploy-lxc.md) | All `deploy_lxc.py` flags, interactive walkthrough, deploy from file, silent mode, dry-run, TTL, VLAN check, preflight |
 | [docs/deploy-vm.md](docs/deploy-vm.md) | All `deploy_vm.py` flags, interactive walkthrough, deploy from file, silent mode, dry-run, TTL, VLAN check, preflight |
 | [docs/decommission.md](docs/decommission.md) | `decomm_lxc.py` and `decomm_vm.py` flags, interactive and file-based mode, `--purge`, `--silent` |
@@ -211,6 +214,15 @@ The scripts auto-activate the virtualenv at startup, so you can run them with `p
 ## Quick Start
 
 ```bash
+# Build config.yaml interactively (first-time setup)
+python3 configure.py
+  or
+# Edit an existing config.yaml
+python3 configure.py --edit
+
+# Validate config.yaml without changing anything
+python3 configure.py --validate
+
 # Deploy an LXC container interactively
 python3 deploy_lxc.py
 
