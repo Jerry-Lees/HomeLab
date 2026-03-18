@@ -1,4 +1,8 @@
+[← Back to README](../../README.md)
+
 # config.yaml — Schema Reference
+
+### About
 
 `config.yaml` is the primary configuration file for labinator. It controls how labinator
 connects to your Proxmox cluster, what defaults are used during deployment, and how
@@ -317,3 +321,7 @@ vm:
 | `bios` | optional | string | VM BIOS type. `seabios` (standard) or `ovmf` (UEFI). |
 | `storage_controller` | optional | string | VM disk controller. `virtio-scsi-pci` recommended for performance. |
 | `nic_driver` | optional | string | VM NIC driver. `virtio` recommended for performance. |
+
+---
+
+[← Back to README](../../README.md)
