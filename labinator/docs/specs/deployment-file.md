@@ -1,4 +1,8 @@
+[← Back to README](../../README.md)
+
 # Deployment Files — Schema Reference
+
+### About
 
 Deployment files are JSON records written to `deployments/lxc/` (LXC containers) or
 `deployments/vms/` (QEMU VMs) when a resource is successfully deployed. They serve as the
@@ -163,3 +167,7 @@ re-deployments with no user interaction.
 
 Used by `cleanup_tagged.py --list-file`. A separate format — see
 `docs/specs/cleanup-action-list.md`.
+
+---
+
+[← Back to README](../../README.md)
