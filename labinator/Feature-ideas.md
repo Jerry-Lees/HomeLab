@@ -21,10 +21,17 @@ In the deployment wizards (`deploy_lxc.py`, `deploy_vm.py`) and ideally anywhere
 
 ## cleanup_tagged.py — --plan Flag
 
-Add a `--plan` flag that scans the cluster, displays the resource table (same as
+**Scope: tagged resources only.** This is for resources that carry a specific tag (e.g.
+`auto-deploy`) but have no labinator deployment file — orphaned or externally-created
+hosts that you want to eventually act on but aren't ready to decide about yet.
+
+`--plan` scans the cluster for the target tag, displays the resource table (same as
 `--dry-run`), then writes a list-file with every found resource set to `action: "keep"`.
-No other action is written — the point is to give the operator a pre-populated file they
-can edit before running for real.
+The point is to give the operator a pre-populated file they can edit at their own pace,
+then feed back to `--list-file` when ready to act.
+
+**This is not `import.py`.** `--plan` is scoped to a tag and produces a cleanup action
+list. `import.py` scans the entire cluster and produces deployment JSON files.
 
 ### Behavior
 
@@ -313,11 +320,20 @@ python3 deploy.py --batch-dir deployments/batch/
 
 ---
 
-## Proxmox Cluster Import / Scan
+## Proxmox Cluster Import / Scan (`import.py`)
 
-Scan an existing Proxmox cluster and generate labinator deployment JSON files for VMs and LXCs
-that were provisioned outside of labinator — allowing you to adopt an existing environment
-without starting from scratch.
+**Scope: the entire cluster, no tag filter.** This is for adopting an existing Proxmox
+environment into labinator — every VM and LXC on every node, regardless of tags or
+whether labinator originally deployed them.
+
+The goal is a deployment JSON file for every resource so the cluster can be documented,
+migrated, or rebuilt from scratch. Fields that can't be determined automatically (e.g.
+passwords, cloud image source) are left as clearly-marked placeholders — the operator
+fills them in before using the file for a redeploy.
+
+**This is not `cleanup_tagged.py --plan`.** `import.py` ignores tags entirely and
+produces deployment JSON files (the same format `deploy_lxc.py` / `deploy_vm.py` write).
+`--plan` is scoped to a tag and produces a cleanup action list.
 
 ### Usage
 
