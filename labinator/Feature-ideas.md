@@ -89,39 +89,6 @@ In a list file:
 
 ---
 
-## Interactive Config File Wizard (`setup.py` / `configure.py`)
-
-Walk the user through creating a `config.yaml` interactively instead of requiring them
-to manually copy and edit `config.yaml.example`. Useful for first-time setup and for
-generating alternate config files for different clusters.
-
-### Behavior
-
-- Ask each required field with a prompt, description, and example value.
-- Validate input inline (e.g. IP format, non-empty strings, valid token format).
-- Write the completed config to `config.yaml` (or a path specified by `--output`).
-- `setup.sh` (the existing installer) should invoke this automatically if `config.yaml`
-  does not exist after dependencies are installed.
-
-### Usage
-
-```bash
-./configure.py                        # creates config.yaml interactively
-./configure.py --output prod.yaml     # create an alternate config file
-```
-
-### Implementation notes
-
-- Use `questionary` for prompts — consistent with the rest of labinator.
-- Group prompts by section (proxmox, dns, ansible_inventory, defaults, etc.).
-- Offer sensible defaults where possible (e.g. `dns.enabled: true`, `vlan: 220`).
-- After writing the file, always offer to run `--preflight` against it immediately.
-  Preflight already includes config validation as its first check (`Config valid`) so
-  there is no need for a separate `validate_config()` call — preflight covers it and
-  also verifies connectivity, SSH keys, DNS, and inventory in one pass.
-
----
-
 ## LXC Feature Flags (Profile-Driven + Manual Override)
 
 LXC containers share the host kernel, so Proxmox must explicitly grant access to kernel
