@@ -1,6 +1,6 @@
 # Feature Ideas
 
-## Wizard Back-Navigation (ESC to go back)
+## ✅ Wizard Back-Navigation (ESC to go back) — DONE
 
 In the deployment wizards (`deploy_lxc.py`, `deploy_vm.py`) and ideally anywhere a `questionary` prompt is shown, pressing **ESC** should return to the previous question rather than aborting the session. Currently, ESC (or Ctrl+C) exits the script entirely.
 
