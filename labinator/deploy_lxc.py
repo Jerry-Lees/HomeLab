@@ -73,6 +73,11 @@ from modules.lib import (
     parse_ttl,
     expires_at_from_ttl,
     q,
+    pt_text,
+    select_nav,
+    BACK,
+    SKIP,
+    run_wizard_steps,
     load_deployment_file,
     prompt_package_profile,
     prompt_extra_packages,
@@ -783,169 +788,232 @@ def main() -> None:
     console.print(f"[green]✓ Connected.[/green] {len(nodes)} node(s) online.\n")
 
     # ═══════════════════════════════════════════
-    # Interactive prompts — resources first, then node selection
+    # Interactive wizard — step functions with ESC back-navigation
+    # ESC goes back one step at any prompt.
+    # ESC at the first prompt exits cleanly ("Aborted.").
+    # Ctrl+C exits immediately at any point.
     # ═══════════════════════════════════════════
 
-    # Hostname
-    hostname = q(
-        questionary.text,
-        "Hostname for the new container:",
-        instruction="(short name only — domain suffix from config will be appended in inventory)",
-        validate=lambda v: True if v.strip() else "Hostname cannot be empty",
-        d=deploy, key="hostname", silent=silent,
-    ).strip().lower()
-
-    # CPU / Memory / Disk — ask before node selection so we can filter by resources
-    cpus_str = q(
-        questionary.text,
-        "Number of vCPUs:",
-        default=str(defaults.get("cpus", 2)),
-        validate=lambda v: True if v.isdigit() and int(v) > 0 else "Must be a positive integer",
-        d=deploy, key="cpus", silent=silent,
-    )
-
-    memory_gb_str = q(
-        questionary.text,
-        "Memory (GB):",
-        default=str(defaults.get("memory_gb", 4)),
-        validate=lambda v: (True if v.replace(".", "", 1).isdigit() and float(v) > 0
-                            else "Must be a positive number"),
-        d=deploy, key="memory_gb", silent=silent,
-    )
-
-    disk_gb_str = q(
-        questionary.text,
-        "Disk size (GB):",
-        default=str(defaults.get("disk_gb", 100)),
-        validate=lambda v: True if v.isdigit() and int(v) > 0 else "Must be a positive integer",
-        d=deploy, key="disk_gb", silent=silent,
-    )
-
-    vlan_str = q(
-        questionary.text,
-        "VLAN tag (bridge: vmbr0.<vlan>):",
-        default=str(defaults.get("vlan", 220)),
-        validate=lambda v: (True if v.isdigit() and 1 <= int(v) <= 4094
-                            else "Must be a valid VLAN ID (1–4094)"),
-        d=deploy, key="vlan", silent=silent,
-    )
-
-    password = q(
-        questionary.text,
-        f"Root / {addusername} user password:",
-        default=defaults.get("root_password", "changeme"),
-        d=deploy, key="password", silent=silent,
-    )
-
-    # ── Package profile + extra packages ──
-    package_profile, profile_packages, profile_tags = prompt_package_profile(cfg, deploy, silent)
-    extra_packages = prompt_extra_packages(deploy, silent)
-
-    # ── Node selection ──
-    memory_mb = int(float(memory_gb_str) * 1024)
-    node_name = prompt_node_selection(nodes, deploy, silent, memory_mb, memory_gb_str,
-                                      cpu_threshold, ram_threshold)
-
-    # ── Templates ──
-    with console.status(f"[bold green]Fetching templates from {node_name}..."):
-        templates = get_templates(proxmox, node_name)
-
-    if not templates:
-        console.print(f"[red]No LXC templates found on {node_name}.[/red]")
-        console.print("Download templates in Proxmox: local storage > CT Templates > Templates")
-        sys.exit(1)
-
-    if silent:
-        template_volid = str(deploy.get("template_volid", ""))
-        if not template_volid:
-            template_volid = templates[0]["volid"]
-        elif not any(t["volid"] == template_volid for t in templates):
-            console.print(
-                f"[yellow]Warning: Template '{template_volid}' not found on {node_name}. "
-                f"Using first available.[/yellow]"
-            )
-            template_volid = templates[0]["volid"]
-        template_name = template_volid.split("/")[-1]
-        console.print(f"  [dim]Template (from deployment file): {template_name}[/dim]")
-    else:
-        template_choices = [
-            questionary.Choice(title=f"[{t['storage']}] {t['name']}", value=t["volid"])
-            for t in templates
-        ]
-        deploy_volid = str(deploy.get("template_volid", ""))
-        default_tmpl_name = defaults.get("template", "")
-        default_volid = (
-            deploy_volid if deploy_volid and any(t["volid"] == deploy_volid for t in templates)
-            else next(
-                (t["volid"] for t in templates if t["name"] == default_tmpl_name),
-                templates[0]["volid"],
-            )
+    def step_hostname(s):
+        r = pt_text(
+            "Hostname for the new container:",
+            default=s.get("hostname", ""),
+            instruction="short name only — domain suffix appended in inventory",
+            validate=lambda v: True if v.strip() else "Hostname cannot be empty",
+            d=deploy, key="hostname", silent=silent,
         )
-        template_volid = questionary.select(
-            "Select OS template (Ubuntu templates listed first):",
-            choices=template_choices,
-            default=default_volid,
-        ).ask()
-        if template_volid is None:
-            sys.exit(0)
-        template_name = template_volid.split("/")[-1]
+        if r is BACK:
+            return BACK
+        return {**s, "hostname": r.strip().lower()}
 
-    # ── Storage pool ──
-    with console.status(f"[bold green]Querying storage pools on {node_name}..."):
-        storage_pools = get_disk_storages(proxmox, node_name)
+    def step_cpus(s):
+        r = pt_text(
+            "Number of vCPUs:",
+            default=s.get("cpus_str", str(defaults.get("cpus", 2))),
+            validate=lambda v: True if v.isdigit() and int(v) > 0 else "Must be a positive integer",
+            d=deploy, key="cpus", silent=silent,
+        )
+        if r is BACK:
+            return BACK
+        return {**s, "cpus_str": r}
 
-    if silent:
-        storage = str(deploy.get("storage", storage_pools[0] if storage_pools else "local-lvm"))
-        console.print(f"  [dim]Storage (from deployment file): {storage}[/dim]")
-    elif len(storage_pools) > 1:
-        deploy_storage = str(deploy.get("storage", ""))
-        default_storage = deploy_storage if deploy_storage in storage_pools else storage_pools[0]
-        storage = questionary.select(
-            "Select storage pool for container root disk:",
-            choices=storage_pools,
-            default=default_storage,
-        ).ask()
-        if storage is None:
-            sys.exit(0)
-    else:
-        storage = storage_pools[0] if storage_pools else "local-lvm"
-        console.print(f"  [dim]Storage pool: {storage}[/dim]")
+    def step_memory(s):
+        r = pt_text(
+            "Memory (GB):",
+            default=s.get("memory_gb_str", str(defaults.get("memory_gb", 4))),
+            validate=lambda v: (True if v.replace(".", "", 1).isdigit() and float(v) > 0
+                                else "Must be a positive number"),
+            d=deploy, key="memory_gb", silent=silent,
+        )
+        if r is BACK:
+            return BACK
+        return {**s, "memory_gb_str": r}
 
-    # ═══════════════════════════════════════════
-    # Summary & confirmation
-    # ═══════════════════════════════════════════
-    next_vmid = get_next_vmid(proxmox)
-    bridge = defaults.get("bridge", "vmbr0")
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    def step_disk(s):
+        r = pt_text(
+            "Disk size (GB):",
+            default=s.get("disk_gb_str", str(defaults.get("disk_gb", 100))),
+            validate=lambda v: True if v.isdigit() and int(v) > 0 else "Must be a positive integer",
+            d=deploy, key="disk_gb", silent=silent,
+        )
+        if r is BACK:
+            return BACK
+        return {**s, "disk_gb_str": r}
 
-    console.print()
-    table = Table(title="Deployment Summary", show_header=False, border_style="cyan", padding=(0, 2))
-    table.add_column("Key", style="bold")
-    table.add_column("Value")
-    table.add_row("VMID",        str(next_vmid))
-    table.add_row("Hostname",    hostname)
-    table.add_row("Node",        node_name)
-    table.add_row("Template",    template_name)
-    table.add_row("vCPUs",       cpus_str)
-    table.add_row("Memory",      f"{memory_gb_str} GB ({memory_mb} MB)")
-    table.add_row("Disk",        f"{disk_gb_str} GB  →  {storage}")
-    table.add_row("Network",     f"{bridge}.{vlan_str}  (DHCP)")
-    tags_display = ";".join(["auto-deploy"] + profile_tags) if profile_tags else "auto-deploy"
-    table.add_row("Tags",        tags_display)
-    if ttl:
-        table.add_row("TTL / Expires", f"{ttl}  (expires {expires_at_from_ttl(ttl)[:19]} UTC)")
-    table.add_row("Users",       f"root, {addusername} (same password)")
-    table.add_row("Timezone",    cfg.get("timezone", "UTC"))
-    table.add_row("NTP",         ", ".join(cfg.get("ntp", {}).get("servers", ["pool.ntp.org"])))
-    table.add_row("SNMP",        f"community='{cfg['snmp']['community']}' (rw) on :161")
-    console.print(table)
-    console.print()
+    def step_vlan(s):
+        r = pt_text(
+            "VLAN tag (bridge: vmbr0.<vlan>):",
+            default=s.get("vlan_str", str(defaults.get("vlan", 220))),
+            validate=lambda v: (True if v.isdigit() and 1 <= int(v) <= 4094
+                                else "Must be a valid VLAN ID (1–4094)"),
+            d=deploy, key="vlan", silent=silent,
+        )
+        if r is BACK:
+            return BACK
+        return {**s, "vlan_str": r}
 
-    if not silent:
-        confirm = questionary.confirm("Proceed with deployment?", default=True).ask()
-        if not confirm:
-            console.print("[yellow]Deployment cancelled.[/yellow]")
-            sys.exit(0)
+    def step_password(s):
+        r = pt_text(
+            f"Root / {addusername} user password:",
+            default=s.get("password", defaults.get("root_password", "changeme")),
+            d=deploy, key="password", silent=silent,
+        )
+        if r is BACK:
+            return BACK
+        return {**s, "password": r}
+
+    def step_package_profile(s):
+        r = prompt_package_profile(cfg, deploy, silent, nav=True)
+        if r is BACK:
+            return BACK
+        package_profile, profile_packages, profile_tags = r
+        return {**s, "package_profile": package_profile,
+                "profile_packages": profile_packages, "profile_tags": profile_tags}
+
+    def step_extra_packages(s):
+        r = prompt_extra_packages(deploy, silent, nav=True)
+        if r is BACK:
+            return BACK
+        return {**s, "extra_packages": r}
+
+    def step_node(s):
+        memory_mb = int(float(s["memory_gb_str"]) * 1024)
+        r = prompt_node_selection(nodes, deploy, silent, memory_mb, s["memory_gb_str"],
+                                  cpu_threshold, ram_threshold, nav=True)
+        if r is BACK:
+            return BACK
+        return {**s, "node_name": r}
+
+    def step_template(s):
+        with console.status(f"[bold green]Fetching templates from {s['node_name']}..."):
+            templates = get_templates(proxmox, s["node_name"])
+        if not templates:
+            console.print(f"[red]No LXC templates found on {s['node_name']}.[/red]")
+            console.print("Download templates in Proxmox: local storage > CT Templates > Templates")
+            sys.exit(1)
+        if silent:
+            template_volid = str(deploy.get("template_volid", ""))
+            if not template_volid:
+                template_volid = templates[0]["volid"]
+            elif not any(t["volid"] == template_volid for t in templates):
+                console.print(
+                    f"[yellow]Warning: Template '{template_volid}' not found on "
+                    f"{s['node_name']}. Using first available.[/yellow]"
+                )
+                template_volid = templates[0]["volid"]
+            template_name = template_volid.split("/")[-1]
+            console.print(f"  [dim]Template (from deployment file): {template_name}[/dim]")
+        else:
+            template_choices = [
+                questionary.Choice(title=f"[{t['storage']}] {t['name']}", value=t["volid"])
+                for t in templates
+            ]
+            deploy_volid = str(deploy.get("template_volid", ""))
+            default_tmpl_name = defaults.get("template", "")
+            default_volid = (
+                deploy_volid if deploy_volid and any(t["volid"] == deploy_volid for t in templates)
+                else next(
+                    (t["volid"] for t in templates if t["name"] == default_tmpl_name),
+                    templates[0]["volid"],
+                )
+            )
+            r = select_nav(
+                "Select OS template (Ubuntu templates listed first):",
+                choices=template_choices,
+                default=s.get("template_volid", default_volid),
+            )
+            if r is BACK:
+                return BACK
+            template_volid = r
+            template_name = template_volid.split("/")[-1]
+        return {**s, "template_volid": template_volid, "template_name": template_name}
+
+    def step_storage(s):
+        with console.status(f"[bold green]Querying storage pools on {s['node_name']}..."):
+            storage_pools = get_disk_storages(proxmox, s["node_name"])
+        if silent:
+            storage = str(deploy.get("storage", storage_pools[0] if storage_pools else "local-lvm"))
+            console.print(f"  [dim]Storage (from deployment file): {storage}[/dim]")
+        elif len(storage_pools) > 1:
+            deploy_storage = str(deploy.get("storage", ""))
+            default_storage = deploy_storage if deploy_storage in storage_pools else storage_pools[0]
+            r = select_nav(
+                "Select storage pool for container root disk:",
+                choices=storage_pools,
+                default=s.get("storage", default_storage),
+            )
+            if r is BACK:
+                return BACK
+            storage = r
+        else:
+            storage = storage_pools[0] if storage_pools else "local-lvm"
+            console.print(f"  [dim]Storage pool: {storage}[/dim]")
+        return {**s, "storage": storage}
+
+    def step_confirm(s):
+        next_vmid = get_next_vmid(proxmox)
+        bridge = defaults.get("bridge", "vmbr0")
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        memory_mb = int(float(s["memory_gb_str"]) * 1024)
+        console.print()
+        table = Table(title="Deployment Summary", show_header=False,
+                      border_style="cyan", padding=(0, 2))
+        table.add_column("Key", style="bold")
+        table.add_column("Value")
+        table.add_row("VMID",        str(next_vmid))
+        table.add_row("Hostname",    s["hostname"])
+        table.add_row("Node",        s["node_name"])
+        table.add_row("Template",    s["template_name"])
+        table.add_row("vCPUs",       s["cpus_str"])
+        table.add_row("Memory",      f"{s['memory_gb_str']} GB ({memory_mb} MB)")
+        table.add_row("Disk",        f"{s['disk_gb_str']} GB  →  {s['storage']}")
+        table.add_row("Network",     f"{bridge}.{s['vlan_str']}  (DHCP)")
+        tags_display = (";".join(["auto-deploy"] + s["profile_tags"])
+                        if s["profile_tags"] else "auto-deploy")
+        table.add_row("Tags",        tags_display)
+        if ttl:
+            table.add_row("TTL / Expires",
+                          f"{ttl}  (expires {expires_at_from_ttl(ttl)[:19]} UTC)")
+        table.add_row("Users",       f"root, {addusername} (same password)")
+        table.add_row("Timezone",    cfg.get("timezone", "UTC"))
+        table.add_row("NTP",         ", ".join(cfg.get("ntp", {}).get("servers", ["pool.ntp.org"])))
+        table.add_row("SNMP",        f"community='{cfg['snmp']['community']}' (rw) on :161")
+        console.print(table)
+        console.print()
+        if not silent:
+            r = questionary.confirm("Proceed with deployment?", default=True).ask()
+            if r is None:
+                return BACK
+            if not r:
+                console.print("[yellow]Deployment cancelled.[/yellow]")
+                sys.exit(0)
+        return {**s, "next_vmid": next_vmid, "bridge": bridge, "now_str": now_str}
+
+    ws = run_wizard_steps([
+        step_hostname, step_cpus, step_memory, step_disk, step_vlan, step_password,
+        step_package_profile, step_extra_packages, step_node, step_template,
+        step_storage, step_confirm,
+    ])
+
+    # Unpack wizard state into local variables for the rest of the deploy flow
+    hostname         = ws["hostname"]
+    cpus_str         = ws["cpus_str"]
+    memory_gb_str    = ws["memory_gb_str"]
+    disk_gb_str      = ws["disk_gb_str"]
+    vlan_str         = ws["vlan_str"]
+    password         = ws["password"]
+    package_profile  = ws["package_profile"]
+    profile_packages = ws["profile_packages"]
+    profile_tags     = ws["profile_tags"]
+    extra_packages   = ws["extra_packages"]
+    node_name        = ws["node_name"]
+    template_volid   = ws["template_volid"]
+    template_name    = ws["template_name"]
+    storage          = ws["storage"]
+    next_vmid        = ws["next_vmid"]
+    bridge           = ws["bridge"]
+    now_str          = ws["now_str"]
+    memory_mb        = int(float(memory_gb_str) * 1024)
 
     # ── Pre-creation resource re-check ──
     console.print("[dim]Pre-creation resource check...[/dim]")

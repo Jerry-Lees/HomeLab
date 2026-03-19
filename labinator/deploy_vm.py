@@ -71,6 +71,11 @@ from modules.lib import (
     parse_ttl,
     expires_at_from_ttl,
     q,
+    pt_text,
+    select_nav,
+    BACK,
+    SKIP,
+    run_wizard_steps,
     load_deployment_file,
     prompt_package_profile,
     prompt_extra_packages,
@@ -455,6 +460,7 @@ _BACK = "__back__"
 def select_image_with_storage(
     proxmox: ProxmoxAPI, node_name: str, cfg: dict,
     deploy: dict, silent: bool, catalog: list[dict],
+    nav: bool = False,
 ) -> tuple[str, str, str | None, bool]:
     """
     Two-level interactive browser: storage → image.
@@ -519,7 +525,9 @@ def select_image_with_storage(
             )
             sys.exit(1)
 
-        storage_choices = []
+        storage_choices = (
+            [questionary.Choice(title="← Go Back", value=BACK)] if nav else []
+        )
         for s in storages:
             avail = s.get("avail", 0)
             total = s.get("total", 0)
@@ -538,8 +546,8 @@ def select_image_with_storage(
             choices=storage_choices,
             default=default_storage_val,
         ).ask()
-        if selected_storage is None:
-            sys.exit(0)
+        if selected_storage is None or selected_storage is BACK:
+            return BACK if nav else sys.exit(0)
 
         if selected_storage == "local":
             console.print(
@@ -592,7 +600,7 @@ def select_image_with_storage(
             default=default_img_val,
         ).ask()
         if selected is None:
-            sys.exit(0)
+            return BACK if nav else sys.exit(0)
         if selected == _BACK:
             continue  # Back to storage selection
 
@@ -1019,188 +1027,277 @@ def main() -> None:
     console.print(f"[green]✓ Connected.[/green] {len(nodes)} node(s) online.\n")
 
     # ═══════════════════════════════════════════
-    # Interactive prompts
+    # Interactive wizard — step functions with ESC back-navigation
+    # ESC goes back one step at any prompt.
+    # ESC at the first prompt exits cleanly ("Aborted.").
+    # Ctrl+C exits immediately at any point.
     # ═══════════════════════════════════════════
 
-    hostname = q(
-        questionary.text,
-        "Hostname for the new VM:",
-        instruction="(short name only — domain suffix from config will be appended in inventory)",
-        validate=lambda v: True if v.strip() else "Hostname cannot be empty",
-        d=deploy, key="hostname", silent=silent,
-    ).strip().lower()
+    def step_hostname(s):
+        r = pt_text(
+            "Hostname for the new VM:",
+            default=s.get("hostname", ""),
+            instruction="short name only — domain suffix appended in inventory",
+            validate=lambda v: True if v.strip() else "Hostname cannot be empty",
+            d=deploy, key="hostname", silent=silent,
+        )
+        if r is BACK:
+            return BACK
+        return {**s, "hostname": r.strip().lower()}
 
-    cpus_str = q(
-        questionary.text,
-        "Number of vCPUs:",
-        default=str(defaults.get("cpus", 2)),
-        validate=lambda v: True if v.isdigit() and int(v) > 0 else "Must be a positive integer",
-        d=deploy, key="cpus", silent=silent,
-    )
+    def step_cpus(s):
+        r = pt_text(
+            "Number of vCPUs:",
+            default=s.get("cpus_str", str(defaults.get("cpus", 2))),
+            validate=lambda v: True if v.isdigit() and int(v) > 0 else "Must be a positive integer",
+            d=deploy, key="cpus", silent=silent,
+        )
+        if r is BACK:
+            return BACK
+        return {**s, "cpus_str": r}
 
-    memory_gb_str = q(
-        questionary.text,
-        "Memory (GB):",
-        default=str(defaults.get("memory_gb", 4)),
-        validate=lambda v: (True if v.replace(".", "", 1).isdigit() and float(v) > 0
-                            else "Must be a positive number"),
-        d=deploy, key="memory_gb", silent=silent,
-    )
+    def step_memory(s):
+        r = pt_text(
+            "Memory (GB):",
+            default=s.get("memory_gb_str", str(defaults.get("memory_gb", 4))),
+            validate=lambda v: (True if v.replace(".", "", 1).isdigit() and float(v) > 0
+                                else "Must be a positive number"),
+            d=deploy, key="memory_gb", silent=silent,
+        )
+        if r is BACK:
+            return BACK
+        return {**s, "memory_gb_str": r}
 
-    disk_gb_str = q(
-        questionary.text,
-        "Disk size (GB):",
-        default=str(defaults.get("disk_gb", 100)),
-        validate=lambda v: True if v.isdigit() and int(v) > 0 else "Must be a positive integer",
-        d=deploy, key="disk_gb", silent=silent,
-    )
+    def step_disk(s):
+        r = pt_text(
+            "Disk size (GB):",
+            default=s.get("disk_gb_str", str(defaults.get("disk_gb", 100))),
+            validate=lambda v: True if v.isdigit() and int(v) > 0 else "Must be a positive integer",
+            d=deploy, key="disk_gb", silent=silent,
+        )
+        if r is BACK:
+            return BACK
+        return {**s, "disk_gb_str": r}
 
-    vlan_str = q(
-        questionary.text,
-        "VLAN tag (bridge: vmbr0.<vlan>):",
-        default=str(defaults.get("vlan", 220)),
-        validate=lambda v: (True if v.isdigit() and 1 <= int(v) <= 4094
-                            else "Must be a valid VLAN ID (1–4094)"),
-        d=deploy, key="vlan", silent=silent,
-    )
+    def step_vlan(s):
+        r = pt_text(
+            "VLAN tag (bridge: vmbr0.<vlan>):",
+            default=s.get("vlan_str", str(defaults.get("vlan", 220))),
+            validate=lambda v: (True if v.isdigit() and 1 <= int(v) <= 4094
+                                else "Must be a valid VLAN ID (1–4094)"),
+            d=deploy, key="vlan", silent=silent,
+        )
+        if r is BACK:
+            return BACK
+        return {**s, "vlan_str": r}
 
-    password = q(
-        questionary.text,
-        f"Root / {addusername} user password:",
-        default=defaults.get("root_password", "changeme"),
-        d=deploy, key="password", silent=silent,
-    )
+    def step_password(s):
+        r = pt_text(
+            f"Root / {addusername} user password:",
+            default=s.get("password", defaults.get("root_password", "changeme")),
+            d=deploy, key="password", silent=silent,
+        )
+        if r is BACK:
+            return BACK
+        return {**s, "password": r}
 
-    # ── Package profile + extra packages ──
-    package_profile, profile_packages, profile_tags = prompt_package_profile(cfg, deploy, silent)
-    extra_packages = prompt_extra_packages(deploy, silent)
+    def step_package_profile(s):
+        r = prompt_package_profile(cfg, deploy, silent, nav=True)
+        if r is BACK:
+            return BACK
+        package_profile, profile_packages, profile_tags = r
+        return {**s, "package_profile": package_profile,
+                "profile_packages": profile_packages, "profile_tags": profile_tags}
 
-    # ── IP address — blank or "dhcp" = DHCP mode ──
-    deploy_ip = str(deploy.get("ip_address", ""))
-    ip_default = "" if deploy_ip.lower() in ("dhcp", "") else deploy_ip
+    def step_extra_packages(s):
+        r = prompt_extra_packages(deploy, silent, nav=True)
+        if r is BACK:
+            return BACK
+        return {**s, "extra_packages": r}
 
-    if silent:
-        ip_address = "" if deploy_ip.lower() in ("dhcp", "") else deploy_ip
-    else:
-        ip_answer = questionary.text(
-            "IP address for VM:",
-            instruction="(e.g. 10.20.20.200  —  leave blank for DHCP)",
-            default=ip_default,
-            validate=lambda v: (
-                True if v.strip() == "" or v.strip().count(".") == 3
-                else "Enter a valid IPv4 address or leave blank for DHCP"
-            ),
-        ).ask()
-        if ip_answer is None:
-            sys.exit(0)
-        ip_address = ip_answer.strip()
+    def step_ip(s):
+        deploy_ip = str(deploy.get("ip_address", ""))
+        ip_default = "" if deploy_ip.lower() in ("dhcp", "") else deploy_ip
+        if silent:
+            ip_address = "" if deploy_ip.lower() in ("dhcp", "") else deploy_ip
+        else:
+            r = pt_text(
+                "IP address for VM:",
+                default=s.get("ip_address", ip_default),
+                instruction="leave blank for DHCP",
+                validate=lambda v: (
+                    True if v.strip() == "" or v.strip().count(".") == 3
+                    else "Enter a valid IPv4 address or leave blank for DHCP"
+                ),
+            )
+            if r is BACK:
+                return BACK
+            ip_address = r.strip()
+        return {**s, "ip_address": ip_address, "use_dhcp": (ip_address == "")}
 
-    use_dhcp = (ip_address == "")
-
-    if not use_dhcp:
-        prefix_len = q(
-            questionary.text,
+    def step_prefix(s):
+        if s.get("use_dhcp"):
+            return SKIP
+        r = pt_text(
             "Prefix length (subnet mask bits):",
-            default="24",
+            default=s.get("prefix_len", "24"),
             validate=lambda v: True if v.isdigit() and 1 <= int(v) <= 32 else "Must be 1–32",
             d=deploy, key="prefix_len", silent=silent,
-        ).strip()
+        )
+        if r is BACK:
+            return BACK
+        return {**s, "prefix_len": r.strip()}
 
-        auto_gw = derive_gateway(ip_address)
-        gateway = q(
-            questionary.text,
+    def step_gateway(s):
+        if s.get("use_dhcp"):
+            return SKIP
+        auto_gw = derive_gateway(s["ip_address"])
+        r = pt_text(
             "Gateway:",
-            default=auto_gw,
+            default=s.get("gateway", auto_gw),
             validate=lambda v: True if v.count(".") == 3 else "Enter a valid IPv4 address",
             d=deploy, key="gateway", silent=silent,
-        ).strip()
-    else:
-        prefix_len = ""
-        gateway = ""
-
-    # ── Node selection ──
-    memory_mb = int(float(memory_gb_str) * 1024)
-    node_name = prompt_node_selection(nodes, deploy, silent, memory_mb, memory_gb_str,
-                                      cpu_threshold, ram_threshold)
-
-    # ── Cloud image storage + image selection ──
-    catalog = load_cloud_images()
-    image_storage_name, image_filename, image_url, image_refresh = select_image_with_storage(
-        proxmox, node_name, cfg, deploy, silent, catalog,
-    )
-
-    # ── Storage pool ──
-    with console.status(f"[bold green]Querying storage pools on {node_name}..."):
-        storage_pools = get_vm_disk_storages(proxmox, node_name)
-
-    if len(storage_pools) > 1:
-        storage = q(
-            questionary.select,
-            "Select storage pool for VM disk:",
-            choices=storage_pools,
-            d=deploy, key="storage", silent=silent,
         )
-    else:
-        storage = storage_pools[0]
-        console.print(f"  [dim]Storage pool: {storage}[/dim]")
+        if r is BACK:
+            return BACK
+        return {**s, "gateway": r.strip()}
 
-    # ── Read SSH public key for cloud-init injection ──
-    pve = cfg["proxmox"]
-    ssh_key = os.path.expanduser(pve.get("ssh_key", "~/.ssh/id_rsa"))
-    pub_key_path = ssh_key + ".pub"
-    pub_key_encoded = None
-    if os.path.exists(pub_key_path):
-        pub_key = open(pub_key_path).read().strip()
-        pub_key_encoded = quote(pub_key, safe="")
-    else:
-        console.print(
-            f"[yellow]Warning: SSH public key not found at {pub_key_path}. "
-            f"Key injection skipped — Ansible will attempt password auth.[/yellow]"
+    def step_node(s):
+        memory_mb = int(float(s["memory_gb_str"]) * 1024)
+        r = prompt_node_selection(nodes, deploy, silent, memory_mb, s["memory_gb_str"],
+                                  cpu_threshold, ram_threshold, nav=True)
+        if r is BACK:
+            return BACK
+        return {**s, "node_name": r}
+
+    def step_image(s):
+        catalog = load_cloud_images()
+        r = select_image_with_storage(
+            proxmox, s["node_name"], cfg, deploy, silent, catalog, nav=True,
         )
+        if r is BACK:
+            return BACK
+        image_storage_name, image_filename, image_url, image_refresh = r
+        return {**s, "image_storage_name": image_storage_name,
+                "image_filename": image_filename, "image_url": image_url,
+                "image_refresh": image_refresh}
 
-    # ═══════════════════════════════════════════
-    # Summary & confirmation
-    # ═══════════════════════════════════════════
-    next_vmid = get_next_vmid(proxmox)
-    bridge = defaults.get("bridge", "vmbr0")
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    def step_storage(s):
+        with console.status(f"[bold green]Querying storage pools on {s['node_name']}..."):
+            storage_pools = get_vm_disk_storages(proxmox, s["node_name"])
+        if len(storage_pools) > 1:
+            deploy_storage = str(deploy.get("storage", ""))
+            default_storage = deploy_storage if deploy_storage in storage_pools else storage_pools[0]
+            r = select_nav(
+                "Select storage pool for VM disk:",
+                choices=storage_pools,
+                default=s.get("storage", default_storage),
+            )
+            if r is BACK:
+                return BACK
+            storage = r
+        else:
+            storage = storage_pools[0]
+            console.print(f"  [dim]Storage pool: {storage}[/dim]")
+        return {**s, "storage": storage}
 
-    net_display = (
-        f"{bridge}.{vlan_str}  (DHCP — IP assigned at boot)"
-        if use_dhcp else
-        f"{bridge}.{vlan_str}  (static {ip_address}/{prefix_len}  gw {gateway})"
-    )
+    def step_confirm(s):
+        # Read SSH public key (non-interactive file read)
+        pve = cfg["proxmox"]
+        ssh_key_path = os.path.expanduser(pve.get("ssh_key", "~/.ssh/id_rsa"))
+        pub_key_path = ssh_key_path + ".pub"
+        pub_key_encoded = None
+        if os.path.exists(pub_key_path):
+            pub_key = open(pub_key_path).read().strip()
+            pub_key_encoded = quote(pub_key, safe="")
+        else:
+            console.print(
+                f"[yellow]Warning: SSH public key not found at {pub_key_path}. "
+                f"Key injection skipped — Ansible will attempt password auth.[/yellow]"
+            )
+        next_vmid = get_next_vmid(proxmox)
+        bridge = defaults.get("bridge", "vmbr0")
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        memory_mb = int(float(s["memory_gb_str"]) * 1024)
+        use_dhcp = s.get("use_dhcp", True)
+        net_display = (
+            f"{bridge}.{s['vlan_str']}  (DHCP — IP assigned at boot)"
+            if use_dhcp else
+            f"{bridge}.{s['vlan_str']}  (static {s['ip_address']}/{s.get('prefix_len', '')} "
+            f" gw {s.get('gateway', '')})"
+        )
+        console.print()
+        table = Table(title="VM Deployment Summary", show_header=False,
+                      border_style="green", padding=(0, 2))
+        table.add_column("Key", style="bold")
+        table.add_column("Value")
+        table.add_row("VMID",      str(next_vmid))
+        table.add_row("Hostname",  s["hostname"])
+        table.add_row("Node",      s["node_name"])
+        table.add_row("Image",     f"{s['image_storage_name']}:{s['image_filename']}")
+        table.add_row("Machine",   f"{machine} / {bios} / {cpu_type} / {scsihw}")
+        table.add_row("vCPUs",     s["cpus_str"])
+        table.add_row("Memory",    f"{s['memory_gb_str']} GB ({memory_mb} MB)")
+        table.add_row("Disk",      f"{s['disk_gb_str']} GB  →  {s['storage']}  (scsi0)")
+        table.add_row("Network",   net_display)
+        table.add_row("SSH key",   pub_key_path if pub_key_encoded
+                      else "[yellow]not found — password only[/yellow]")
+        tags_display = (";".join(["auto-deploy"] + s["profile_tags"])
+                        if s["profile_tags"] else "auto-deploy")
+        table.add_row("Tags",      tags_display)
+        if ttl:
+            table.add_row("TTL / Expires",
+                          f"{ttl}  (expires {expires_at_from_ttl(ttl)[:19]} UTC)")
+        table.add_row("Users",     f"root, {addusername} (same password)")
+        table.add_row("Timezone",  cfg.get("timezone", "UTC"))
+        table.add_row("NTP",       ", ".join(cfg.get("ntp", {}).get("servers", ["pool.ntp.org"])))
+        table.add_row("SNMP",      f"community='{cfg['snmp']['community']}' (rw) on :161")
+        console.print(table)
+        console.print()
+        if not silent:
+            r = questionary.confirm("Proceed with deployment?", default=True).ask()
+            if r is None:
+                return BACK
+            if not r:
+                console.print("[yellow]Deployment cancelled.[/yellow]")
+                sys.exit(0)
+        return {**s, "next_vmid": next_vmid, "bridge": bridge, "now_str": now_str,
+                "pub_key_path": pub_key_path, "pub_key_encoded": pub_key_encoded}
 
-    console.print()
-    table = Table(title="VM Deployment Summary", show_header=False, border_style="green", padding=(0, 2))
-    table.add_column("Key", style="bold")
-    table.add_column("Value")
-    table.add_row("VMID",      str(next_vmid))
-    table.add_row("Hostname",  hostname)
-    table.add_row("Node",      node_name)
-    table.add_row("Image",     f"{image_storage_name}:{image_filename}")
-    table.add_row("Machine",   f"{machine} / {bios} / {cpu_type} / {scsihw}")
-    table.add_row("vCPUs",     cpus_str)
-    table.add_row("Memory",    f"{memory_gb_str} GB ({memory_mb} MB)")
-    table.add_row("Disk",      f"{disk_gb_str} GB  →  {storage}  (scsi0)")
-    table.add_row("Network",   net_display)
-    table.add_row("SSH key",   pub_key_path if pub_key_encoded else "[yellow]not found — password only[/yellow]")
-    tags_display = ";".join(["auto-deploy"] + profile_tags) if profile_tags else "auto-deploy"
-    table.add_row("Tags",      tags_display)
-    if ttl:
-        table.add_row("TTL / Expires", f"{ttl}  (expires {expires_at_from_ttl(ttl)[:19]} UTC)")
-    table.add_row("Users",     f"root, {addusername} (same password)")
-    table.add_row("Timezone",  cfg.get("timezone", "UTC"))
-    table.add_row("NTP",       ", ".join(cfg.get("ntp", {}).get("servers", ["pool.ntp.org"])))
-    table.add_row("SNMP",      f"community='{cfg['snmp']['community']}' (rw) on :161")
-    console.print(table)
-    console.print()
+    ws = run_wizard_steps([
+        step_hostname, step_cpus, step_memory, step_disk, step_vlan, step_password,
+        step_package_profile, step_extra_packages,
+        step_ip, step_prefix, step_gateway,
+        step_node, step_image, step_storage, step_confirm,
+    ])
 
-    if not silent:
-        confirm = questionary.confirm("Proceed with deployment?", default=True).ask()
-        if not confirm:
-            console.print("[yellow]Deployment cancelled.[/yellow]")
-            sys.exit(0)
+    # Unpack wizard state into local variables for the rest of the deploy flow
+    hostname           = ws["hostname"]
+    cpus_str           = ws["cpus_str"]
+    memory_gb_str      = ws["memory_gb_str"]
+    disk_gb_str        = ws["disk_gb_str"]
+    vlan_str           = ws["vlan_str"]
+    password           = ws["password"]
+    package_profile    = ws["package_profile"]
+    profile_packages   = ws["profile_packages"]
+    profile_tags       = ws["profile_tags"]
+    extra_packages     = ws["extra_packages"]
+    ip_address         = ws["ip_address"]
+    use_dhcp           = ws["use_dhcp"]
+    prefix_len         = ws.get("prefix_len", "")
+    gateway            = ws.get("gateway", "")
+    node_name          = ws["node_name"]
+    image_storage_name = ws["image_storage_name"]
+    image_filename     = ws["image_filename"]
+    image_url          = ws["image_url"]
+    image_refresh      = ws["image_refresh"]
+    storage            = ws["storage"]
+    next_vmid          = ws["next_vmid"]
+    bridge             = ws["bridge"]
+    now_str            = ws["now_str"]
+    pub_key_path       = ws["pub_key_path"]
+    pub_key_encoded    = ws["pub_key_encoded"]
+    memory_mb          = int(float(memory_gb_str) * 1024)
 
     # ── VLAN existence check ──
     check_vlan_exists(proxmox, node_name, bridge, vlan_str, silent=silent)

@@ -1312,6 +1312,134 @@ def q(widget_fn, *args, d: dict | None = None, key: str | None = None,
     return result
 
 
+# ─────────────────────────────────────────────
+# Wizard back-navigation
+# ─────────────────────────────────────────────
+
+# Sentinel values returned by wizard step functions.
+BACK = object()   # user pressed ESC → go to previous step
+SKIP = object()   # step doesn't apply right now (e.g. prefix/gateway in DHCP mode)
+
+
+def pt_text(question: str, *, default: str = "", validate=None, instruction: str = "",
+            d: dict | None = None, key: str | None = None,
+            silent: bool = False, cast=str):
+    """Text prompt with ESC-to-go-back support via prompt_toolkit.
+
+    Returns the entered string, or BACK if ESC was pressed.
+
+    Parameters mirror q(): d/key/silent handle deploy-file pre-fill and silent mode.
+    validate: callable(str) -> True | error_message_str
+    """
+    from prompt_toolkit.shortcuts import PromptSession
+    from prompt_toolkit.key_binding import KeyBindings
+    from prompt_toolkit.validation import Validator, ValidationError
+    from prompt_toolkit.formatted_text import FormattedText
+    from prompt_toolkit.styles import Style
+
+    # Deploy-file / silent integration (same logic as q())
+    val = cast(d[key]) if (d and key and key in d and d[key] is not None) else None
+    if val is not None and silent:
+        console.print(f"  [dim]{question} (from deployment file): {val}[/dim]")
+        return val
+    effective_default = str(val) if val is not None else str(default)
+
+    _back = [False]
+    kb = KeyBindings()
+
+    @kb.add("escape")
+    def _esc(event):
+        _back[0] = True
+        event.app.exit(result=effective_default)  # result is ignored; _back flag is checked
+
+    pt_validator = None
+    if validate:
+        class _V(Validator):
+            def validate(self, doc):
+                if _back[0]:
+                    return  # skip validation on ESC exit
+                r = validate(doc.text)
+                if r is not True:
+                    raise ValidationError(message=str(r), cursor_position=len(doc.text))
+        pt_validator = _V()
+
+    # Style to match questionary's look
+    qstyle = Style.from_dict({
+        "qmark":       "fg:ansicyan bold",
+        "prompt":      "bold",
+        "instruction": "fg:ansibrightblack italic",
+    })
+    parts: list = [("class:qmark", "? "), ("class:prompt", question)]
+    if instruction:
+        parts += [("", " "), ("class:instruction", f"({instruction})")]
+    parts.append(("", " "))
+
+    session = PromptSession(
+        message=FormattedText(parts),
+        key_bindings=kb,
+        validator=pt_validator,
+        validate_while_typing=False,
+        style=qstyle,
+    )
+    # Reduce escape timeouts so ESC feels instant.
+    # ttimeoutlen: how long to wait for more bytes after \x1b before flushing the vt100 parser.
+    # timeoutlen: how long the key processor waits for a follow-up key in multi-key sequences
+    #             (emacs mode has escape+b, escape+f, etc. which would otherwise add ~1s delay).
+    session.app.ttimeoutlen = 0.05
+    session.app.timeoutlen = 0.05
+
+    result = session.prompt(default=effective_default)
+    if _back[0]:
+        return BACK
+    return result
+
+
+def select_nav(question: str, choices: list, default=None):
+    """questionary.select() with a ← Go Back option prepended.
+
+    Returns the selected value, or BACK if ← Go Back is chosen or ESC is pressed.
+    choices: list of plain values or questionary.Choice objects.
+    """
+    nav_choices = [questionary.Choice(title="← Go Back", value=BACK)] + list(choices)
+    result = questionary.select(question, choices=nav_choices, default=default,
+                                instruction="(arrow keys to move, Enter to select, ← Go Back to go back)").ask()
+    if result is None or result is BACK:
+        return BACK
+    return result
+
+
+def run_wizard_steps(steps: list, initial_state: dict | None = None) -> dict:
+    """Run wizard step functions sequentially with ESC-to-go-back support.
+
+    Each step is callable(state: dict) that returns one of:
+      - Updated state dict  — step succeeded; advance to next step.
+      - BACK               — user pressed ESC; return to previous step.
+      - SKIP               — step doesn't apply right now; skip silently.
+
+    ESC at the very first step prints "Aborted." and exits cleanly.
+    Ctrl+C propagates naturally and exits the process immediately.
+    SKIP steps are not pushed onto the history stack, so going back from a later
+    step bypasses them correctly (e.g. prefix/gateway steps in DHCP mode).
+    """
+    state = dict(initial_state or {})
+    history: list[int] = []
+    i = 0
+    while i < len(steps):
+        result = steps[i](state)
+        if result is BACK:
+            if not history:
+                console.print("\n[yellow]Aborted.[/yellow]")
+                sys.exit(0)
+            i = history.pop()
+        elif result is SKIP:
+            i += 1
+        else:
+            history.append(i)
+            state = result
+            i += 1
+    return state
+
+
 def load_deployment_file(path: str) -> dict:
     """Load a deployment JSON; print error and exit if the file is not found."""
     p = Path(path)
@@ -1336,10 +1464,12 @@ def list_deployment_files(kind: str) -> list[Path]:
     return sorted(deployments_dir.glob("*.json"))
 
 
-def prompt_package_profile(cfg: dict, deploy: dict, silent: bool) -> tuple[str, list, list]:
+def prompt_package_profile(cfg: dict, deploy: dict, silent: bool,
+                           nav: bool = False) -> tuple[str, list, list]:
     """Interactive package profile selection.
 
     Returns (package_profile, profile_packages, profile_tags).
+    When nav=True, prepends ← Go Back and returns BACK on ESC instead of sys.exit.
     """
     profiles = cfg.get("package_profiles", {})
     deploy_profile = (deploy.get("package_profile", "") or "") if deploy else ""
@@ -1353,16 +1483,19 @@ def prompt_package_profile(cfg: dict, deploy: dict, silent: bool) -> tuple[str, 
             package_profile = ""
         profile_packages, profile_tags = resolve_profile(package_profile, profiles)
     elif profiles:
-        profile_choices = [questionary.Choice(title="[none]", value="")] + [
+        profile_choices = (
+            [questionary.Choice(title="← Go Back", value=BACK)] if nav else []
+        ) + [questionary.Choice(title="[none]", value="")] + [
             questionary.Choice(title=name, value=name) for name in profiles
         ]
         package_profile = questionary.select(
             "Package profile (optional):",
             choices=profile_choices,
             default=deploy_profile if deploy_profile in profiles else "",
+            instruction="(arrow keys to move, Enter to select, ← Go Back to go back)" if nav else None,
         ).ask()
-        if package_profile is None:
-            sys.exit(0)
+        if package_profile is None or package_profile is BACK:
+            return BACK if nav else sys.exit(0)
         profile_packages, profile_tags = resolve_profile(package_profile, profiles)
     else:
         package_profile = ""
@@ -1371,12 +1504,24 @@ def prompt_package_profile(cfg: dict, deploy: dict, silent: bool) -> tuple[str, 
     return package_profile, profile_packages, profile_tags
 
 
-def prompt_extra_packages(deploy: dict, silent: bool) -> list[str]:
-    """Interactive extra packages prompt. Returns list of package names."""
+def prompt_extra_packages(deploy: dict, silent: bool, nav: bool = False) -> list[str]:
+    """Interactive extra packages prompt. Returns list of package names.
+
+    When nav=True, uses pt_text() so ESC returns BACK instead of sys.exit.
+    """
     deploy_extra_pkgs = deploy.get("extra_packages", []) if deploy else []
     if silent:
         return deploy_extra_pkgs
     pkgs_default = ", ".join(deploy_extra_pkgs) if deploy_extra_pkgs else ""
+    if nav:
+        r = pt_text(
+            "Extra packages to install (optional):",
+            default=pkgs_default,
+            instruction="comma-separated, e.g. htop, curl  —  leave blank for none",
+        )
+        if r is BACK:
+            return BACK
+        return [p.strip() for p in r.split(",") if p.strip()]
     pkgs_answer = questionary.text(
         "Extra packages to install (optional):",
         instruction="comma-separated, e.g. htop, curl  —  leave blank for none",
@@ -1389,8 +1534,12 @@ def prompt_extra_packages(deploy: dict, silent: bool) -> list[str]:
 
 def prompt_node_selection(nodes: list[dict], deploy: dict, silent: bool,
                           memory_mb: int, memory_gb_str: str,
-                          cpu_threshold: float, ram_threshold: float) -> str:
-    """Interactive node selection with resource filtering. Returns node name."""
+                          cpu_threshold: float, ram_threshold: float,
+                          nav: bool = False) -> str:
+    """Interactive node selection with resource filtering. Returns node name.
+
+    When nav=True, prepends ← Go Back and returns BACK on ESC instead of sys.exit.
+    """
     filtered_nodes = [n for n in nodes if node_passes_filter(n, memory_mb, cpu_threshold, ram_threshold)]
     if not filtered_nodes:
         console.print(
@@ -1415,7 +1564,9 @@ def prompt_node_selection(nodes: list[dict], deploy: dict, silent: bool,
     max_shared_len = max(len(smart_size(n['shared_disk'])) for n in filtered_nodes)
     max_local_len  = max(len(smart_size(n['local_disk']))  for n in filtered_nodes)
     max_cpu_len    = max(len(f"{n['cpu'] * 100:.0f}%")     for n in filtered_nodes)
-    node_choices = []
+    node_choices = (
+        [questionary.Choice(title="← Go Back", value=BACK)] if nav else []
+    )
     for n in filtered_nodes:
         is_best = n["name"] == best_node["name"]
         suffix = "  [deploy file]" if n["name"] == deploy_node else ""
@@ -1447,7 +1598,8 @@ def prompt_node_selection(nodes: list[dict], deploy: dict, silent: bool,
         f"Select Proxmox node (★ = most free RAM){hint}:",
         choices=node_choices,
         default=default_node,
+        instruction="(arrow keys to move, Enter to select, ← Go Back to go back)" if nav else None,
     ).ask()
-    if node_name is None:
-        sys.exit(0)
+    if node_name is None or node_name is BACK:
+        return BACK if nav else sys.exit(0)
     return node_name
