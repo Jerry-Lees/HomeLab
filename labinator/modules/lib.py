@@ -365,6 +365,26 @@ def promote_resource(proxmox: ProxmoxAPI, resource: dict) -> None:
     console.print(f"  [green]✓ Tag '{tag}' removed — {resource['hostname']} promoted to production[/green]")
 
 
+def retag_resource(proxmox: ProxmoxAPI, resource: dict) -> None:
+    """Replace matched_tag with retag_tag on a resource in Proxmox."""
+    node     = resource["node"]
+    vmid     = resource["vmid"]
+    kind     = resource["kind"]
+    old_tag  = resource.get("matched_tag", "auto-deploy")
+    new_tag  = resource.get("retag_tag", "")
+    tags_raw = resource.get("tags", "") or ""
+
+    existing = [t.strip() for t in tags_raw.replace(";", ",").split(",") if t.strip()]
+    updated  = [t for t in existing if t != old_tag]
+    if new_tag and new_tag not in updated:
+        updated.append(new_tag)
+    new_tags = ";".join(updated)
+
+    api = proxmox.nodes(node).lxc(vmid) if kind == "lxc" else proxmox.nodes(node).qemu(vmid)
+    api.config.put(tags=new_tags)
+    console.print(f"  [green]✓ Tag '{old_tag}' → '{new_tag}' — {resource['hostname']} retagged[/green]")
+
+
 def decomm_resource(proxmox: ProxmoxAPI, cfg: dict, resource: dict,
                     idx: int = 1, total: int = 1) -> str:
     """Full decommission: stop+destroy in Proxmox, remove DNS, remove from inventory.
@@ -429,6 +449,7 @@ def process_action_list(resources: list, proxmox: ProxmoxAPI, cfg: dict,
     decommissioned: list = []
     already_gone:   list = []
     promoted:       list = []
+    retagged:       list = []
     kept:           list = []
     aborted:        list = []
 
@@ -442,6 +463,19 @@ def process_action_list(resources: list, proxmox: ProxmoxAPI, cfg: dict,
                 promoted.append(resource["hostname"])
             except Exception as e:
                 console.print(f"  [red]✗ Failed to promote {resource['hostname']}: {e}[/red]")
+                aborted.append(resource["hostname"])
+        console.print()
+
+    # Retag (non-destructive)
+    retag_list = [r for r in resources if r.get("action") == "retag"]
+    if retag_list:
+        console.print("[bold]── Retagging resources ──[/bold]")
+        for resource in retag_list:
+            try:
+                retag_resource(proxmox, resource)
+                retagged.append(resource["hostname"])
+            except Exception as e:
+                console.print(f"  [red]✗ Failed to retag {resource['hostname']}: {e}[/red]")
                 aborted.append(resource["hostname"])
         console.print()
 
@@ -478,6 +512,7 @@ def process_action_list(resources: list, proxmox: ProxmoxAPI, cfg: dict,
         "decommissioned": decommissioned,
         "already_gone":   already_gone,
         "promoted":       promoted,
+        "retagged":       retagged,
         "kept":           kept,
         "aborted":        aborted,
     }

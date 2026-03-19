@@ -44,6 +44,7 @@ from modules.lib import (
     flush_stdin,
     stop_and_destroy,
     promote_resource,
+    retag_resource,
     decomm_resource,
     process_action_list,
     SKULL,
@@ -275,6 +276,10 @@ def print_summary(result: dict) -> None:
         lines.append("\n[cyan]Promoted to production:[/cyan]")
         for h in result["promoted"]:
             lines.append(f"  [cyan]✓ {h}[/cyan]")
+    if result.get("retagged"):
+        lines.append("\n[magenta]Retagged:[/magenta]")
+        for h in result["retagged"]:
+            lines.append(f"  [magenta]✓ {h}[/magenta]")
     if result["kept"]:
         lines.append("\n[yellow]Kept (no changes):[/yellow]")
         for h in result["kept"]:
@@ -303,7 +308,7 @@ def load_list_file(path: Path) -> dict:
     Each entry must have 'hostname' and 'action' (keep/promote/decomm).
     'vmid' is optional but used to disambiguate duplicate hostnames.
     """
-    VALID_ACTIONS = {"keep", "promote", "decomm"}
+    VALID_ACTIONS = {"keep", "promote", "decomm", "retag"}
     try:
         with open(path) as f:
             entries = json.load(f)
@@ -400,12 +405,33 @@ def main() -> None:
         help="Skip interactive prompts and scary confirmation challenge. Requires --list-file.",
     )
     parser.add_argument(
+        "--retag-as", metavar="TAG", type=_validate_tag,
+        help=(
+            "New tag to apply when action is 'retag'. Required if any resource uses the retag action. "
+            "Replaces the scanned tag with this tag on the Proxmox resource."
+        ),
+    )
+    parser.add_argument(
+        "--plan", action="store_true",
+        help=(
+            "Scan tagged resources and write a pre-populated list-file (all set to 'keep') "
+            "without executing any actions. Output path: cleanup-plan.json (or --list-file path if given). "
+            "Mutually exclusive with --dry-run and --silent."
+        ),
+    )
+    parser.add_argument(
         "--config", metavar="FILE",
         help="Path to an alternate config file (default: config.yaml in project root)",
     )
     args = parser.parse_args()
     tag = args.tag
 
+    if args.plan and args.dry_run:
+        console.print("[red]ERROR: --plan and --dry-run are mutually exclusive.[/red]")
+        sys.exit(1)
+    if args.plan and args.silent:
+        console.print("[red]ERROR: --plan and --silent are mutually exclusive.[/red]")
+        sys.exit(1)
     if args.silent and not args.list_file:
         console.print("[red]ERROR: --silent requires --list-file (no interactive selection in silent mode)[/red]")
         sys.exit(1)
@@ -441,25 +467,55 @@ def main() -> None:
     print_resource_table(resources, title=f"Resources tagged '{tag}'")
     console.print()
 
-    if args.dry_run:
+    # ── --plan: write pre-populated list-file and exit ──
+    if args.plan:
+        plan_path = Path(args.list_file) if args.list_file else Path("cleanup-plan.json")
+        plan_entries = [
+            {"hostname": r["hostname"], "vmid": r["vmid"], "action": "keep"}
+            for r in resources
+        ]
+        with open(plan_path, "w") as f:
+            json.dump(plan_entries, f, indent=2)
+        console.print(f"[green]✓ Plan written ({len(plan_entries)} resource(s)): {plan_path.resolve()}[/green]")
+        console.print("[dim]Edit the file, then run:[/dim]")
+        console.print(f"[dim]  ./cleanup_tagged.py --list-file {plan_path}[/dim]")
+        sys.exit(0)
+
+    if args.dry_run and not args.list_file:
         console.print(f"[yellow]Dry run — {len(resources)} resource(s) found. No changes made.[/yellow]")
         sys.exit(0)
+
+    retag_as = args.retag_as  # may be None; set lazily in interactive mode
 
     # ── Assign actions ──
     if args.list_file:
         action_map = load_list_file(Path(args.list_file))
         apply_list_file(resources, action_map)
+        # Validate retag entries have a target tag
+        if any(r.get("action") == "retag" for r in resources):
+            if not retag_as:
+                console.print("[red]ERROR: --retag-as TAG is required when 'retag' is used in a list file.[/red]")
+                sys.exit(1)
+            for r in resources:
+                if r.get("action") == "retag":
+                    r["retag_tag"] = retag_as
         console.print(f"[dim]Actions loaded from: {args.list_file}[/dim]")
         console.print()
         # Show what will happen
+        action_colors = {"decomm": "red", "promote": "cyan", "keep": "yellow", "retag": "magenta"}
         for r in resources:
-            action_color = {"decomm": "red", "promote": "cyan", "keep": "yellow"}.get(r["action"], "white")
+            action_color = action_colors.get(r["action"], "white")
+            retag_suffix = f"  → [magenta]{r.get('retag_tag', '?')}[/magenta]" if r["action"] == "retag" else ""
             console.print(
                 f"  [{action_color}]{r['action']:<8}[/{action_color}]  "
                 f"[bold]{r['hostname']}[/bold]  "
                 f"[cyan]{r['kind'].upper()}[/cyan]  vmid=[yellow]{r['vmid']}[/yellow]"
+                f"{retag_suffix}"
             )
         console.print()
+        if args.dry_run:
+            console.print(f"[yellow]Dry run — {len(resources)} resource(s) found. No changes made.[/yellow]")
+            sys.exit(0)
     else:
         # Interactive per-resource selection
         for resource in resources:
@@ -472,14 +528,29 @@ def main() -> None:
                 f"ip=[blue]{resource['ip'] or 'DHCP/unknown'}[/blue]"
             )
             flush_stdin()
+            retag_label = (
+                f"Retag   — replace '{tag}' with '{retag_as}'"
+                if retag_as else
+                f"Retag   — replace '{tag}' with a new tag"
+            )
             action = questionary.select(
                 f"What do you want to do with {hostname}?",
                 choices=[
                     questionary.Choice("Keep    — leave it alone, come back later", value="keep"),
                     questionary.Choice("Promote — remove the tag (it's prod now)",  value="promote"),
-                    questionary.Choice("Decomm  — permanently destroy it",           value="decomm"),
+                    questionary.Choice(retag_label,                                 value="retag"),
+                    questionary.Choice("Decomm  — permanently destroy it",          value="decomm"),
                 ],
             ).ask()
+            if action == "retag":
+                if not retag_as:
+                    flush_stdin()
+                    retag_as = questionary.text(
+                        f"New tag to replace '{tag}' with:",
+                        validate=lambda v: True if _TAG_RE.match(v.strip()) else
+                                          "Tags must be 1–64 chars: alphanumeric, hyphens, underscores, dots",
+                    ).ask()
+                resource["retag_tag"] = retag_as
             resource["action"] = action if action is not None else "keep"
             console.print()
 
