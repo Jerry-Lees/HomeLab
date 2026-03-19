@@ -20,6 +20,7 @@ The wizard can be driven entirely interactively, pre-filled from a deployment JS
 - [TTL / Expiry](#ttl--expiry)
 - [VLAN Check Behavior](#vlan-check-behavior)
 - [Preflight Behavior](#preflight-behavior)
+- [LXC Feature Flags](#lxc-feature-flags)
 - [Walkthrough: LXC Prompt Order](#walkthrough-lxc-prompt-order)
 - [The 7 LXC Deployment Steps](#the-7-lxc-deployment-steps)
 
@@ -60,6 +61,7 @@ The interactive wizard supports back-navigation at every prompt — you can move
 |---|---|
 | Text input | Press **ESC** |
 | Selection list | Arrow up to **← Go Back** and press **Enter** |
+| Checkbox | Press **ESC** |
 
 Going back restores the value you previously entered for that prompt, not the config default. ESC at the first prompt exits with `Aborted.` Ctrl+C exits immediately from any prompt.
 
@@ -72,6 +74,26 @@ python3 deploy_lxc.py --deploy-file deployments/lxc/myserver.json
 ```
 
 Loads a previously saved deployment JSON and pre-fills all prompts with its values. You can review and edit each value before confirming. Useful for redeploying a container with the same or similar configuration.
+
+**Required fields in a hand-written deploy file:**
+
+| Field | Example | Notes |
+|---|---|---|
+| `hostname` | `"myserver"` | Short name, no domain suffix |
+| `ip_address` | `"dhcp"` | LXC always uses DHCP — use the literal string `"dhcp"` |
+| `cpus` | `2` | |
+| `memory_gb` | `4` | |
+| `disk_gb` | `20` | |
+| `vlan` | `220` | |
+| `storage` | `"local-lvm"` | |
+| `password` | `"changeme"` | |
+| `node` | `"proxmox01"` | Used by `--dry-run` display; wizard re-prompts at deploy time |
+| `template_volid` | `"local:vztmpl/ubuntu-24.04-..."` | Used by `--dry-run` display; wizard re-prompts at deploy time |
+| `template_name` | `"ubuntu-24.04-..."` | Display name matching the volid |
+
+Optional fields: `package_profile`, `extra_packages`, `lxc_features`, `ttl`.
+
+> **Note:** LXC containers always use DHCP — the IP is assigned at boot. `ip_address: "dhcp"` is required by the validator as an explicit acknowledgement of this, not because you're setting the IP yourself.
 
 ---
 
@@ -166,6 +188,42 @@ See [preflight.md](preflight.md) for the full list of checks, fatal vs warning b
 
 ---
 
+## LXC Feature Flags
+
+LXC containers share the host kernel, so Proxmox must explicitly grant access to kernel features that are blocked by default inside the container's security namespace. VMs don't have this concept — they get a full kernel and Docker, NFS, FUSE, etc. work natively.
+
+The deploy wizard presents a checkbox step after the package profile so you can enable the flags your container actually needs.
+
+| Flag | What it enables |
+|---|---|
+| `nesting=1` | Containers inside the container (Docker, Podman, LXC-in-LXC) |
+| `keyctl=1` | Kernel keyring access — required by some container runtimes and systemd services |
+| `fuse=1` | FUSE filesystem mounts inside the container (rclone, sshfs, etc.) |
+| `mknod=1` | Creating device nodes — needed by some specialized workloads |
+| `mount=nfs` | NFS mounts inside the container |
+| `mount=cifs` | CIFS/SMB mounts inside the container |
+
+**Profile-driven defaults** — if the selected package profile defines `lxc_features` in `config.yaml`, those flags are pre-checked when the prompt appears. For example, the `docker-host` profile pre-checks `nesting=1` and `keyctl=1`. You can add or remove flags before confirming.
+
+```
+LXC feature flags (optional):
+  [ ] nesting=1   — nested containers (Docker, Podman, LXC-in-LXC)
+  [x] keyctl=1    — kernel keyring (required by some container runtimes)
+  [ ] fuse=1      — FUSE filesystem mounts (rclone, sshfs, etc.)
+  [ ] mknod=1     — create block/character device nodes
+  [ ] mount=nfs   — NFS mounts inside the container
+  [ ] mount=cifs  — CIFS/SMB mounts inside the container
+(space to select/deselect, Enter to confirm, ESC to go back)
+```
+
+Select nothing (leave all unchecked) to create the container with no extra feature flags — the default for a minimal container.
+
+Applied flags are shown in the confirmation summary before anything is created, and are saved in the deployment JSON under `lxc_features` for reference.
+
+In `--silent` mode, only the profile's `lxc_features` are used — the interactive checkbox is skipped.
+
+---
+
 ## Walkthrough: LXC Prompt Order
 
 Resource questions come **before** node selection so that nodes without enough capacity for the requested resources are filtered out of the list.
@@ -188,33 +246,7 @@ Root / admin user password:          [changeme]
 ```
 Defaults are sourced from the `defaults:` block in `config.yaml`. The VLAN tag determines which network the container is placed on. The password is set for both `root` and the secondary admin user on the container.
 
-> **Note:** These resource values are asked *before* node selection so that nodes which cannot satisfy the request are automatically hidden from the node list.
-
-**3. Node selection** (filtered by requested resources)
-```
-Select Proxmox node (★ = most free RAM; 2 node(s) hidden — over resource threshold):
-  ★ proxmox03  —  54.2 GB free / 128.0 GB RAM  (CPU: 18%)
-    proxmox02   —  28.4 GB free / 64.0 GB RAM   (CPU: 12%)
-```
-Only nodes with enough headroom are shown. The star (★) marks the node with the most free RAM — a reasonable default for most deployments. Nodes are hidden if allocating the requested resources would push them above `cpu_threshold` or `ram_threshold` (set in `config.yaml` under `defaults`).
-
-**4. OS Template**
-```
-Select OS template (Ubuntu templates listed first):
-  [Net-Images] ubuntu-24.04-standard_24.04-2_amd64.tar.zst
-  [local] debian-12-standard_12.7-1_amd64.tar.zst
-```
-Queried live from the selected node — only templates already downloaded on that node are shown. Ubuntu versions are listed first. The storage name in brackets (e.g. `[local]`) indicates where the template is stored on the node.
-
-**5. Storage pool** — Only shown if more than one storage pool is available on the selected node. Determines where the container's root disk is created.
-
-```
-Select storage pool for container root disk:
-  local-lvm
-  ceph-pool
-```
-
-**6. Package profile** — Optional. Select a role-based package set or skip for a minimal baseline install. Profiles are named groups of packages defined in `config.yaml` under `package_profiles`. Each profile also applies one or more Proxmox tags to the container so it is easy to identify its role at a glance. Selecting a profile installs its packages during the Ansible post-deploy step, after the baseline tools. Install order: baseline → profile packages → any extra packages. Select `[none]` to skip and get only the baseline install.
+**3. Package profile** — Optional. Select a role-based package set or skip for a minimal baseline install. Profiles are named groups of packages defined in `config.yaml` under `package_profiles`. Each profile also applies one or more Proxmox tags to the container so it is easy to identify its role at a glance. Selecting a profile installs its packages during the Ansible post-deploy step, after the baseline tools. Install order: baseline → profile packages → any extra packages. Select `[none]` to skip and get only the baseline install.
 
 ```
 Package profile (optional):
@@ -227,40 +259,79 @@ Package profile (optional):
   nfs-server
 ```
 
-**7. Confirmation summary and pre-creation resource check** — Displays a full summary of all selected values before anything is created. A final resource check is run against the selected node to confirm it still has enough capacity (resources may have changed since node selection). Confirm to proceed or abort to cancel without making any changes.
+**4. Extra packages** — Optional one-off packages to install on top of the baseline and profile. Enter as a comma-separated list or leave blank.
 
 ```
-┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃                 Deployment Summary                ┃
-┡━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
-│ VMID            │ 114                             │
-│ Hostname        │ myserver                        │
-│ Node            │ proxmox03                       │
-│ Template        │ ubuntu-24.04-standard_24.04-... │
-│ vCPUs           │ 2                               │
-│ Memory          │ 4 GB                            │
-│ Disk            │ 100 GB                          │
-│ Network         │ vmbr0  VLAN 220                 │
-│ Tags            │ auto-deploy                     │
-│ TTL             │ (none)                          │
-│ Users           │ root, admin                     │
-│ Timezone        │ America/Chicago                 │
-│ NTP             │ pool.ntp.org                    │
-└─────────────────┴─────────────────────────────────┘
-
-Proceed with deployment? [Y/n]
+Extra packages to install (optional):
+(comma-separated, e.g. htop, curl  —  leave blank for none)
 ```
+
+**5. LXC feature flags** — Checkbox prompt for kernel feature flags. Any flags defined in the selected profile's `lxc_features` key are pre-checked. Add or remove as needed, or leave all unchecked for no extra features. See [LXC Feature Flags](#lxc-feature-flags) for the full flag reference.
+
+**6. Node selection** (filtered by requested resources)
+```
+Select Proxmox node (★ = most free RAM; 2 node(s) hidden — over resource threshold):
+  ★ proxmox03  —  54.2 GB free / 128.0 GB RAM  (CPU: 18%)
+    proxmox02   —  28.4 GB free / 64.0 GB RAM   (CPU: 12%)
+```
+Only nodes with enough headroom are shown. The star (★) marks the node with the most free RAM — a reasonable default for most deployments. Nodes are hidden if allocating the requested resources would push them above `cpu_threshold` or `ram_threshold` (set in `config.yaml` under `defaults`).
+
+> **Note:** Resource questions (vCPUs, memory, disk) are asked *before* node selection so that nodes which cannot satisfy the request are automatically hidden from the node list.
+
+**7. OS Template**
+```
+Select OS template (Ubuntu templates listed first):
+  [Net-Images] ubuntu-24.04-standard_24.04-2_amd64.tar.zst
+  [local] debian-12-standard_12.7-1_amd64.tar.zst
+```
+Queried live from the selected node — only templates already downloaded on that node are shown. Ubuntu versions are listed first. The storage name in brackets (e.g. `[local]`) indicates where the template is stored on the node.
+
+**8. Storage pool** — Only shown if more than one storage pool is available on the selected node. Determines where the container's root disk is created.
+
+```
+Select storage pool for container root disk:
+  local-lvm
+  ceph-pool
+```
+
+**9. Confirmation summary and pre-creation resource check** — Displays a full summary of all selected values before anything is created. A final resource check is run against the selected node to confirm it still has enough capacity (resources may have changed since node selection). Confirm to proceed or abort to cancel without making any changes.
+
+```
+                      Deployment Summary
+┌────────────┬───────────────────────────────────────────────┐
+│  VMID      │  114                                          │
+│  Hostname  │  myserver                                     │
+│  Node      │  proxmox03                                    │
+│  Template  │  ubuntu-24.04-standard_24.04-2_amd64.tar.zst  │
+│  vCPUs     │  2                                            │
+│  Memory    │  4 GB (4096 MB)                               │
+│  Disk      │  100 GB  →  local-lvm                         │
+│  Network   │  vmbr0.220  (DHCP)                            │
+│  Tags      │  auto-deploy;Docker                           │
+│  Features  │  nesting=1,keyctl=1                           │
+│  Users     │  root, admin (same password)                  │
+│  Timezone  │  America/Chicago                              │
+│  NTP       │  pool.ntp.org, time.nist.gov                  │
+│  SNMP      │  community='your-community' (rw) on :161      │
+└────────────┴───────────────────────────────────────────────┘
+
+? Proceed with deployment? (Y/n)
+```
+
+The **Features** row only appears when at least one flag is selected. The **TTL / Expires** row only appears when `--ttl` was passed. Selecting no flags creates the container with no extra capabilities.
 
 ---
 
 ## The 7 LXC Deployment Steps
 
-**Step 1** — Creates the container via the Proxmox API with the configured resources, VLAN tag, and options. A VMID is selected automatically from the next available ID in the cluster.
+**Step 1** — Creates the container via the Proxmox API with the configured resources, VLAN tag, and options. A VMID is selected automatically from the next available ID in the cluster. If LXC feature flags were selected, they are applied immediately after creation via SSH (`pct set`) — the Proxmox API only allows `nesting=1` to be set by API tokens; all other flags require a direct `root` SSH connection to the node.
 
 ```
 ─── Step 1/7: Creating LXC container ───
   Creating container 114 (myserver) on proxmox03...
   ✓ Container 114 created
+  Applying LXC feature flags via SSH (nesting=1,keyctl=1)...
+  ✓ Feature flags applied: nesting=1,keyctl=1
 ```
 
 **Step 2** — Starts the container and waits for it to come online.
@@ -342,18 +413,25 @@ In `--silent` mode, existing records are overwritten automatically with a logged
 
 A history log entry is written to `deployments/history.log` on completion.
 
-Once all steps complete, a deployment summary is printed:
+Once all steps complete, a deployment summary panel is printed:
 
 ```
-  Hostname   :  myserver
-  FQDN       :  myserver.example.com
-  Node       :  proxmox03
-  VMID       :  114
-  IP Address :  192.168.1.114/24
-  Root Pass  :  changeme
-  SSH User   :  root
-
-  SSH login: ssh root@192.168.1.114
+╭─────────────────────────────────── ✓ All Done ────────────────────────────────────╮
+│ Deployment Complete!                                                               │
+│                                                                                    │
+│ Hostname   :  myserver                                                             │
+│ FQDN       :  myserver.example.com                                                 │
+│ IP Address :  192.168.1.114                                                        │
+│ VMID       :  114  (on proxmox03)                                                  │
+│ SSH        :  ssh root@192.168.1.114                                               │
+│              ssh admin@192.168.1.114                                               │
+│                                                                                    │
+│ Deployment file: deployments/lxc/myserver.json                                    │
+│ Tagged 'auto-deploy' with specs note in Proxmox.                                  │
+│ DNS: A + PTR records registered on 10.0.0.10.                                     │
+│ Added to Ansible inventory group [Linux].                                          │
+│                                                                                    │
+╰────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
 ---

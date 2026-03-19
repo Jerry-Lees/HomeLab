@@ -70,9 +70,21 @@ defaults:
 #       If you deploy Rocky Linux or openSUSE, adjust the names accordingly
 #       (e.g. 'mariadb-server' stays the same, but 'python3-certbot-nginx' may differ).
 #
-# NOTE: Tag names are applied directly to Proxmox VMs/LXC containers.
-#       Proxmox only allows alphanumeric characters, hyphens, and underscores in tags.
-#       Spaces are NOT supported — use hyphens instead (e.g. 'build-server' not 'Build Server').
+# Tags can be plain strings or dicts with an optional 'color' key:
+#   tags:
+#     - WWW                         # plain string — no color configured
+#     - name: Docker                # dict format — applies color in Proxmox UI
+#       color: "#0070c0"
+#
+#   Proxmox only allows alphanumeric characters, hyphens, and underscores in tag names.
+#   Spaces are NOT supported — use hyphens instead (e.g. 'build-server' not 'Build Server').
+#   Colors are hex values (e.g. "#0070c0"). Color is optional; omit it for no color.
+#   Existing manually-configured colors in Proxmox are never overwritten.
+#
+# lxc_features (LXC only — ignored for VMs):
+#   Named feature flags to enable on the LXC container at creation time.
+#   Available flags: nesting=1, keyctl=1, fuse=1, mknod=1, mount=nfs, mount=cifs
+#   Omit the key entirely (or leave it empty) for no extra features.
 #
 package_profiles:
   web-server:
@@ -82,14 +94,16 @@ package_profiles:
       - python3-certbot-nginx
       - ufw
     tags:
-      - WWW
+      - name: WWW
+        color: "#0070c0"    # blue
 
   database:
     packages:
       - mariadb-server
       - mariadb-client
     tags:
-      - DB
+      - name: DB
+        color: "#c05000"    # orange
       - MariaDB
 
   docker-host:
@@ -99,7 +113,11 @@ package_profiles:
       - containerd.io
       - docker-compose-plugin
     tags:
-      - Docker
+      - name: Docker
+        color: "#0070c0"    # blue
+    lxc_features:
+      - nesting=1           # allow containers inside the container (Docker-in-LXC)
+      - keyctl=1            # kernel keyring — required by some container runtimes
 
   monitoring-node:
     packages:
@@ -125,6 +143,8 @@ package_profiles:
     tags:
       - NFS
       - Storage
+    lxc_features:
+      - mount=nfs           # allow NFS mounts inside the container
 
 # Extra packages — per-deployment one-off additions on top of the standard baseline (and profile).
 # Not set here in config.yaml — this is a per-deployment JSON field:

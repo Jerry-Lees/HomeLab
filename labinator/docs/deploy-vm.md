@@ -66,11 +66,29 @@ Going back restores the value you previously entered for that prompt, not the co
 ---
 
 ## Deploy from File
-Loads a previously saved deployment JSON and pre-fills all prompts with its values. You can review and edit each value before confirming. Useful for redeploying a VM with the same or similar configuration.
 
 ```bash
 python3 deploy_vm.py --deploy-file deployments/vms/myvm.json
 ```
+
+Loads a previously saved deployment JSON and pre-fills all prompts with its values. You can review and edit each value before confirming. Useful for redeploying a VM with the same or similar configuration.
+
+**Required fields in a hand-written deploy file:**
+
+| Field | Example | Notes |
+|---|---|---|
+| `hostname` | `"myserver"` | Short name, no domain suffix |
+| `ip_address` | `"dhcp"` or `"192.168.1.100"` | Use `"dhcp"` for DHCP, or a static IPv4 address |
+| `prefix_len` | `"24"` | Required only when `ip_address` is a static IP |
+| `cpus` | `2` | |
+| `memory_gb` | `4` | |
+| `disk_gb` | `40` | |
+| `vlan` | `220` | |
+| `storage` | `"local-lvm"` | |
+| `password` | `"changeme"` | |
+| `node` | `"proxmox01"` | Used by `--dry-run` display; wizard re-prompts at deploy time |
+
+Optional fields: `package_profile`, `extra_packages`, `ttl`.
 
 ---
 

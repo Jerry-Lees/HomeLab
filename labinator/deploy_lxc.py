@@ -75,6 +75,7 @@ from modules.lib import (
     q,
     pt_text,
     select_nav,
+    checkbox_nav,
     BACK,
     SKIP,
     run_wizard_steps,
@@ -84,9 +85,24 @@ from modules.lib import (
     prompt_node_selection,
     write_history,
     check_vlan_exists,
+    resolve_lxc_features,
+    resolve_tag_colors,
+    features_list_to_proxmox_str,
+    apply_tag_colors,
 )
 
 console = Console()
+
+# LXC feature flag choices shown in the interactive checkbox prompt.
+# Values match the Proxmox API feature string format.
+LXC_FEATURE_CHOICES = [
+    ("nesting=1",  "nesting=1   — nested containers (Docker, Podman, LXC-in-LXC)"),
+    ("keyctl=1",   "keyctl=1    — kernel keyring (required by some container runtimes)"),
+    ("fuse=1",     "fuse=1      — FUSE filesystem mounts (rclone, sshfs, etc.)"),
+    ("mknod=1",    "mknod=1     — create block/character device nodes"),
+    ("mount=nfs",  "mount=nfs   — NFS mounts inside the container"),
+    ("mount=cifs", "mount=cifs  — CIFS/SMB mounts inside the container"),
+]
 
 
 # ─────────────────────────────────────────────
@@ -254,6 +270,7 @@ def run_dry_run(args) -> None:
     profiles = cfg.get("package_profiles", {})
     profile_packages, profile_tags = resolve_profile(d.get("package_profile", ""), profiles)
     tags = ";".join(["auto-deploy"] + profile_tags)
+    lxc_features = d.get("lxc_features", resolve_lxc_features(d.get("package_profile", ""), profiles))
 
     domain = cfg.get("proxmox", {}).get("node_domain", "")
     fqdn = f"{hostname}.{domain}" if domain else hostname
@@ -278,6 +295,8 @@ def run_dry_run(args) -> None:
     tbl.add_row("Profile pkgs", ", ".join(profile_packages) if profile_packages else "(none)")
     tbl.add_row("Extra pkgs",  ", ".join(extra_pkgs) if extra_pkgs else "(none)")
     tbl.add_row("Tags",        tags)
+    if lxc_features:
+        tbl.add_row("Features",    features_list_to_proxmox_str(lxc_features))
     console.print()
     console.print(Panel(tbl, title="[bold]LXC Deployment Summary[/bold]", border_style="dim"))
     console.print()
@@ -580,7 +599,8 @@ def save_deployment_file(hostname: str, vmid: int, node_name: str,
                          storage: str, vlan_str: str, bridge: str,
                          password: str, container_ip: str, prefix_len: str,
                          cfg: dict, package_profile: str = "",
-                         extra_packages: list = (), ttl: str = "") -> None:
+                         extra_packages: list = (), lxc_features: list = (),
+                         ttl: str = "") -> None:
     domain = cfg["proxmox"].get("node_domain", "")
     fqdn = f"{hostname}.{domain}" if domain else hostname
     deployments_dir = Path(__file__).parent / "deployments" / "lxc"
@@ -605,6 +625,7 @@ def save_deployment_file(hostname: str, vmid: int, node_name: str,
         "prefix_len": prefix_len,
         "package_profile": package_profile,
         "extra_packages": list(extra_packages),
+        "lxc_features": list(lxc_features),
         "deployed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
     if ttl:
@@ -741,6 +762,7 @@ def main() -> None:
 
     cfg = load_config(args.config)
     defaults = cfg["defaults"]
+    profiles = cfg.get("package_profiles", {})
     addusername = defaults.get("addusername", "admin")
     cpu_threshold = float(defaults.get("cpu_threshold", 0.85))
     ram_threshold = float(defaults.get("ram_threshold", 0.95))
@@ -863,7 +885,8 @@ def main() -> None:
         return {**s, "password": r}
 
     def step_package_profile(s):
-        r = prompt_package_profile(cfg, deploy, silent, nav=True)
+        r = prompt_package_profile(cfg, deploy, silent, nav=True,
+                                   current=s.get("package_profile"))
         if r is BACK:
             return BACK
         package_profile, profile_packages, profile_tags = r
@@ -871,10 +894,34 @@ def main() -> None:
                 "profile_packages": profile_packages, "profile_tags": profile_tags}
 
     def step_extra_packages(s):
-        r = prompt_extra_packages(deploy, silent, nav=True)
+        r = prompt_extra_packages(deploy, silent, nav=True,
+                                  current=s.get("extra_packages"))
         if r is BACK:
             return BACK
         return {**s, "extra_packages": r}
+
+    def step_lxc_features(s):
+        profile_features = resolve_lxc_features(s.get("package_profile", ""), profiles)
+        deploy_features  = deploy.get("lxc_features", profile_features)
+        current_features = s.get("lxc_features", deploy_features)
+        if silent:
+            console.print(
+                f"  [dim]LXC features: "
+                f"{features_list_to_proxmox_str(current_features) or '(none)'}[/dim]"
+            )
+            return {**s, "lxc_features": current_features}
+        feature_choices = [
+            questionary.Choice(title=title, value=key)
+            for key, title in LXC_FEATURE_CHOICES
+        ]
+        r = checkbox_nav(
+            "LXC feature flags (optional):",
+            feature_choices,
+            defaults=current_features,
+        )
+        if r is BACK:
+            return BACK
+        return {**s, "lxc_features": r}
 
     def step_node(s):
         memory_mb = int(float(s["memory_gb_str"]) * 1024)
@@ -971,6 +1018,9 @@ def main() -> None:
         tags_display = (";".join(["auto-deploy"] + s["profile_tags"])
                         if s["profile_tags"] else "auto-deploy")
         table.add_row("Tags",        tags_display)
+        lxc_features = s.get("lxc_features", [])
+        if lxc_features:
+            table.add_row("Features",    features_list_to_proxmox_str(lxc_features))
         if ttl:
             table.add_row("TTL / Expires",
                           f"{ttl}  (expires {expires_at_from_ttl(ttl)[:19]} UTC)")
@@ -991,7 +1041,7 @@ def main() -> None:
 
     ws = run_wizard_steps([
         step_hostname, step_cpus, step_memory, step_disk, step_vlan, step_password,
-        step_package_profile, step_extra_packages, step_node, step_template,
+        step_package_profile, step_extra_packages, step_lxc_features, step_node, step_template,
         step_storage, step_confirm,
     ])
 
@@ -1006,6 +1056,7 @@ def main() -> None:
     profile_packages = ws["profile_packages"]
     profile_tags     = ws["profile_tags"]
     extra_packages   = ws["extra_packages"]
+    lxc_features     = ws.get("lxc_features", [])
     node_name        = ws["node_name"]
     template_volid   = ws["template_volid"]
     template_name    = ws["template_name"]
@@ -1064,12 +1115,17 @@ def main() -> None:
         "unprivileged": unprivileged,
         "onboot":       1 if defaults.get("onboot", True) else 0,
         "start":        0,   # We start it explicitly after tagging
-        "features":     "nesting=1",
         "nameserver":   defaults.get("nameserver", "8.8.8.8 8.8.4.4"),
         "searchdomain": defaults.get("searchdomain", ""),
         "description":  container_note,
         "tags":         ";".join(["auto-deploy"] + profile_tags),
     }
+    features_str = features_list_to_proxmox_str(lxc_features)
+    # nesting=1 is allowed via API; all other flags require root@pam SSH (Proxmox restriction).
+    # Apply nesting via create_params if present; apply remaining flags via pct set over SSH.
+    nesting_only = "nesting=1" if "nesting=1" in lxc_features else ""
+    if nesting_only:
+        create_params["features"] = nesting_only
 
     for _vmid_attempt in range(3):
         create_params["vmid"] = next_vmid
@@ -1090,6 +1146,32 @@ def main() -> None:
             else:
                 console.print(f"[red]✗ Container creation failed: {e}[/red]")
                 sys.exit(1)
+
+    # Apply feature flags via SSH (pct set) — required for non-nesting flags which the
+    # Proxmox API rejects unless authenticated as root@pam directly (not via token).
+    # Using pct set for all flags (including nesting) keeps it consistent.
+    if features_str:
+        pve = cfg["proxmox"]
+        ssh_host = node_ssh_host(cfg, node_name)
+        ssh_key = os.path.expanduser(pve.get("ssh_key", "~/.ssh/id_rsa"))
+        console.print(f"  [dim]Applying LXC feature flags via SSH ({features_str})...[/dim]")
+        try:
+            _ssh = paramiko.SSHClient()
+            _ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            _ssh.connect(ssh_host, username="root", key_filename=ssh_key, timeout=30)
+            _, _out, _err = _ssh.exec_command(f"pct set {next_vmid} -features '{features_str}'")
+            _exit = _out.channel.recv_exit_status()
+            _ssh.close()
+            if _exit != 0:
+                console.print(f"[yellow]⚠ pct set features returned exit {_exit} — check Proxmox GUI[/yellow]")
+            else:
+                console.print(f"[green]✓ Feature flags applied: {features_str}[/green]")
+        except Exception as e:
+            console.print(f"[yellow]⚠ Could not apply feature flags via SSH: {e}[/yellow]")
+
+    # Apply tag colors to cluster (non-fatal if it fails)
+    tag_colors = resolve_tag_colors(package_profile, profiles)
+    apply_tag_colors(proxmox, tag_colors)
 
     # ═══════════════════════════════════════════
     # Start the container
@@ -1197,6 +1279,7 @@ def main() -> None:
         password, container_ip, prefix_len, cfg,
         package_profile=package_profile,
         extra_packages=extra_packages,
+        lxc_features=lxc_features,
         ttl=ttl or "",
     )
 

@@ -82,6 +82,8 @@ from modules.lib import (
     prompt_node_selection,
     write_history,
     check_vlan_exists,
+    resolve_tag_colors,
+    apply_tag_colors,
 )
 
 console = Console()
@@ -1102,7 +1104,8 @@ def main() -> None:
         return {**s, "password": r}
 
     def step_package_profile(s):
-        r = prompt_package_profile(cfg, deploy, silent, nav=True)
+        r = prompt_package_profile(cfg, deploy, silent, nav=True,
+                                   current=s.get("package_profile"))
         if r is BACK:
             return BACK
         package_profile, profile_packages, profile_tags = r
@@ -1110,7 +1113,8 @@ def main() -> None:
                 "profile_packages": profile_packages, "profile_tags": profile_tags}
 
     def step_extra_packages(s):
-        r = prompt_extra_packages(deploy, silent, nav=True)
+        r = prompt_extra_packages(deploy, silent, nav=True,
+                                  current=s.get("extra_packages"))
         if r is BACK:
             return BACK
         return {**s, "extra_packages": r}
@@ -1298,6 +1302,7 @@ def main() -> None:
     pub_key_path       = ws["pub_key_path"]
     pub_key_encoded    = ws["pub_key_encoded"]
     memory_mb          = int(float(memory_gb_str) * 1024)
+    profiles           = cfg.get("package_profiles", {})
 
     # ── VLAN existence check ──
     check_vlan_exists(proxmox, node_name, bridge, vlan_str, silent=silent)
@@ -1363,6 +1368,10 @@ def main() -> None:
             else:
                 console.print(f"[red]✗ VM creation failed: {e}[/red]")
                 sys.exit(1)
+
+    # Apply tag colors to cluster (non-fatal if it fails)
+    tag_colors = resolve_tag_colors(package_profile, profiles)
+    apply_tag_colors(proxmox, tag_colors)
 
     # ═══════════════════════════════════════════
     # Step 2/6: Import cloud image + configure disk + cloud-init

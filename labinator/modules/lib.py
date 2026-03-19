@@ -580,17 +580,106 @@ def validate_config(cfg_path: Path) -> list[str]:
 # ─────────────────────────────────────────────
 
 def resolve_profile(profile_name: str, profiles: dict) -> tuple[list, list]:
-    """Return (packages, tags) for a named profile.
+    """Return (packages, tag_names) for a named profile.
 
-    Supports both flat-list format (packages only, no tags) and
-    dict format with 'packages' and optional 'tags' keys.
+    Supports flat-list format (packages only), dict format with 'packages'
+    and optional 'tags' keys, and dict-format tags ({name, color}).
+    Always returns tag names as plain strings.
     """
     profile = profiles.get(profile_name)
     if not profile:
         return [], []
     if isinstance(profile, list):
         return list(profile), []
-    return list(profile.get("packages", [])), list(profile.get("tags", []))
+    raw_tags = profile.get("tags", [])
+    tag_names = [t["name"] if isinstance(t, dict) else t for t in raw_tags]
+    return list(profile.get("packages", [])), tag_names
+
+
+def resolve_lxc_features(profile_name: str, profiles: dict) -> list:
+    """Return list of LXC feature flag strings for a named profile.
+
+    e.g. ["nesting=1", "keyctl=1"] or ["mount=nfs"].
+    Returns [] if no profile, flat-list profile, or no lxc_features key.
+    """
+    profile = profiles.get(profile_name)
+    if not profile or isinstance(profile, list):
+        return []
+    return list(profile.get("lxc_features", []))
+
+
+def resolve_tag_colors(profile_name: str, profiles: dict) -> dict:
+    """Return {tag_name: hex_color} for tags in the named profile that define a color.
+
+    Tags may be plain strings (no color) or dicts with 'name' and 'color' keys.
+    """
+    profile = profiles.get(profile_name)
+    if not profile or isinstance(profile, list):
+        return {}
+    colors = {}
+    for tag in profile.get("tags", []):
+        if isinstance(tag, dict) and "name" in tag and "color" in tag:
+            colors[tag["name"]] = tag["color"]
+    return colors
+
+
+def features_list_to_proxmox_str(features: list) -> str:
+    """Convert a list of LXC feature flag strings to a Proxmox-compatible features string.
+
+    Handles boolean flags (e.g. 'nesting=1') and mount types (e.g. 'mount=nfs').
+    Multiple mount types are merged: ['mount=nfs', 'mount=cifs'] → 'mount=nfs;cifs'.
+    """
+    if not features:
+        return ""
+    bool_flags = []
+    mount_types = []
+    for f in features:
+        if f.startswith("mount="):
+            mount_types.append(f.split("=", 1)[1])
+        else:
+            bool_flags.append(f)
+    parts = list(bool_flags)
+    if mount_types:
+        parts.append("mount=" + ";".join(mount_types))
+    return ",".join(parts)
+
+
+def apply_tag_colors(proxmox, tag_colors: dict) -> None:
+    """Apply tag color-map entries to the Proxmox cluster tag-style setting.
+
+    Merges new colors into the existing color-map; does not overwrite colors
+    for tags that are not in tag_colors. Falls back gracefully on API failure.
+    """
+    if not tag_colors:
+        return
+    try:
+        opts = proxmox.cluster.options.get()
+        raw = opts.get("tag-style", "")
+        # Parse existing tag-style into key=value parts
+        parts = {}
+        for part in raw.split(","):
+            if "=" in part:
+                k, v = part.split("=", 1)
+                parts[k.strip()] = v.strip()
+        # Parse existing color-map
+        existing_colors = {}
+        if "color-map" in parts:
+            for entry in parts["color-map"].split(";"):
+                if ":" in entry:
+                    t, c = entry.split(":", 1)
+                    if t.strip():
+                        existing_colors[t.strip()] = c.strip()
+        # Merge in new colors (only add; don't overwrite existing manual colors)
+        for tag, color in tag_colors.items():
+            if tag not in existing_colors:
+                existing_colors[tag] = color
+        # Rebuild color-map and tag-style
+        color_map_str = ";".join(f"{t}:{c}" for t, c in sorted(existing_colors.items()))
+        parts["color-map"] = color_map_str
+        new_raw = ",".join(f"{k}={v}" for k, v in parts.items())
+        proxmox.cluster.options.put(tag_style=new_raw)
+    except Exception as e:
+        console.print(f"  [yellow]⚠ Tag color update skipped: {e}[/yellow]")
 
 
 # ─────────────────────────────────────────────
@@ -1443,6 +1532,52 @@ def select_nav(question: str, choices: list, default=None):
     return result
 
 
+def checkbox_nav(question: str, choices: list, defaults: list | None = None):
+    """questionary.checkbox() with ESC-to-go-back support.
+
+    Returns the selected list (possibly empty), or BACK if ESC is pressed.
+    choices: list of plain strings or questionary.Choice objects.
+    defaults: list of values to pre-check (optional).
+    """
+    from prompt_toolkit.key_binding import KeyBindings, merge_key_bindings
+
+    def _value(c):
+        return c.value if isinstance(c, questionary.Choice) else c
+
+    nav_choices = [
+        questionary.Choice(
+            title=c.title if isinstance(c, questionary.Choice) else str(c),
+            value=_value(c),
+            checked=(defaults is not None and _value(c) in defaults),
+        )
+        for c in choices
+    ]
+
+    q = questionary.checkbox(
+        question, choices=nav_choices,
+        instruction="(space to select/deselect, Enter to confirm, ESC to go back)",
+    )
+
+    # Add ESC key binding to the underlying prompt_toolkit Application.
+    kb = KeyBindings()
+
+    @kb.add("escape")
+    def _esc(event):
+        event.app.exit(result=None)
+
+    q.application.key_bindings = merge_key_bindings([
+        q.application.key_bindings or KeyBindings(),
+        kb,
+    ])
+    q.application.ttimeoutlen = 0.05
+    q.application.timeoutlen  = 0.05
+
+    result = q.ask()
+    if result is None:
+        return BACK
+    return result
+
+
 def run_wizard_steps(steps: list, initial_state: dict | None = None) -> dict:
     """Run wizard step functions sequentially with ESC-to-go-back support.
 
@@ -1500,14 +1635,16 @@ def list_deployment_files(kind: str) -> list[Path]:
 
 
 def prompt_package_profile(cfg: dict, deploy: dict, silent: bool,
-                           nav: bool = False) -> tuple[str, list, list]:
+                           nav: bool = False, current=None) -> tuple[str, list, list]:
     """Interactive package profile selection.
 
     Returns (package_profile, profile_packages, profile_tags).
     When nav=True, prepends ← Go Back and returns BACK on ESC instead of sys.exit.
+    current: wizard state value — if provided, overrides deploy-file default.
     """
     profiles = cfg.get("package_profiles", {})
     deploy_profile = (deploy.get("package_profile", "") or "") if deploy else ""
+    effective_profile = current if current is not None else deploy_profile
     if silent:
         package_profile = deploy_profile
         if package_profile and package_profile not in profiles:
@@ -1526,7 +1663,7 @@ def prompt_package_profile(cfg: dict, deploy: dict, silent: bool,
         package_profile = questionary.select(
             "Package profile (optional):",
             choices=profile_choices,
-            default=deploy_profile if deploy_profile in profiles else "",
+            default=effective_profile if effective_profile in profiles else "",
             instruction="(arrow keys to move, Enter to select, ← Go Back to go back)" if nav else None,
         ).ask()
         if package_profile is None or package_profile is BACK:
@@ -1539,15 +1676,18 @@ def prompt_package_profile(cfg: dict, deploy: dict, silent: bool,
     return package_profile, profile_packages, profile_tags
 
 
-def prompt_extra_packages(deploy: dict, silent: bool, nav: bool = False) -> list[str]:
+def prompt_extra_packages(deploy: dict, silent: bool, nav: bool = False,
+                          current=None) -> list[str]:
     """Interactive extra packages prompt. Returns list of package names.
 
     When nav=True, uses pt_text() so ESC returns BACK instead of sys.exit.
+    current: wizard state value (list) — if provided, overrides deploy-file default.
     """
     deploy_extra_pkgs = deploy.get("extra_packages", []) if deploy else []
+    effective_extra_pkgs = current if current is not None else deploy_extra_pkgs
     if silent:
         return deploy_extra_pkgs
-    pkgs_default = ", ".join(deploy_extra_pkgs) if deploy_extra_pkgs else ""
+    pkgs_default = ", ".join(effective_extra_pkgs) if effective_extra_pkgs else ""
     if nav:
         r = pt_text(
             "Extra packages to install (optional):",

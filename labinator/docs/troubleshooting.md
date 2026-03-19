@@ -17,6 +17,7 @@ Quick reference for common errors and unexpected behavior. Each entry describes 
 - ["No nodes pass the resource filter"](#no-nodes-pass-the-resource-filter)
 - ["Storage X only has 0.0 GB free" (lvmthin false positive)](#storage-x-only-has-00-gb-free-lvmthin-false-positive)
 - ["SSH key auth to proxmoxNN.example.com failed"](#ssh-key-auth-to-proxmoxnnexamplecom-failed)
+- [LXC feature flags not applied / "Could not apply feature flags via SSH"](#lxc-feature-flags-not-applied--could-not-apply-feature-flags-via-ssh--lxc-only)
 - [Container stuck at "Waiting for DHCP IP" (LXC)](#container-stuck-at-waiting-for-dhcp-ip-lxc)
 - [Static IP config failed during LXC bootstrap](#static-ip-config-failed-during-lxc-bootstrap)
 - [Ansible post-deploy fails: "UNREACHABLE" (LXC)](#ansible-post-deploy-fails-unreachable-lxc)
@@ -110,6 +111,23 @@ ssh-copy-id -i ~/.ssh/id_rsa root@proxmox03.example.com
 ```
 
 > **Note:** Replace `proxmox03.example.com` with your Proxmox node hostname and `~/.ssh/id_rsa` with your key path from `proxmox.ssh_key` in `config.yaml`.
+
+---
+
+### LXC feature flags not applied / "Could not apply feature flags via SSH"  *(LXC only)*
+
+**Symptom:** After container creation, you see a yellow warning: `⚠ Could not apply feature flags via SSH: ...` and the flags are not visible in Proxmox.
+
+**Cause:** Feature flags other than `nesting=1` cannot be set via Proxmox API tokens — the API returns `403 Forbidden`. labinator applies them via `pct set` over SSH instead, using the same key configured in `proxmox.ssh_key`. If SSH to the node fails after the container is created, the flags are skipped with a warning (non-fatal — the container is still deployed).
+
+**Fix:** Verify SSH works to the target node:
+```bash
+ssh -i ~/.ssh/id_rsa root@proxmox03.example.com "pct config <vmid> | grep features"
+# If SSH works, apply manually:
+ssh -i ~/.ssh/id_rsa root@proxmox03.example.com "pct set <vmid> -features 'nesting=1,keyctl=1'"
+```
+
+> **Note:** Replace `proxmox03.example.com` with your node hostname, `~/.ssh/id_rsa` with your key from `proxmox.ssh_key` in `config.yaml`, and `<vmid>` with the container's VMID.
 
 ---
 
