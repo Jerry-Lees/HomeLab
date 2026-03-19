@@ -19,7 +19,7 @@ In the deployment wizards (`deploy_lxc.py`, `deploy_vm.py`) and ideally anywhere
 
 ---
 
-## cleanup_tagged.py — --plan Flag
+## ✅ cleanup_tagged.py — --plan Flag — DONE
 
 **Scope: tagged resources only.** This is for resources that carry a specific tag (e.g.
 `auto-deploy`) but have no labinator deployment file — orphaned or externally-created
@@ -60,7 +60,7 @@ list. `import.py` scans the entire cluster and produces deployment JSON files.
 
 ---
 
-## cleanup_tagged.py — Retag Action
+## ✅ cleanup_tagged.py — Retag Action — DONE
 
 Add a fourth action alongside `keep`, `promote`, and `decomm`: `retag` — replace the
 scanned tag with a different tag rather than simply removing it.
