@@ -96,7 +96,7 @@ In a list file:
 
 ---
 
-## LXC Feature Flags (Profile-Driven + Manual Override)
+## ✅ LXC Feature Flags (Profile-Driven + Manual Override) — DONE
 
 LXC containers share the host kernel, so Proxmox must explicitly grant access to kernel
 features that would otherwise be blocked by the container's security namespace. VMs don't
@@ -195,7 +195,7 @@ already-deployed container or VM without a full redeploy.
 
 ---
 
-## Profile Tag Colors
+## ✅ Profile Tag Colors — DONE
 
 When a package profile with tags is selected at deploy time, automatically configure the
 corresponding tag colors in Proxmox (Datacenter → Options → Tag Style) so the tags appear
