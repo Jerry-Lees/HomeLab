@@ -12,6 +12,7 @@ The wizard can be driven entirely interactively, pre-filled from a deployment JS
 
 - [CLI Options](#cli-options)
 - [Interactive Mode](#interactive-mode)
+- [Wizard Navigation](#wizard-navigation)
 - [Deploy from File](#deploy-from-file)
 - [Silent Mode](#silent-mode)
 - [Validate Mode](#validate-mode)
@@ -48,6 +49,19 @@ python3 deploy_lxc.py
 ```
 
 Runs the full interactive wizard. All prompts have defaults sourced from `config.yaml`. See [Walkthrough: LXC Prompt Order](#walkthrough-lxc-prompt-order) for the full sequence.
+
+---
+
+## Wizard Navigation
+
+The interactive wizard supports back-navigation at every prompt — you can move backward through the wizard to review or change an earlier answer without starting over.
+
+| Prompt type | How to go back |
+|---|---|
+| Text input | Press **ESC** |
+| Selection list | Arrow up to **← Go Back** and press **Enter** |
+
+Going back restores the value you previously entered for that prompt, not the config default. ESC at the first prompt exits with `Aborted.` Ctrl+C exits immediately from any prompt.
 
 ---
 
