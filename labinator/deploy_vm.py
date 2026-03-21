@@ -958,7 +958,11 @@ def main() -> None:
         console.print(table)
         console.print()
         if not silent:
-            r = questionary.confirm("Proceed with deployment?", default=True).ask()
+            try:
+                r = questionary.confirm("Proceed with deployment?", default=True).unsafe_ask()
+            except KeyboardInterrupt:
+                console.print("\n[yellow]Aborted.[/yellow]")
+                sys.exit(0)
             if r is None:
                 return BACK
             if not r:
