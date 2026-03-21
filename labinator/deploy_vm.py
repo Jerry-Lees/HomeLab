@@ -29,8 +29,6 @@ import argparse
 import ipaddress
 import socket
 import time
-import subprocess
-import tempfile
 import textwrap
 from datetime import datetime, timezone
 from pathlib import Path
@@ -58,10 +56,13 @@ from modules.lib import (
     health_check,
     _check_ipv4,
     validate_config,
+    validate_deployment_common,
+    run_validate_common,
     resolve_profile,
     dns_precheck,
     run_ansible_add_dns,
     run_ansible_inventory_update,
+    run_ansible_post_deploy,
     get_nodes_with_load,
     bytes_to_gb,
     get_next_vmid,
@@ -84,6 +85,12 @@ from modules.lib import (
     check_vlan_exists,
     resolve_tag_colors,
     apply_tag_colors,
+    add_common_deploy_args,
+    print_dry_run_header,
+    print_dry_run_footer,
+    dry_run_validate_and_load,
+    write_deployment_file,
+    make_common_wizard_steps,
 )
 
 console = Console()
@@ -132,7 +139,6 @@ def lookup_url_in_catalog(catalog: list[dict], filename: str) -> str | None:
 
 def validate_vm_deployment(deploy_path: Path) -> list[str]:
     """Return a list of error strings; empty means deployment JSON is valid."""
-    errors = []
     try:
         with open(deploy_path) as f:
             d = json.load(f)
@@ -146,142 +152,21 @@ def validate_vm_deployment(deploy_path: Path) -> list[str]:
     if d.get("type") not in (None, "vm") or "template_name" in d:
         return ["This looks like an LXC deployment file — use deploy_lxc.py instead"]
 
-    for field in ("hostname", "node", "cloud_image_storage", "cloud_image_filename",
-                  "storage", "bridge", "password"):
-        val = d.get(field)
-        if not val or not isinstance(val, str) or not val.strip():
-            errors.append(f"'{field}' is required and must be a non-empty string")
-
-    cpus = d.get("cpus")
-    if cpus is None:
-        errors.append("'cpus' is required")
-    elif not isinstance(cpus, int) or cpus <= 0:
-        errors.append(f"'cpus' must be a positive integer (got {cpus!r})")
-
-    mem = d.get("memory_gb")
-    if mem is None:
-        errors.append("'memory_gb' is required")
-    elif not isinstance(mem, (int, float)) or mem <= 0:
-        errors.append(f"'memory_gb' must be a positive number (got {mem!r})")
-
-    disk = d.get("disk_gb")
-    if disk is None:
-        errors.append("'disk_gb' is required")
-    elif not isinstance(disk, (int, float)) or disk <= 0:
-        errors.append(f"'disk_gb' must be a positive number (got {disk!r})")
-
-    vlan = d.get("vlan")
-    if vlan is None:
-        errors.append("'vlan' is required")
-    elif not isinstance(vlan, int) or not (1 <= vlan <= 4094):
-        errors.append(f"'vlan' must be an integer 1–4094 (got {vlan!r})")
-
-    ip = d.get("ip_address")
-    if ip is None:
-        errors.append("'ip_address' is required")
-    elif ip != "dhcp":
-        if not _check_ipv4(str(ip)):
-            errors.append(f"'ip_address' must be 'dhcp' or a valid IPv4 address (got {ip!r})")
-        prefix = d.get("prefix_len")
-        if prefix is None or str(prefix) == "":
-            errors.append("'prefix_len' is required when ip_address is a static IP")
-        elif not str(prefix).isdigit() or not (1 <= int(prefix) <= 32):
-            errors.append(f"'prefix_len' must be 1–32 (got {prefix!r})")
-
-    ep = d.get("extra_packages")
-    if ep is not None:
-        if not isinstance(ep, list):
-            errors.append("'extra_packages' must be a list")
-        elif not all(isinstance(p, str) for p in ep):
-            errors.append("'extra_packages' entries must all be strings")
-
-    return errors
+    return validate_deployment_common(
+        d, ("hostname", "node", "cloud_image_storage", "cloud_image_filename",
+            "storage", "bridge", "password")
+    )
 
 
 def run_validate(args) -> None:
     """Run --validate checks, print a rich report, and exit 0 or 1."""
-    from rich.table import Table as RichTable
-    cfg_path = Path(__file__).parent / "config.yaml"
-    all_errors: list[tuple[str, str]] = []  # (section, message)
-
-    # ── Config checks ──
-    cfg_errors = validate_config(cfg_path)
-    for e in cfg_errors:
-        all_errors.append(("config.yaml", e))
-
-    # ── Deployment file checks ──
-    if args.deploy_file:
-        deploy_errors = validate_vm_deployment(Path(args.deploy_file))
-        for e in deploy_errors:
-            all_errors.append((args.deploy_file, e))
-
-    # ── Output ──
-    console.print()
-    console.print(Panel.fit(
-        Text("Labinator Validate", style="bold yellow"),
-        border_style="yellow",
-    ))
-    console.print()
-
-    if not all_errors:
-        if args.deploy_file:
-            console.print(f"[green]✓ config.yaml[/green]  OK")
-            console.print(f"[green]✓ {args.deploy_file}[/green]  OK")
-        else:
-            console.print(f"[green]✓ config.yaml[/green]  OK")
-        console.print()
-        console.print("[bold green]All checks passed.[/bold green]")
-        sys.exit(0)
-
-    table = RichTable(show_header=True, header_style="bold red")
-    table.add_column("File", style="dim")
-    table.add_column("Error")
-    for section, msg in all_errors:
-        table.add_row(section, msg)
-    console.print(table)
-    console.print()
-    console.print(f"[bold red]{len(all_errors)} error(s) found. Fix them before deploying.[/bold red]")
-    sys.exit(1)
+    run_validate_common(args, validate_vm_deployment)
 
 
 def run_dry_run(args) -> None:
     """--dry-run: validate config + deployment file, print what would happen, exit 0/1."""
-    cfg_path = Path(__file__).parent / "config.yaml"
-
-    console.print()
-    console.print(Panel.fit(
-        Text("Labinator Dry Run — VM Deploy", style="bold yellow"),
-        border_style="yellow",
-    ))
-    console.print()
-
-    # ── Validate config ──
-    cfg_errors = validate_config(cfg_path)
-    if cfg_errors:
-        for e in cfg_errors:
-            console.print(f"[red]✗ config.yaml: {e}[/red]")
-        sys.exit(1)
-    console.print("[green]✓ config.yaml[/green]  OK")
-
-    with open(cfg_path) as f:
-        cfg = yaml.safe_load(f)
-
-    if not args.deploy_file:
-        console.print()
-        console.print("[yellow]No --deploy-file provided. Config is valid.[/yellow]")
-        console.print("[dim]Provide --deploy-file for a full step-by-step dry-run.[/dim]")
-        sys.exit(0)
-
-    # ── Validate deployment file ──
-    deploy_errors = validate_vm_deployment(Path(args.deploy_file))
-    if deploy_errors:
-        for e in deploy_errors:
-            console.print(f"[red]✗ {args.deploy_file}: {e}[/red]")
-        sys.exit(1)
-    console.print(f"[green]✓ {args.deploy_file}[/green]  OK")
-
-    with open(args.deploy_file) as f:
-        d = json.load(f)
+    print_dry_run_header("vm")
+    cfg, d = dry_run_validate_and_load(args, validate_vm_deployment)
 
     # ── Derive display values ──
     hostname      = d.get("hostname", "?")
@@ -359,9 +244,7 @@ def run_dry_run(args) -> None:
     else:
         console.print(f"  {DRY} Step 7/7  [dim]Inventory update SKIPPED (ansible_inventory.enabled: false)[/dim]")
 
-    console.print()
-    console.print("[bold green]Dry run complete — no changes made.[/bold green]")
-    sys.exit(0)
+    print_dry_run_footer()
 
 
 # ─────────────────────────────────────────────
@@ -543,6 +426,7 @@ def select_image_with_storage(
             s["storage"] == default_storage for s in storages
         ) else None
 
+        console.print("  [bold yellow]Cloud image storage[/bold yellow] [dim](directory storage for the image file — VM disk storage is a separate step)[/dim]")
         selected_storage = questionary.select(
             "Select storage for cloud image:",
             choices=storage_choices,
@@ -771,76 +655,15 @@ def write_guest_agent_snippet(cfg: dict, node_name: str, vmid: int) -> str:
     return f"vendor=local:snippets/{snippet_name}"
 
 
-# ─────────────────────────────────────────────
-# Ansible runners
-# ─────────────────────────────────────────────
-
-def run_ansible_post_deploy_vm(vm_ip: str, ssh_key: str, password: str, hostname: str, cfg: dict = None, profile_packages: list = (), extra_packages: list = ()) -> None:
-    """Run the post-deploy Ansible playbook against the new VM using SSH key auth."""
-    ansible_dir = Path(__file__).parent / "ansible"
-    snmp = (cfg or {}).get("snmp", {})
-    addusername = (cfg or {}).get("defaults", {}).get("addusername", "admin")
-    timezone = (cfg or {}).get("timezone", "UTC")
-    ntp_servers = (cfg or {}).get("ntp", {}).get("servers", ["pool.ntp.org", "time.nist.gov"])
-
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".ini", delete=False, prefix="deploy_vm_inv_") as f:
-        f.write("[all]\n")
-        f.write(
-            f"{vm_ip} "
-            f"ansible_user=root "
-            f"ansible_python_interpreter=auto "
-            f"ansible_ssh_extra_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'\n"
-        )
-        inv_path = f.name
-
-    try:
-        cmd = [
-            "ansible-playbook",
-            "-i", inv_path,
-            str(ansible_dir / "post-deploy-vm.yml"),
-            "-e", f"vm_hostname={hostname}",
-            "-e", f"password={password}",
-            "-e", f"addusername={addusername}",
-            "-e", f"snmp_community={snmp.get('community', 'your-snmp-community')}",
-            "-e", f"snmp_source={snmp.get('source', 'default')}",
-            "-e", f"snmp_location={snmp.get('location', 'Homelab')}",
-            "-e", f"snmp_contact={snmp.get('contact', 'admin@example.com')}",
-            "-e", f"timezone={timezone}",
-            "-e", json.dumps({"ntp_servers": ntp_servers}),
-            "--private-key", ssh_key,
-            "--timeout", "60",
-        ]
-        if profile_packages:
-            cmd += ["-e", json.dumps({"profile_packages": list(profile_packages)})]
-        if extra_packages:
-            cmd += ["-e", json.dumps({"extra_packages": list(extra_packages)})]
-        cmd_display = [
-            arg.split("=")[0] + "=**REDACTED**" if arg.startswith("password=") else arg
-            for arg in cmd
-        ]
-        console.print(f"  [dim]Running: {' '.join(cmd_display)}[/dim]")
-        result = subprocess.run(cmd, cwd=str(ansible_dir))
-        if result.returncode != 0:
-            raise RuntimeError("Ansible post-deploy-vm playbook failed (see output above)")
-    finally:
-        os.unlink(inv_path)
-
-
-
-
-# ─────────────────────────────────────────────
-# Deployment file helpers
-# ─────────────────────────────────────────────
-
-def save_vm_deployment_file(hostname: str, vmid: int, node_name: str,
-                             image_storage_name: str, image_filename: str,
-                             image_url: str | None, image_refresh: bool,
-                             cpus_str: str, memory_gb_str: str,
-                             disk_gb_str: str, storage: str, vlan_str: str,
-                             bridge: str, password: str, ip_address: str,
-                             prefix_len: str, gateway: str, assigned_ip: str,
-                             cfg: dict, package_profile: str = "",
-                             extra_packages: list = (), ttl: str = "") -> Path:
+def _save_vm_deployment_file(hostname: str, vmid: int, node_name: str,
+                              image_storage_name: str, image_filename: str,
+                              image_url: str | None, image_refresh: bool,
+                              cpus_str: str, memory_gb_str: str,
+                              disk_gb_str: str, storage: str, vlan_str: str,
+                              bridge: str, password: str, ip_address: str,
+                              prefix_len: str, gateway: str, assigned_ip: str,
+                              cfg: dict, package_profile: str = "",
+                              extra_packages: list = (), ttl: str = "") -> Path:
     """
     ip_address: "dhcp" or the configured static IP
     assigned_ip: actual IP the VM received (same as ip_address for static;
@@ -848,9 +671,6 @@ def save_vm_deployment_file(hostname: str, vmid: int, node_name: str,
     """
     domain = cfg["proxmox"].get("node_domain", "")
     fqdn = f"{hostname}.{domain}" if domain else hostname
-    deployments_dir = Path(__file__).parent / "deployments" / "vms"
-    deployments_dir.mkdir(parents=True, exist_ok=True)
-    deploy_file = deployments_dir / f"{hostname}.json"
     data = {
         "type": "vm",
         "hostname": hostname,
@@ -880,10 +700,7 @@ def save_vm_deployment_file(hostname: str, vmid: int, node_name: str,
     if ttl:
         data["ttl"] = ttl
         data["expires_at"] = expires_at_from_ttl(ttl)
-    with open(deploy_file, "w") as f:
-        json.dump(data, f, indent=2)
-    console.print(f"  [dim]Deployment file saved: {deploy_file}[/dim]")
-    return deploy_file
+    return write_deployment_file(data, hostname, "vms", cfg)
 
 
 def derive_gateway(ip: str) -> str:
@@ -916,39 +733,7 @@ def main() -> None:
     )
     parser.add_argument("--help", action="help", default=argparse.SUPPRESS,
                         help="show this help message and exit")
-    parser.add_argument(
-        "--deploy-file", metavar="FILE",
-        help="JSON deployment file to pre-fill defaults (saved from a previous run)",
-    )
-    parser.add_argument(
-        "--silent", action="store_true",
-        help="Non-interactive mode: use all values from --deploy-file without prompting",
-    )
-    parser.add_argument(
-        "--validate", action="store_true",
-        help="Validate config.yaml and deployment file without connecting to Proxmox or deploying",
-    )
-    parser.add_argument(
-        "--dry-run", action="store_true",
-        help="Validate config + deployment file and print what would happen without making any changes",
-    )
-    parser.add_argument(
-        "--preflight", action="store_true",
-        help="Run preflight connectivity and dependency checks then exit",
-    )
-    parser.add_argument(
-        "--yolo", action="store_true",
-        help="Skip preflight checks and deploy immediately",
-    )
-    parser.add_argument(
-        "--ttl", metavar="TTL",
-        help="Time-to-live for this deployment (e.g. 7d, 24h, 2w, 30m). "
-             "Stores 'expires_at' in the deployment JSON for use with expire.py.",
-    )
-    parser.add_argument(
-        "--config", metavar="FILE",
-        help="Path to an alternate config file (default: config.yaml in project root)",
-    )
+    add_common_deploy_args(parser)
     args = parser.parse_args()
 
     # Validate --ttl early so we fail fast before any Proxmox work
@@ -1035,89 +820,8 @@ def main() -> None:
     # Ctrl+C exits immediately at any point.
     # ═══════════════════════════════════════════
 
-    def step_hostname(s):
-        r = pt_text(
-            "Hostname for the new VM:",
-            default=s.get("hostname", ""),
-            instruction="short name only — domain suffix appended in inventory",
-            validate=lambda v: True if v.strip() else "Hostname cannot be empty",
-            d=deploy, key="hostname", silent=silent,
-        )
-        if r is BACK:
-            return BACK
-        return {**s, "hostname": r.strip().lower()}
-
-    def step_cpus(s):
-        r = pt_text(
-            "Number of vCPUs:",
-            default=s.get("cpus_str", str(defaults.get("cpus", 2))),
-            validate=lambda v: True if v.isdigit() and int(v) > 0 else "Must be a positive integer",
-            d=deploy, key="cpus", silent=silent,
-        )
-        if r is BACK:
-            return BACK
-        return {**s, "cpus_str": r}
-
-    def step_memory(s):
-        r = pt_text(
-            "Memory (GB):",
-            default=s.get("memory_gb_str", str(defaults.get("memory_gb", 4))),
-            validate=lambda v: (True if v.replace(".", "", 1).isdigit() and float(v) > 0
-                                else "Must be a positive number"),
-            d=deploy, key="memory_gb", silent=silent,
-        )
-        if r is BACK:
-            return BACK
-        return {**s, "memory_gb_str": r}
-
-    def step_disk(s):
-        r = pt_text(
-            "Disk size (GB):",
-            default=s.get("disk_gb_str", str(defaults.get("disk_gb", 100))),
-            validate=lambda v: True if v.isdigit() and int(v) > 0 else "Must be a positive integer",
-            d=deploy, key="disk_gb", silent=silent,
-        )
-        if r is BACK:
-            return BACK
-        return {**s, "disk_gb_str": r}
-
-    def step_vlan(s):
-        r = pt_text(
-            "VLAN tag (bridge: vmbr0.<vlan>):",
-            default=s.get("vlan_str", str(defaults.get("vlan", 220))),
-            validate=lambda v: (True if v.isdigit() and 1 <= int(v) <= 4094
-                                else "Must be a valid VLAN ID (1–4094)"),
-            d=deploy, key="vlan", silent=silent,
-        )
-        if r is BACK:
-            return BACK
-        return {**s, "vlan_str": r}
-
-    def step_password(s):
-        r = pt_text(
-            f"Root / {addusername} user password:",
-            default=s.get("password", defaults.get("root_password", "changeme")),
-            d=deploy, key="password", silent=silent,
-        )
-        if r is BACK:
-            return BACK
-        return {**s, "password": r}
-
-    def step_package_profile(s):
-        r = prompt_package_profile(cfg, deploy, silent, nav=True,
-                                   current=s.get("package_profile"))
-        if r is BACK:
-            return BACK
-        package_profile, profile_packages, profile_tags = r
-        return {**s, "package_profile": package_profile,
-                "profile_packages": profile_packages, "profile_tags": profile_tags}
-
-    def step_extra_packages(s):
-        r = prompt_extra_packages(deploy, silent, nav=True,
-                                  current=s.get("extra_packages"))
-        if r is BACK:
-            return BACK
-        return {**s, "extra_packages": r}
+    _ws = make_common_wizard_steps(cfg, deploy, silent, nodes, cpu_threshold, ram_threshold,
+                                    hostname_label="VM")
 
     def step_ip(s):
         deploy_ip = str(deploy.get("ip_address", ""))
@@ -1166,14 +870,6 @@ def main() -> None:
             return BACK
         return {**s, "gateway": r.strip()}
 
-    def step_node(s):
-        memory_mb = int(float(s["memory_gb_str"]) * 1024)
-        r = prompt_node_selection(nodes, deploy, silent, memory_mb, s["memory_gb_str"],
-                                  cpu_threshold, ram_threshold, nav=True)
-        if r is BACK:
-            return BACK
-        return {**s, "node_name": r}
-
     def step_image(s):
         catalog = load_cloud_images()
         r = select_image_with_storage(
@@ -1184,12 +880,15 @@ def main() -> None:
         image_storage_name, image_filename, image_url, image_refresh = r
         return {**s, "image_storage_name": image_storage_name,
                 "image_filename": image_filename, "image_url": image_url,
-                "image_refresh": image_refresh}
+                "image_refresh": image_refresh, "catalog": catalog}
 
     def step_storage(s):
         with console.status(f"[bold green]Querying storage pools on {s['node_name']}..."):
             storage_pools = get_vm_disk_storages(proxmox, s["node_name"])
-        if len(storage_pools) > 1:
+        if silent:
+            storage = str(deploy.get("storage", storage_pools[0] if storage_pools else "local-lvm"))
+            console.print(f"  [dim]Storage (from deployment file): {storage}[/dim]")
+        elif len(storage_pools) > 1:
             deploy_storage = str(deploy.get("storage", ""))
             default_storage = deploy_storage if deploy_storage in storage_pools else storage_pools[0]
             r = select_nav(
@@ -1269,10 +968,10 @@ def main() -> None:
                 "pub_key_path": pub_key_path, "pub_key_encoded": pub_key_encoded}
 
     ws = run_wizard_steps([
-        step_hostname, step_cpus, step_memory, step_disk, step_vlan, step_password,
-        step_package_profile, step_extra_packages,
+        _ws["hostname"], _ws["cpus"], _ws["memory"], _ws["disk"], _ws["vlan"], _ws["password"],
+        _ws["package_profile"], _ws["extra_packages"],
         step_ip, step_prefix, step_gateway,
-        step_node, step_image, step_storage, step_confirm,
+        _ws["node"], step_image, step_storage, step_confirm,
     ])
 
     # Unpack wizard state into local variables for the rest of the deploy flow
@@ -1295,12 +994,14 @@ def main() -> None:
     image_filename     = ws["image_filename"]
     image_url          = ws["image_url"]
     image_refresh      = ws["image_refresh"]
+    catalog            = ws["catalog"]
     storage            = ws["storage"]
     next_vmid          = ws["next_vmid"]
     bridge             = ws["bridge"]
     now_str            = ws["now_str"]
     pub_key_path       = ws["pub_key_path"]
     pub_key_encoded    = ws["pub_key_encoded"]
+    ssh_key            = os.path.expanduser(cfg["proxmox"].get("ssh_key", "~/.ssh/id_rsa"))
     memory_mb          = int(float(memory_gb_str) * 1024)
     profiles           = cfg.get("package_profiles", {})
 
@@ -1511,7 +1212,10 @@ def main() -> None:
     console.print("[bold green]─── Step 5/7: Running post-deployment configuration (Ansible) ───[/bold green]")
     if cfg.get("ansible", {}).get("enabled", True):
         try:
-            run_ansible_post_deploy_vm(vm_ip, ssh_key, password, hostname, cfg=cfg, profile_packages=profile_packages, extra_packages=extra_packages)
+            run_ansible_post_deploy(vm_ip, password, hostname, cfg, kind="vm",
+                                    ssh_key=ssh_key,
+                                    profile_packages=profile_packages,
+                                    extra_packages=extra_packages)
             console.print("[green]✓ Post-deployment configuration complete[/green]")
         except Exception as e:
             console.print(f"[red]✗ Post-deploy failed: {e}[/red]")
@@ -1538,7 +1242,7 @@ def main() -> None:
     run_ansible_inventory_update(cfg, hostname, vm_ip, password)
 
     # Save deployment file
-    save_vm_deployment_file(
+    _save_vm_deployment_file(
         hostname, next_vmid, node_name,
         image_storage_name, image_filename, image_url, image_refresh,
         cpus_str, memory_gb_str, disk_gb_str, storage,

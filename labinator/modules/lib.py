@@ -8,6 +8,7 @@ All path resolution is relative to _ROOT (the labinator project root),
 which is the parent of this file's containing directory (modules/).
 """
 
+import argparse
 import ipaddress
 import json
 import os
@@ -16,6 +17,7 @@ import re
 import socket
 import subprocess
 import sys
+import tempfile
 import termios
 import time
 import tty
@@ -111,7 +113,7 @@ def wait_for_task(proxmox: ProxmoxAPI, node: str, taskid: str, timeout: int = 18
             status = proxmox.nodes(node).tasks(taskid).status.get()
             if status["status"] == "stopped":
                 exit_status = status.get("exitstatus", "")
-                if exit_status != "OK":
+                if exit_status != "OK" and not exit_status.startswith("WARNINGS"):
                     raise RuntimeError(f"Proxmox task failed: {exit_status}")
                 return
         except RuntimeError:
@@ -579,6 +581,110 @@ def validate_config(cfg_path: Path) -> list[str]:
 # Deploy: package profiles
 # ─────────────────────────────────────────────
 
+def validate_deployment_common(d: dict, required_string_fields: tuple | list) -> list[str]:
+    """Validate deployment JSON fields common to both LXC and VM types.
+
+    Checks: required string fields, cpus, memory_gb, disk_gb, vlan,
+    ip_address/prefix_len, extra_packages.
+    Caller is responsible for loading the file and the type-guard check.
+    Returns list of error strings.
+    """
+    errors = []
+    for field in required_string_fields:
+        val = d.get(field)
+        if not val or not isinstance(val, str) or not val.strip():
+            errors.append(f"'{field}' is required and must be a non-empty string")
+
+    cpus = d.get("cpus")
+    if cpus is None:
+        errors.append("'cpus' is required")
+    elif not isinstance(cpus, int) or cpus <= 0:
+        errors.append(f"'cpus' must be a positive integer (got {cpus!r})")
+
+    mem = d.get("memory_gb")
+    if mem is None:
+        errors.append("'memory_gb' is required")
+    elif not isinstance(mem, (int, float)) or mem <= 0:
+        errors.append(f"'memory_gb' must be a positive number (got {mem!r})")
+
+    disk = d.get("disk_gb")
+    if disk is None:
+        errors.append("'disk_gb' is required")
+    elif not isinstance(disk, (int, float)) or disk <= 0:
+        errors.append(f"'disk_gb' must be a positive number (got {disk!r})")
+
+    vlan = d.get("vlan")
+    if vlan is None:
+        errors.append("'vlan' is required")
+    elif not isinstance(vlan, int) or not (1 <= vlan <= 4094):
+        errors.append(f"'vlan' must be an integer 1–4094 (got {vlan!r})")
+
+    ip = d.get("ip_address")
+    if ip is None:
+        errors.append("'ip_address' is required")
+    elif ip != "dhcp":
+        if not _check_ipv4(str(ip)):
+            errors.append(f"'ip_address' must be 'dhcp' or a valid IPv4 address (got {ip!r})")
+        prefix = d.get("prefix_len")
+        if prefix is None or str(prefix) == "":
+            errors.append("'prefix_len' is required when ip_address is a static IP")
+        elif not str(prefix).isdigit() or not (1 <= int(prefix) <= 32):
+            errors.append(f"'prefix_len' must be 1–32 (got {prefix!r})")
+
+    ep = d.get("extra_packages")
+    if ep is not None:
+        if not isinstance(ep, list):
+            errors.append("'extra_packages' must be a list")
+        elif not all(isinstance(p, str) for p in ep):
+            errors.append("'extra_packages' entries must all be strings")
+
+    return errors
+
+
+def run_validate_common(args: argparse.Namespace, validate_fn) -> None:
+    """Run --validate checks, print a rich report, and exit 0 or 1.
+
+    validate_fn: callable(Path) -> list[str] for deployment-file validation.
+    """
+    from rich.table import Table as RichTable
+    cfg_path = _ROOT / "config.yaml"
+    all_errors: list[tuple[str, str]] = []
+
+    cfg_errors = validate_config(cfg_path)
+    for e in cfg_errors:
+        all_errors.append(("config.yaml", e))
+
+    if args.deploy_file:
+        deploy_errors = validate_fn(Path(args.deploy_file))
+        for e in deploy_errors:
+            all_errors.append((args.deploy_file, e))
+
+    console.print()
+    console.print(Panel.fit(
+        Text("Labinator Validate", style="bold yellow"),
+        border_style="yellow",
+    ))
+    console.print()
+
+    if not all_errors:
+        console.print("[green]✓ config.yaml[/green]  OK")
+        if args.deploy_file:
+            console.print(f"[green]✓ {args.deploy_file}[/green]  OK")
+        console.print()
+        console.print("[bold green]All checks passed.[/bold green]")
+        sys.exit(0)
+
+    table = RichTable(show_header=True, header_style="bold red")
+    table.add_column("File", style="dim")
+    table.add_column("Error")
+    for section, msg in all_errors:
+        table.add_row(section, msg)
+    console.print(table)
+    console.print()
+    console.print(f"[bold red]{len(all_errors)} error(s) found. Fix them before deploying.[/bold red]")
+    sys.exit(1)
+
+
 def resolve_profile(profile_name: str, profiles: dict) -> tuple[list, list]:
     """Return (packages, tag_names) for a named profile.
 
@@ -911,6 +1017,204 @@ def run_ansible_inventory_update(cfg: dict, hostname: str, ip: str, password: st
         )
     else:
         console.print(f"  [green]✓ Inventory updated on {dev_server}[/green]")
+
+
+# ─────────────────────────────────────────────
+# Deploy: dry-run helpers
+# ─────────────────────────────────────────────
+
+def print_dry_run_header(kind: str) -> None:
+    """Print the dry-run wizard banner panel."""
+    label = "LXC Deploy" if kind == "lxc" else "VM Deploy"
+    console.print()
+    console.print(Panel.fit(
+        Text(f"Labinator Dry Run — {label}", style="bold yellow"),
+        border_style="yellow",
+    ))
+    console.print()
+
+
+def print_dry_run_footer() -> None:
+    """Print the dry-run completion message and exit 0."""
+    console.print()
+    console.print("[bold green]Dry run complete — no changes made.[/bold green]")
+    sys.exit(0)
+
+
+def dry_run_validate_and_load(args: argparse.Namespace, validate_fn) -> tuple[dict, dict]:
+    """Validate config + deploy file for --dry-run; print errors and exit on failure.
+
+    Returns (cfg, d) where d is the loaded deployment dict.
+    Exits 0 if no --deploy-file (config is valid but nothing more to report).
+    validate_fn: callable(Path) -> list[str]
+    """
+    cfg_path = _ROOT / "config.yaml"
+    cfg_errors = validate_config(cfg_path)
+    if cfg_errors:
+        for e in cfg_errors:
+            console.print(f"[red]✗ config.yaml: {e}[/red]")
+        sys.exit(1)
+    console.print("[green]✓ config.yaml[/green]  OK")
+
+    with open(cfg_path) as f:
+        cfg = yaml.safe_load(f)
+
+    if not args.deploy_file:
+        console.print()
+        console.print("[yellow]No --deploy-file provided. Config is valid.[/yellow]")
+        console.print("[dim]Provide --deploy-file for a full step-by-step dry-run.[/dim]")
+        sys.exit(0)
+
+    deploy_errors = validate_fn(Path(args.deploy_file))
+    if deploy_errors:
+        for e in deploy_errors:
+            console.print(f"[red]✗ {args.deploy_file}: {e}[/red]")
+        sys.exit(1)
+    console.print(f"[green]✓ {args.deploy_file}[/green]  OK")
+
+    with open(args.deploy_file) as f:
+        d = json.load(f)
+
+    return cfg, d
+
+
+# ─────────────────────────────────────────────
+# Deploy: shared Ansible post-deploy runner
+# ─────────────────────────────────────────────
+
+def run_ansible_post_deploy(ip: str, password: str, hostname: str, cfg: dict, kind: str,
+                             nameserver: str = "", searchdomain: str = "",
+                             ssh_key: str = "",
+                             profile_packages: list = (),
+                             extra_packages: list = ()) -> None:
+    """Run the post-deploy Ansible playbook against a new LXC container or VM.
+
+    kind='lxc' — password auth, post-deploy.yml, container_hostname var.
+    kind='vm'  — SSH key auth, post-deploy-vm.yml, vm_hostname var.
+    """
+    ansible_dir = _ROOT / "ansible"
+    snmp = (cfg or {}).get("snmp", {})
+    addusername = (cfg or {}).get("defaults", {}).get("addusername", "admin")
+    tz = (cfg or {}).get("timezone", "UTC")
+    ntp_servers = (cfg or {}).get("ntp", {}).get("servers", ["pool.ntp.org", "time.nist.gov"])
+
+    if kind == "lxc":
+        inv_extras = f"ansible_password={password} "
+        prefix = "deploy_inv_"
+    else:
+        inv_extras = "ansible_python_interpreter=auto "
+        prefix = "deploy_vm_inv_"
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".ini", delete=False, prefix=prefix) as f:
+        f.write("[all]\n")
+        f.write(
+            f"{ip} ansible_user=root {inv_extras}"
+            "ansible_ssh_extra_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'\n"
+        )
+        inv_path = f.name
+
+    playbook = "post-deploy.yml" if kind == "lxc" else "post-deploy-vm.yml"
+    hostname_var = "container_hostname" if kind == "lxc" else "vm_hostname"
+
+    try:
+        cmd = [
+            "ansible-playbook",
+            "-i", inv_path,
+            str(ansible_dir / playbook),
+            "-e", f"{hostname_var}={hostname}",
+            "-e", f"password={password}",
+            "-e", f"addusername={addusername}",
+        ]
+        if kind == "lxc":
+            cmd += [
+                "-e", f"container_nameserver={nameserver}",
+                "-e", f"container_searchdomain={searchdomain}",
+            ]
+        cmd += [
+            "-e", f"snmp_community={snmp.get('community', 'your-snmp-community')}",
+            "-e", f"snmp_source={snmp.get('source', 'default')}",
+            "-e", f"snmp_location={snmp.get('location', 'Homelab')}",
+            "-e", f"snmp_contact={snmp.get('contact', 'admin@example.com')}",
+            "-e", f"timezone={tz}",
+            "-e", json.dumps({"ntp_servers": ntp_servers}),
+        ]
+        if kind == "vm" and ssh_key:
+            cmd += ["--private-key", ssh_key]
+        cmd += ["--timeout", "60"]
+        if profile_packages:
+            cmd += ["-e", json.dumps({"profile_packages": list(profile_packages)})]
+        if extra_packages:
+            cmd += ["-e", json.dumps({"extra_packages": list(extra_packages)})]
+        cmd_display = [
+            arg.split("=")[0] + "=**REDACTED**" if arg.startswith("password=") else arg
+            for arg in cmd
+        ]
+        console.print(f"  [dim]Running: {' '.join(cmd_display)}[/dim]")
+        result = subprocess.run(cmd, cwd=str(ansible_dir))
+        if result.returncode != 0:
+            raise RuntimeError("Ansible post-deploy playbook failed (see output above)")
+    finally:
+        os.unlink(inv_path)
+
+
+# ─────────────────────────────────────────────
+# Deploy: deployment file writer
+# ─────────────────────────────────────────────
+
+def write_deployment_file(data: dict, hostname: str, kind: str, cfg: dict) -> Path:
+    """Write deployment JSON to deployments/{kind}/{hostname}.json. Returns path.
+
+    kind: 'lxc' or 'vms' (directory name under deployments/).
+    Caller assembles the full data dict including all fields.
+    """
+    deployments_dir = _ROOT / "deployments" / kind
+    deployments_dir.mkdir(parents=True, exist_ok=True)
+    deploy_file = deployments_dir / f"{hostname}.json"
+    with open(deploy_file, "w") as f:
+        json.dump(data, f, indent=2)
+    console.print(f"  [dim]Deployment file saved: {deploy_file}[/dim]")
+    return deploy_file
+
+
+# ─────────────────────────────────────────────
+# Deploy: common argparse arguments
+# ─────────────────────────────────────────────
+
+def add_common_deploy_args(parser: argparse.ArgumentParser) -> None:
+    """Add deploy wizard CLI arguments that are identical across deploy_lxc.py and deploy_vm.py."""
+    parser.add_argument(
+        "--deploy-file", metavar="FILE",
+        help="JSON deployment file to pre-fill defaults (saved from a previous run)",
+    )
+    parser.add_argument(
+        "--silent", action="store_true",
+        help="Non-interactive mode: use all values from --deploy-file without prompting",
+    )
+    parser.add_argument(
+        "--validate", action="store_true",
+        help="Validate config.yaml and deployment file without connecting to Proxmox or deploying",
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true",
+        help="Validate config + deployment file and print what would happen without making any changes",
+    )
+    parser.add_argument(
+        "--preflight", action="store_true",
+        help="Run preflight connectivity and dependency checks then exit",
+    )
+    parser.add_argument(
+        "--yolo", action="store_true",
+        help="Skip preflight checks and deploy immediately",
+    )
+    parser.add_argument(
+        "--ttl", metavar="TTL",
+        help="Time-to-live for this deployment (e.g. 7d, 24h, 2w, 30m). "
+             "Stores 'expires_at' in the deployment JSON for use with expire.py.",
+    )
+    parser.add_argument(
+        "--config", metavar="FILE",
+        help="Path to an alternate config file (default: config.yaml in project root)",
+    )
 
 
 # ─────────────────────────────────────────────
@@ -1778,3 +2082,128 @@ def prompt_node_selection(nodes: list[dict], deploy: dict, silent: bool,
     if node_name is None or node_name is BACK:
         return BACK if nav else sys.exit(0)
     return node_name
+
+
+def make_common_wizard_steps(
+    cfg: dict,
+    deploy: dict,
+    silent: bool,
+    nodes: list,
+    cpu_threshold: float,
+    ram_threshold: float,
+    hostname_label: str = "container",
+) -> dict:
+    """Return a dict of wizard step closures shared between deploy_lxc.py and deploy_vm.py.
+
+    Keys: 'hostname', 'cpus', 'memory', 'disk', 'vlan', 'password',
+          'package_profile', 'extra_packages', 'node'.
+
+    Each value is a step closure compatible with run_wizard_steps().
+    hostname_label: word used in the hostname prompt ("container" or "VM").
+    """
+    defaults = cfg["defaults"]
+    addusername = defaults.get("addusername", "admin")
+
+    def step_hostname(s):
+        r = pt_text(
+            f"Hostname for the new {hostname_label}:",
+            default=s.get("hostname", ""),
+            instruction="short name only — domain suffix appended in inventory",
+            validate=lambda v: True if v.strip() else "Hostname cannot be empty",
+            d=deploy, key="hostname", silent=silent,
+        )
+        if r is BACK:
+            return BACK
+        return {**s, "hostname": r.strip().lower()}
+
+    def step_cpus(s):
+        r = pt_text(
+            "Number of vCPUs:",
+            default=s.get("cpus_str", str(defaults.get("cpus", 2))),
+            validate=lambda v: True if v.isdigit() and int(v) > 0 else "Must be a positive integer",
+            d=deploy, key="cpus", silent=silent,
+        )
+        if r is BACK:
+            return BACK
+        return {**s, "cpus_str": r}
+
+    def step_memory(s):
+        r = pt_text(
+            "Memory (GB):",
+            default=s.get("memory_gb_str", str(defaults.get("memory_gb", 4))),
+            validate=lambda v: (True if v.replace(".", "", 1).isdigit() and float(v) > 0
+                                else "Must be a positive number"),
+            d=deploy, key="memory_gb", silent=silent,
+        )
+        if r is BACK:
+            return BACK
+        return {**s, "memory_gb_str": r}
+
+    def step_disk(s):
+        r = pt_text(
+            "Disk size (GB):",
+            default=s.get("disk_gb_str", str(defaults.get("disk_gb", 100))),
+            validate=lambda v: True if v.isdigit() and int(v) > 0 else "Must be a positive integer",
+            d=deploy, key="disk_gb", silent=silent,
+        )
+        if r is BACK:
+            return BACK
+        return {**s, "disk_gb_str": r}
+
+    def step_vlan(s):
+        r = pt_text(
+            "VLAN tag (bridge: vmbr0.<vlan>):",
+            default=s.get("vlan_str", str(defaults.get("vlan", 220))),
+            validate=lambda v: (True if v.isdigit() and 1 <= int(v) <= 4094
+                                else "Must be a valid VLAN ID (1–4094)"),
+            d=deploy, key="vlan", silent=silent,
+        )
+        if r is BACK:
+            return BACK
+        return {**s, "vlan_str": r}
+
+    def step_password(s):
+        r = pt_text(
+            f"Root / {addusername} user password:",
+            default=s.get("password", defaults.get("root_password", "changeme")),
+            d=deploy, key="password", silent=silent,
+        )
+        if r is BACK:
+            return BACK
+        return {**s, "password": r}
+
+    def step_package_profile(s):
+        r = prompt_package_profile(cfg, deploy, silent, nav=True,
+                                   current=s.get("package_profile"))
+        if r is BACK:
+            return BACK
+        package_profile, profile_packages, profile_tags = r
+        return {**s, "package_profile": package_profile,
+                "profile_packages": profile_packages, "profile_tags": profile_tags}
+
+    def step_extra_packages(s):
+        r = prompt_extra_packages(deploy, silent, nav=True,
+                                  current=s.get("extra_packages"))
+        if r is BACK:
+            return BACK
+        return {**s, "extra_packages": r}
+
+    def step_node(s):
+        memory_mb = int(float(s["memory_gb_str"]) * 1024)
+        r = prompt_node_selection(nodes, deploy, silent, memory_mb, s["memory_gb_str"],
+                                  cpu_threshold, ram_threshold, nav=True)
+        if r is BACK:
+            return BACK
+        return {**s, "node_name": r}
+
+    return {
+        "hostname":        step_hostname,
+        "cpus":            step_cpus,
+        "memory":          step_memory,
+        "disk":            step_disk,
+        "vlan":            step_vlan,
+        "password":        step_password,
+        "package_profile": step_package_profile,
+        "extra_packages":  step_extra_packages,
+        "node":            step_node,
+    }

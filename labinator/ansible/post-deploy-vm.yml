@@ -49,6 +49,8 @@
       wait_for:
         path: /run/cloud-init/result.json
         timeout: 1800
+      retries: 5
+      delay: 10
 
     # --------------------------------------------------------
     # Hostname
