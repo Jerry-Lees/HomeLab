@@ -2,10 +2,13 @@
 labinator.proxmox — Proxmox API helpers.
 """
 
+import base64
+import os
 import sys
 import time
 from pathlib import Path
 
+import paramiko
 from rich.console import Console
 
 try:
@@ -215,6 +218,601 @@ def smart_size(b: int) -> str:
 
 def bytes_to_gb(b: int) -> str:
     return f"{b / (1024 ** 3):.1f}"
+
+
+# ─────────────────────────────────────────────
+# Storage queries
+# ─────────────────────────────────────────────
+
+
+def get_vm_disk_storages(proxmox: ProxmoxAPI, node: str) -> list[str]:
+    """Return storage pools that can hold VM disk images (content type: images)."""
+    pools = []
+    try:
+        for s in proxmox.nodes(node).storage.get(enabled=1):
+            if "images" in s.get("content", ""):
+                pools.append(s["storage"])
+    except Exception:
+        pass
+    return pools if pools else ["local-lvm"]
+
+
+def get_lxc_disk_storages(proxmox: ProxmoxAPI, node: str) -> list[str]:
+    """Return storage pools that can hold LXC root filesystems (content type: rootdir)."""
+    pools = []
+    try:
+        for s in proxmox.nodes(node).storage.get(enabled=1):
+            if "rootdir" in s.get("content", ""):
+                pools.append(s["storage"])
+    except Exception:
+        pass
+    return pools if pools else ["local-lvm"]
+
+
+def get_iso_capable_storages(proxmox: ProxmoxAPI, node: str) -> list[dict]:
+    """Return storages on this node that support ISO content, with free space info."""
+    result = []
+    try:
+        for s in proxmox.nodes(node).storage.get(enabled=1):
+            if "iso" in s.get("content", "").split(","):
+                try:
+                    status = proxmox.nodes(node).storage(s["storage"]).status.get()
+                    s["avail"] = status.get("avail", 0)
+                    s["total"] = status.get("total", 0)
+                except Exception:
+                    s["avail"] = 0
+                    s["total"] = 0
+                result.append(s)
+    except Exception:
+        pass
+    return result
+
+
+def get_storage_iso_path(proxmox: ProxmoxAPI, storage_name: str) -> str:
+    """
+    Return the filesystem path of the cloud-images directory for a given storage.
+    Files are stored under {storage_path}/cloud-images/ — NOT under template/iso/ —
+    so they are invisible to the Proxmox GUI ISO picker and can't be accidentally
+    attached as a CD-ROM during manual VM creation.
+    Falls back to /mnt/pve/{storage_name}/cloud-images for unknown storage types.
+    """
+    try:
+        configs = proxmox.storage.get()
+        for s in configs:
+            if s.get("storage") == storage_name:
+                path = s.get("path", f"/mnt/pve/{storage_name}")
+                return f"{path}/cloud-images"
+    except Exception:
+        pass
+    return f"/mnt/pve/{storage_name}/cloud-images"
+
+
+def get_lxc_templates(proxmox: ProxmoxAPI, node: str) -> list[dict]:
+    """
+    Query all storage pools on the node for LXC templates (vztmpl).
+    Returns list sorted Ubuntu-first.
+    """
+    templates = []
+    try:
+        storages = proxmox.nodes(node).storage.get()
+    except Exception as e:
+        console.print(f"[yellow]Warning: Could not query storages on {node}: {e}[/yellow]")
+        return templates
+
+    for storage in storages:
+        if "vztmpl" not in storage.get("content", ""):
+            continue
+        storage_name = storage["storage"]
+        try:
+            content = proxmox.nodes(node).storage(storage_name).content.get(content="vztmpl")
+            for item in content:
+                volid = item["volid"]
+                name = volid.split("/")[-1]
+                templates.append({
+                    "volid": volid,
+                    "name": name,
+                    "storage": storage_name,
+                    "size": item.get("size", 0),
+                })
+        except Exception as e:
+            console.print(f"[yellow]  Warning: Could not list templates in {storage_name}: {e}[/yellow]")
+
+    ubuntu = sorted([t for t in templates if "ubuntu" in t["name"].lower()], key=lambda x: x["name"], reverse=True)
+    others = sorted([t for t in templates if "ubuntu" not in t["name"].lower()], key=lambda x: x["name"])
+    return ubuntu + others
+
+
+# ─────────────────────────────────────────────
+# Resource verification
+# ─────────────────────────────────────────────
+
+
+def check_node_resources(proxmox: ProxmoxAPI, node_name: str,
+                          memory_mb: int, disk_gb: int, storage: str,
+                          cpu_threshold: float = 0.85,
+                          ram_threshold: float = 0.95) -> tuple[bool, str]:
+    """Re-verify a node still has sufficient resources before creating a VM or container."""
+    try:
+        node_data = next(
+            (n for n in proxmox.nodes.get() if n["node"] == node_name), None
+        )
+        if node_data is None:
+            return False, f"Node {node_name} not found"
+        if node_data.get("cpu", 0) >= cpu_threshold:
+            return False, f"CPU now at {node_data['cpu']*100:.0f}% (≥{cpu_threshold*100:.0f}%)"
+        maxmem = node_data.get("maxmem", 0)
+        mem = node_data.get("mem", 0)
+        if maxmem > 0 and (mem + memory_mb * 1024 * 1024) / maxmem >= ram_threshold:
+            free_gb = bytes_to_gb(maxmem - mem)
+            return False, f"Only {free_gb} GB RAM free — insufficient for {memory_mb/1024:.1f} GB"
+        for s in proxmox.nodes(node_name).storage.get(enabled=1):
+            if s["storage"] == storage:
+                if s.get("type") == "lvmthin":
+                    break
+                avail = s.get("avail", 0)
+                needed = disk_gb * 1024 ** 3
+                if avail < needed:
+                    avail_gb = bytes_to_gb(avail)
+                    return False, f"Storage '{storage}' only has {avail_gb} GB free — need {disk_gb} GB"
+                break
+    except Exception as e:
+        return False, f"Could not verify resources: {e}"
+    return True, ""
+
+
+# ─────────────────────────────────────────────
+# SSH helpers
+# ─────────────────────────────────────────────
+
+
+def run_ssh_cmd(ssh: paramiko.SSHClient, cmd: str) -> tuple[int, str, str]:
+    """Run a command over SSH, blocking until completion. Returns (exit_code, stdout, stderr)."""
+    _, stdout, stderr = ssh.exec_command(cmd)
+    exit_code = stdout.channel.recv_exit_status()
+    return exit_code, stdout.read().decode().strip(), stderr.read().decode().strip()
+
+
+def list_cloud_images_on_storage(cfg: dict, proxmox: ProxmoxAPI,
+                                  node_name: str, storage_name: str) -> list[dict]:
+    """
+    List cloud image files in the storage's cloud-images directory via SSH.
+    Returns list of dicts with 'filename' and 'size' (bytes).
+    Returns empty list if directory doesn't exist yet or SSH fails.
+    """
+    cloud_path = get_storage_iso_path(proxmox, storage_name)
+    ssh_host   = node_ssh_host(cfg, node_name)
+    ssh_key    = os.path.expanduser(cfg["proxmox"].get("ssh_key", "~/.ssh/id_rsa"))
+
+    ssh = paramiko.SSHClient()
+    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    try:
+        ssh.connect(ssh_host, username="root", key_filename=ssh_key, timeout=15)
+        _, out, _ = run_ssh_cmd(
+            ssh,
+            f'find {cloud_path} -maxdepth 1 -type f -printf "%f\\t%s\\n" 2>/dev/null || true',
+        )
+        files = []
+        for line in out.splitlines():
+            if "\t" in line:
+                fname, size_str = line.split("\t", 1)
+                fname = fname.strip()
+                size  = int(size_str.strip()) if size_str.strip().isdigit() else 0
+                if fname:
+                    files.append({"filename": fname, "size": size})
+        return sorted(files, key=lambda x: x["filename"])
+    except Exception:
+        return []
+    finally:
+        try:
+            ssh.close()
+        except Exception:
+            pass
+
+
+def import_cloud_image(cfg: dict, proxmox: ProxmoxAPI, node_name: str, vmid: int,
+                       disk_storage: str, image_storage_name: str,
+                       image_filename: str, image_url: str | None,
+                       image_refresh: bool) -> None:
+    """
+    Ensure the cloud image is present on image_storage_name, then import as VM disk.
+
+    image_refresh=True  — Always re-download (user explicitly chose "Download:" in UI
+                          or set image_refresh: true in deployment file).
+    image_refresh=False — Use existing file; auto-download only if missing.
+
+    image_url: fully resolved URL (caller is responsible for catalog lookup before calling).
+
+    After import the disk appears as unused0 in the VM config.
+    """
+    pve = cfg["proxmox"]
+    iso_path   = get_storage_iso_path(proxmox, image_storage_name)
+    image_file = f"{iso_path}/{image_filename}"
+    ssh_host   = node_ssh_host(cfg, node_name)
+    ssh_key    = os.path.expanduser(pve.get("ssh_key", "~/.ssh/id_rsa"))
+
+    ssh = paramiko.SSHClient()
+    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    try:
+        ssh.connect(ssh_host, username="root", key_filename=ssh_key, timeout=30)
+    except paramiko.AuthenticationException:
+        raise RuntimeError(
+            f"SSH key auth to {ssh_host} failed. "
+            f"Ensure {ssh_key} is authorized on the node."
+        )
+
+    try:
+        _, out, _ = run_ssh_cmd(ssh, f'test -f {image_file} && echo exists || echo missing')
+        file_exists = "exists" in out
+
+        need_download = image_refresh or not file_exists
+
+        if need_download:
+            if not file_exists:
+                console.print(
+                    f"  [yellow]Image not found on {image_storage_name} — downloading...[/yellow]"
+                )
+            else:
+                console.print(f"  [dim]Downloading fresh copy of {image_filename}...[/dim]")
+
+            if not image_url:
+                raise RuntimeError(
+                    f"Cannot download '{image_filename}': no URL provided. "
+                    f"Add it to cloud-images.yaml or re-run interactively to fix this."
+                )
+
+            console.print(f"  [dim](this may take 1–2 minutes for a ~600 MB image)[/dim]")
+            run_ssh_cmd(ssh, f"mkdir -p {iso_path}")
+            exit_code, out, err = run_ssh_cmd(ssh, f'wget -q -O {image_file} "{image_url}"')
+            if exit_code != 0:
+                raise RuntimeError(f"wget failed (exit {exit_code}): {err or out}")
+            console.print(f"  [green]✓ Image ready at {image_storage_name}:{image_filename}[/green]")
+        else:
+            console.print(f"  [dim]Using existing image: {image_storage_name}:{image_filename}[/dim]")
+
+        console.print(f"  [dim]Importing disk into VM {vmid} on storage '{disk_storage}'...[/dim]")
+        exit_code, out, err = run_ssh_cmd(ssh, f"qm importdisk {vmid} {image_file} {disk_storage}")
+        if exit_code != 0:
+            raise RuntimeError(f"qm importdisk failed (exit {exit_code}): {err or out}")
+        console.print(f"  [green]✓ Disk imported[/green]")
+    finally:
+        ssh.close()
+
+
+def write_guest_agent_snippet(cfg: dict, node_name: str, vmid: int) -> str:
+    """
+    Write a minimal cloud-init vendor-data snippet to the Proxmox node's local
+    snippets directory (/var/lib/vz/snippets/) that pre-installs and starts
+    qemu-guest-agent during first boot.
+
+    Required for DHCP VMs: the agent must be running before we can poll the
+    guest agent API to discover the dynamically assigned IP address.
+
+    Returns the cicustom value to pass to the Proxmox VM config, e.g.:
+      "vendor=local:snippets/vm-113-userdata.yaml"
+    """
+    snippet = (
+        "#cloud-config\n"
+        "package_update: false\n"
+        "package_upgrade: false\n"
+        "packages:\n"
+        "  - qemu-guest-agent\n"
+        "runcmd:\n"
+        "  - systemctl enable --now qemu-guest-agent\n"
+    )
+    snippet_name = f"vm-{vmid}-userdata.yaml"
+    snippet_path = f"/var/lib/vz/snippets/{snippet_name}"
+
+    pve = cfg["proxmox"]
+    ssh_host = node_ssh_host(cfg, node_name)
+    ssh_key = os.path.expanduser(pve.get("ssh_key", "~/.ssh/id_rsa"))
+
+    ssh = paramiko.SSHClient()
+    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    try:
+        ssh.connect(ssh_host, username="root", key_filename=ssh_key, timeout=15)
+        run_ssh_cmd(ssh, "mkdir -p /var/lib/vz/snippets")
+        sftp = ssh.open_sftp()
+        try:
+            with sftp.open(snippet_path, "w") as f:
+                f.write(snippet)
+        finally:
+            sftp.close()
+    except Exception as e:
+        raise RuntimeError(f"Failed to write cloud-init snippet on {ssh_host}: {e}")
+    finally:
+        ssh.close()
+
+    return f"vendor=local:snippets/{snippet_name}"
+
+
+# ─────────────────────────────────────────────
+# VM creation and configuration
+# ─────────────────────────────────────────────
+
+
+def wait_for_guest_agent_ip(proxmox: ProxmoxAPI, node: str, vmid: int,
+                             timeout: int = 300) -> str:
+    """
+    Poll the QEMU guest agent until it reports a non-loopback IPv4 address.
+    Used for DHCP VMs where the IP isn't known at deploy time.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            result = proxmox.nodes(node).qemu(vmid).agent("network-get-interfaces").get()
+            for iface in result.get("result", []):
+                for addr in iface.get("ip-addresses", []):
+                    if addr.get("ip-address-type") == "ipv4":
+                        ip = addr.get("ip-address", "")
+                        if ip and not ip.startswith("127."):
+                            return ip
+        except Exception:
+            pass
+        time.sleep(5)
+    raise TimeoutError(
+        f"Guest agent did not report a non-loopback IP within {timeout}s. "
+        "Ensure qemu-guest-agent is available in the cloud image and the VM booted successfully."
+    )
+
+
+def create_vm(proxmox: ProxmoxAPI, node_name: str, create_params: dict) -> int:
+    """Create a QEMU VM, retrying up to 3 times on VMID collision.
+    Returns the actual vmid used. Raises RuntimeError on unrecoverable failure."""
+    next_vmid = create_params["vmid"]
+    for _attempt in range(3):
+        create_params["vmid"] = next_vmid
+        try:
+            with console.status(f"[bold green]Creating VM {next_vmid} ({create_params.get('name', '')}) on {node_name}..."):
+                task = proxmox.nodes(node_name).qemu.post(**create_params)
+                wait_for_task(proxmox, node_name, task, timeout=60)
+            console.print(f"[green]✓ VM {next_vmid} created[/green]")
+            return next_vmid
+        except Exception as e:
+            if "already exists" in str(e) and _attempt < 2:
+                old_vmid = next_vmid
+                next_vmid = get_next_vmid(proxmox)
+                console.print(
+                    f"[yellow]⚠ VMID {old_vmid} already in use (race condition) — "
+                    f"retrying with VMID {next_vmid}[/yellow]"
+                )
+            else:
+                raise RuntimeError(f"VM creation failed: {e}") from e
+    raise RuntimeError("VM creation failed after 3 attempts")
+
+
+def configure_vm_disk_and_cloudinit(proxmox: ProxmoxAPI, node_name: str, vmid: int,
+                                     storage: str, disk_gb: str, ci_params: dict) -> None:
+    """
+    Attach the imported disk (unused0) as scsi0, add cloud-init drive on ide2,
+    enable serial console, set boot order, resize scsi0, and apply cloud-init config.
+
+    ci_params: dict of cloud-init keys (ciuser, cipassword, ipconfig0, sshkeys, cicustom, etc.)
+    """
+    vm_config = proxmox.nodes(node_name).qemu(vmid).config.get()
+    unused_disk = None
+    for key in sorted(vm_config.keys()):
+        if key.startswith("unused"):
+            unused_disk = vm_config[key]
+            break
+    if not unused_disk:
+        raise RuntimeError("Imported disk not found in VM config (no unused0 key)")
+
+    proxmox.nodes(node_name).qemu(vmid).config.put(scsi0=unused_disk)
+    console.print(f"  [dim]Attached {unused_disk} as scsi0[/dim]")
+
+    proxmox.nodes(node_name).qemu(vmid).config.put(ide2=f"{storage}:cloudinit")
+    console.print(f"  [dim]Added cloud-init drive (ide2)[/dim]")
+
+    proxmox.nodes(node_name).qemu(vmid).config.put(serial0="socket", vga="serial0")
+    proxmox.nodes(node_name).qemu(vmid).config.put(boot="order=scsi0")
+
+    proxmox.nodes(node_name).qemu(vmid).resize.put(disk="scsi0", size=f"{disk_gb}G")
+    console.print(f"  [dim]Resized scsi0 to {disk_gb} GB[/dim]")
+
+    proxmox.nodes(node_name).qemu(vmid).config.put(**ci_params)
+
+
+def start_vm(proxmox: ProxmoxAPI, node_name: str, vmid: int) -> None:
+    """Start a QEMU VM and wait for the task to complete. Raises on failure."""
+    with console.status("[bold green]Starting VM..."):
+        task = proxmox.nodes(node_name).qemu(vmid).status.start.post()
+        wait_for_task(proxmox, node_name, task, timeout=60)
+    console.print("[green]✓ VM started[/green]")
+
+
+# ─────────────────────────────────────────────
+# LXC creation and configuration
+# ─────────────────────────────────────────────
+
+
+def wait_for_lxc_ip(proxmox: ProxmoxAPI, node: str, vmid: int,
+                    timeout: int = 120) -> tuple[str, str]:
+    """
+    Poll the container's interface list until a non-loopback IPv4 appears.
+    Returns (ip, prefix_len) e.g. ("10.20.20.133", "24").
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            ifaces = proxmox.nodes(node).lxc(vmid).interfaces.get()
+            for iface in ifaces:
+                inet = iface.get("inet", "")
+                if inet and not inet.startswith("127."):
+                    parts = inet.split("/")
+                    ip = parts[0]
+                    prefix = parts[1] if len(parts) > 1 else "24"
+                    if ip:
+                        return ip, prefix
+        except Exception:
+            pass
+        time.sleep(5)
+    raise TimeoutError("Could not obtain DHCP IP address within timeout. "
+                       "Check that the container started and VLAN/DHCP is reachable.")
+
+
+def run_pct_exec(ssh: paramiko.SSHClient, vmid: int, cmd: str, check: bool = True) -> tuple[int, str, str]:
+    """Run a command inside an LXC container via pct exec on the proxmox node."""
+    full_cmd = f"pct exec {vmid} -- bash -c {cmd!r}"
+    stdin, stdout, stderr = ssh.exec_command(full_cmd)
+    exit_code = stdout.channel.recv_exit_status()
+    out = stdout.read().decode().strip()
+    err = stderr.read().decode().strip()
+    if check and exit_code != 0:
+        raise RuntimeError(f"pct exec failed (exit {exit_code}): {err or out}")
+    return exit_code, out, err
+
+
+def bootstrap_lxc_ssh(cfg: dict, node_name: str, vmid: int, password: str,
+                       container_ip: str, prefix_len: str,
+                       nameserver: str, searchdomain: str) -> None:
+    """
+    SSH to the proxmox node and use pct exec to:
+      1. Update apt cache
+      2. Install openssh-server
+      3. Enable SSH daemon
+      4. Allow PermitRootLogin and PasswordAuthentication
+      5. Set root password
+      6. Write static netplan config and apply it (network-safe via pct exec)
+    This enables Ansible to then SSH directly into the container.
+    """
+    pve = cfg["proxmox"]
+    ssh_host = node_ssh_host(cfg, node_name)
+    ssh_key = os.path.expanduser(pve.get("ssh_key", "~/.ssh/id_rsa"))
+
+    console.print(f"  [dim]Connecting to Proxmox node {ssh_host} for bootstrap...[/dim]")
+
+    ssh = paramiko.SSHClient()
+    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+    try:
+        ssh.connect(ssh_host, username="root", key_filename=ssh_key, timeout=30)
+    except paramiko.AuthenticationException:
+        raise RuntimeError(
+            f"SSH key auth to {ssh_host} failed. Ensure {ssh_key} is authorized on the node."
+        )
+
+    steps = [
+        ("Updating apt cache in container",     "apt-get update -qq"),
+        ("Installing openssh-server",            "DEBIAN_FRONTEND=noninteractive apt-get install -y -qq openssh-server"),
+        ("Enabling and starting SSH",            "systemctl enable --now ssh"),
+        ("Allowing root SSH login",
+            "sed -i 's/^#\\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config && "
+            "sed -i 's/^#\\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config && "
+            "systemctl restart ssh"),
+    ]
+
+    for label, cmd in steps:
+        console.print(f"  [dim]{label}...[/dim]")
+        try:
+            run_pct_exec(ssh, vmid, cmd)
+        except RuntimeError as e:
+            console.print(f"  [yellow]Warning: {e}[/yellow]")
+
+    console.print("  [dim]Setting root password...[/dim]")
+    stdin, stdout, stderr = ssh.exec_command(
+        f"echo 'root:{password}' | pct exec {vmid} -- chpasswd"
+    )
+    stdout.channel.recv_exit_status()
+
+    console.print("  [dim]Configuring static IP...[/dim]")
+    try:
+        net_script = (
+            "import subprocess, json\n"
+            "d = json.loads(subprocess.check_output(['ip', '-j', 'route', 'show', 'default']))\n"
+            "r = d[0]\n"
+            "print(r.get('gateway', '') + '|' + r.get('dev', 'eth0'))\n"
+        )
+        encoded = base64.b64encode(net_script.encode()).decode()
+        run_pct_exec(ssh, vmid, f"echo {encoded!r} | base64 -d > /tmp/_getnet.py")
+        _, info, _ = run_pct_exec(ssh, vmid, "python3 /tmp/_getnet.py")
+        run_pct_exec(ssh, vmid, "rm -f /tmp/_getnet.py", check=False)
+        parts = info.strip().split('|', 1)
+        gateway = parts[0].strip() if parts else ''
+        iface = parts[1].strip() if len(parts) > 1 else 'eth0'
+        iface = iface or 'eth0'
+        ns_list = ", ".join(nameserver.split())
+
+        netplan = (
+            f"network:\n"
+            f"  version: 2\n"
+            f"  ethernets:\n"
+            f"    {iface}:\n"
+            f"      dhcp4: false\n"
+            f"      addresses:\n"
+            f"        - {container_ip}/{prefix_len}\n"
+            f"      routes:\n"
+            f"        - to: default\n"
+            f"          via: {gateway}\n"
+            f"      nameservers:\n"
+            f"        addresses: [{ns_list}]\n"
+            f"        search: [{searchdomain}]\n"
+        )
+        encoded = base64.b64encode(netplan.encode()).decode()
+        run_pct_exec(ssh, vmid,
+            f"echo {encoded!r} | base64 -d > /etc/netplan/01-static.yaml")
+        run_pct_exec(ssh, vmid,
+            "find /etc/netplan -name '*.yaml' ! -name '01-static.yaml' -delete")
+        run_pct_exec(ssh, vmid, "netplan apply")
+    except Exception as e:
+        console.print(f"  [yellow]Warning: static IP config failed: {e}[/yellow]")
+
+    ssh.close()
+    console.print("  [green]✓ Bootstrap complete — SSH is ready[/green]")
+
+
+def create_lxc(proxmox: ProxmoxAPI, node_name: str, create_params: dict) -> int:
+    """Create an LXC container, retrying up to 3 times on VMID collision.
+    Returns the actual vmid used. Raises RuntimeError on unrecoverable failure."""
+    next_vmid = create_params["vmid"]
+    for _attempt in range(3):
+        create_params["vmid"] = next_vmid
+        try:
+            with console.status(f"[bold green]Creating container {next_vmid} ({create_params.get('hostname', '')}) on {node_name}..."):
+                task = proxmox.nodes(node_name).lxc.post(**create_params)
+                wait_for_task(proxmox, node_name, task, timeout=180)
+            console.print(f"[green]✓ Container {next_vmid} created[/green]")
+            return next_vmid
+        except Exception as e:
+            if "already exists" in str(e) and _attempt < 2:
+                old_vmid = next_vmid
+                next_vmid = get_next_vmid(proxmox)
+                console.print(
+                    f"[yellow]⚠ VMID {old_vmid} already in use (race condition) — "
+                    f"retrying with VMID {next_vmid}[/yellow]"
+                )
+            else:
+                raise RuntimeError(f"Container creation failed: {e}") from e
+    raise RuntimeError("Container creation failed after 3 attempts")
+
+
+def apply_lxc_features_ssh(cfg: dict, node_name: str, vmid: int, features_str: str) -> None:
+    """Apply LXC feature flags via pct set over SSH.
+    Non-fatal: logs a warning if SSH fails (Proxmox API rejects non-nesting flags via token auth)."""
+    pve = cfg["proxmox"]
+    ssh_host = node_ssh_host(cfg, node_name)
+    ssh_key = os.path.expanduser(pve.get("ssh_key", "~/.ssh/id_rsa"))
+    console.print(f"  [dim]Applying LXC feature flags via SSH ({features_str})...[/dim]")
+    try:
+        _ssh = paramiko.SSHClient()
+        _ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        _ssh.connect(ssh_host, username="root", key_filename=ssh_key, timeout=30)
+        _, _out, _err = _ssh.exec_command(f"pct set {vmid} -features '{features_str}'")
+        _exit = _out.channel.recv_exit_status()
+        _ssh.close()
+        if _exit != 0:
+            console.print(f"[yellow]⚠ pct set features returned exit {_exit} — check Proxmox GUI[/yellow]")
+        else:
+            console.print(f"[green]✓ Feature flags applied: {features_str}[/green]")
+    except Exception as e:
+        console.print(f"[yellow]⚠ Could not apply feature flags via SSH: {e}[/yellow]")
+
+
+def start_lxc(proxmox: ProxmoxAPI, node_name: str, vmid: int) -> None:
+    """Start an LXC container and wait for the task to complete. Raises on failure."""
+    with console.status("[bold green]Starting container..."):
+        task = proxmox.nodes(node_name).lxc(vmid).status.start.post()
+        wait_for_task(proxmox, node_name, task, timeout=60)
+    console.print("[green]✓ Container started[/green]")
 
 
 def preflight_checks(cfg: dict, kind: str) -> list:

@@ -25,7 +25,6 @@ if os.path.exists(_venv) and os.path.realpath(sys.executable) != os.path.realpat
     os.execv(_venv, [_venv] + sys.argv)
 
 import argparse
-import base64
 import ipaddress
 import os
 import socket
@@ -37,19 +36,11 @@ from pathlib import Path
 
 import json
 import yaml
-import paramiko
 import questionary
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
-
-# Proxmoxer import with friendly error
-try:
-    from proxmoxer import ProxmoxAPI
-except ImportError:
-    print("ERROR: proxmoxer not installed. Run: pip install -r requirements.txt")
-    sys.exit(1)
 
 from modules.lib import (
     load_config,
@@ -96,6 +87,15 @@ from modules.lib import (
     dry_run_validate_and_load,
     write_deployment_file,
     make_common_wizard_steps,
+    get_lxc_templates,
+    get_lxc_disk_storages,
+    wait_for_lxc_ip,
+    run_pct_exec,
+    bootstrap_lxc_ssh,
+    check_node_resources,
+    create_lxc,
+    apply_lxc_features_ssh,
+    start_lxc,
 )
 
 console = Console()
@@ -223,201 +223,6 @@ def run_dry_run(args) -> None:
     print_dry_run_footer()
 
 
-# ─────────────────────────────────────────────
-# Proxmox helpers
-# ─────────────────────────────────────────────
-
-
-def get_templates(proxmox: ProxmoxAPI, node: str) -> list[dict]:
-    """
-    Query all storage pools on the node for LXC templates (vztmpl).
-    Returns list sorted Ubuntu-first.
-    """
-    templates = []
-    try:
-        storages = proxmox.nodes(node).storage.get()
-    except Exception as e:
-        console.print(f"[yellow]Warning: Could not query storages on {node}: {e}[/yellow]")
-        return templates
-
-    for storage in storages:
-        if "vztmpl" not in storage.get("content", ""):
-            continue
-        storage_name = storage["storage"]
-        try:
-            content = proxmox.nodes(node).storage(storage_name).content.get(content="vztmpl")
-            for item in content:
-                volid = item["volid"]
-                name = volid.split("/")[-1]
-                templates.append({
-                    "volid": volid,
-                    "name": name,
-                    "storage": storage_name,
-                    "size": item.get("size", 0),
-                })
-        except Exception as e:
-            console.print(f"[yellow]  Warning: Could not list templates in {storage_name}: {e}[/yellow]")
-
-    # Ubuntu first, then alphabetical within each group
-    ubuntu = sorted([t for t in templates if "ubuntu" in t["name"].lower()], key=lambda x: x["name"], reverse=True)
-    others = sorted([t for t in templates if "ubuntu" not in t["name"].lower()], key=lambda x: x["name"])
-    return ubuntu + others
-
-
-def get_disk_storages(proxmox: ProxmoxAPI, node: str) -> list[str]:
-    """Return storage pools that can hold container root filesystems."""
-    pools = []
-    try:
-        for s in proxmox.nodes(node).storage.get(enabled=1):
-            content = s.get("content", "")
-            if "rootdir" in content:
-                pools.append(s["storage"])
-    except Exception:
-        pass
-    return pools if pools else ["local-lvm"]
-
-
-def wait_for_ip(proxmox: ProxmoxAPI, node: str, vmid: int, timeout: int = 120) -> tuple[str, str]:
-    """
-    Poll the container's interface list until a non-loopback IPv4 appears.
-    Returns (ip, prefix_len) e.g. ("10.20.20.133", "24").
-    """
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            ifaces = proxmox.nodes(node).lxc(vmid).interfaces.get()
-            for iface in ifaces:
-                inet = iface.get("inet", "")
-                if inet and not inet.startswith("127."):
-                    parts = inet.split("/")
-                    ip = parts[0]
-                    prefix = parts[1] if len(parts) > 1 else "24"
-                    if ip:
-                        return ip, prefix
-        except Exception:
-            pass
-        time.sleep(5)
-    raise TimeoutError("Could not obtain DHCP IP address within timeout. "
-                       "Check that the container started and VLAN/DHCP is reachable.")
-
-
-# ─────────────────────────────────────────────
-# Bootstrap via pct exec
-# ─────────────────────────────────────────────
-
-def run_pct_exec(ssh: paramiko.SSHClient, vmid: int, cmd: str, check: bool = True) -> tuple[int, str, str]:
-    """Run a command inside an LXC container via pct exec on the proxmox node."""
-    full_cmd = f"pct exec {vmid} -- bash -c {cmd!r}"
-    stdin, stdout, stderr = ssh.exec_command(full_cmd)
-    exit_code = stdout.channel.recv_exit_status()
-    out = stdout.read().decode().strip()
-    err = stderr.read().decode().strip()
-    if check and exit_code != 0:
-        raise RuntimeError(f"pct exec failed (exit {exit_code}): {err or out}")
-    return exit_code, out, err
-
-
-def bootstrap_container(cfg: dict, node_name: str, vmid: int, password: str,
-                        container_ip: str, prefix_len: str,
-                        nameserver: str, searchdomain: str) -> None:
-    """
-    SSH to the proxmox node and use pct exec to:
-      1. Update apt cache
-      2. Install openssh-server
-      3. Enable SSH daemon
-      4. Allow PermitRootLogin and PasswordAuthentication
-      5. Set root password
-      6. Write static netplan config and apply it (network-safe via pct exec)
-    This enables Ansible to then SSH directly into the container.
-    """
-    pve = cfg["proxmox"]
-    ssh_host = node_ssh_host(cfg, node_name)
-    ssh_key = os.path.expanduser(pve.get("ssh_key", "~/.ssh/id_rsa"))
-
-    console.print(f"  [dim]Connecting to Proxmox node {ssh_host} for bootstrap...[/dim]")
-
-    ssh = paramiko.SSHClient()
-    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-
-    try:
-        ssh.connect(ssh_host, username="root", key_filename=ssh_key, timeout=30)
-    except paramiko.AuthenticationException:
-        raise RuntimeError(
-            f"SSH key auth to {ssh_host} failed. Ensure {ssh_key} is authorized on the node."
-        )
-
-    steps = [
-        ("Updating apt cache in container",     "apt-get update -qq"),
-        ("Installing openssh-server",            "DEBIAN_FRONTEND=noninteractive apt-get install -y -qq openssh-server"),
-        ("Enabling and starting SSH",            "systemctl enable --now ssh"),
-        ("Allowing root SSH login",
-            "sed -i 's/^#\\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config && "
-            "sed -i 's/^#\\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config && "
-            "systemctl restart ssh"),
-    ]
-
-    for label, cmd in steps:
-        console.print(f"  [dim]{label}...[/dim]")
-        try:
-            run_pct_exec(ssh, vmid, cmd)
-        except RuntimeError as e:
-            console.print(f"  [yellow]Warning: {e}[/yellow]")
-
-    # Set root password (done separately to avoid quoting issues)
-    console.print("  [dim]Setting root password...[/dim]")
-    stdin, stdout, stderr = ssh.exec_command(
-        f"echo 'root:{password}' | pct exec {vmid} -- chpasswd"
-    )
-    stdout.channel.recv_exit_status()
-
-    # Set static IP via pct exec (immune to network restarts unlike Ansible SSH)
-    console.print("  [dim]Configuring static IP...[/dim]")
-    try:
-        # Write a script to the container via base64 to avoid quoting nightmares
-        net_script = (
-            "import subprocess, json\n"
-            "d = json.loads(subprocess.check_output(['ip', '-j', 'route', 'show', 'default']))\n"
-            "r = d[0]\n"
-            "print(r.get('gateway', '') + '|' + r.get('dev', 'eth0'))\n"
-        )
-        encoded = base64.b64encode(net_script.encode()).decode()
-        run_pct_exec(ssh, vmid, f"echo {encoded!r} | base64 -d > /tmp/_getnet.py")
-        _, info, _ = run_pct_exec(ssh, vmid, "python3 /tmp/_getnet.py")
-        run_pct_exec(ssh, vmid, "rm -f /tmp/_getnet.py", check=False)
-        parts = info.strip().split('|', 1)
-        gateway = parts[0].strip() if parts else ''
-        iface = parts[1].strip() if len(parts) > 1 else 'eth0'
-        iface = iface or 'eth0'
-        ns_list = ", ".join(nameserver.split())
-
-        netplan = (
-            f"network:\n"
-            f"  version: 2\n"
-            f"  ethernets:\n"
-            f"    {iface}:\n"
-            f"      dhcp4: false\n"
-            f"      addresses:\n"
-            f"        - {container_ip}/{prefix_len}\n"
-            f"      routes:\n"
-            f"        - to: default\n"
-            f"          via: {gateway}\n"
-            f"      nameservers:\n"
-            f"        addresses: [{ns_list}]\n"
-            f"        search: [{searchdomain}]\n"
-        )
-        encoded = base64.b64encode(netplan.encode()).decode()
-        run_pct_exec(ssh, vmid,
-            f"echo {encoded!r} | base64 -d > /etc/netplan/01-static.yaml")
-        run_pct_exec(ssh, vmid,
-            "find /etc/netplan -name '*.yaml' ! -name '01-static.yaml' -delete")
-        run_pct_exec(ssh, vmid, "netplan apply")
-    except Exception as e:
-        console.print(f"  [yellow]Warning: static IP config failed: {e}[/yellow]")
-
-    ssh.close()
-    console.print("  [green]✓ Bootstrap complete — SSH is ready[/green]")
-
-
 def _save_lxc_deployment_file(hostname: str, vmid: int, node_name: str,
                                template_volid: str, template_name: str,
                                cpus_str: str, memory_gb_str: str, disk_gb_str: str,
@@ -455,41 +260,6 @@ def _save_lxc_deployment_file(hostname: str, vmid: int, node_name: str,
         data["expires_at"] = expires_at_from_ttl(ttl)
     write_deployment_file(data, hostname, "lxc", cfg)
 
-
-
-def check_node_resources(proxmox: ProxmoxAPI, node_name: str,
-                          memory_mb: int, disk_gb: int, storage: str,
-                          cpu_threshold: float = 0.85,
-                          ram_threshold: float = 0.95) -> tuple[bool, str]:
-    """Re-verify a node still has sufficient resources before creating the container."""
-    try:
-        node_data = next(
-            (n for n in proxmox.nodes.get() if n["node"] == node_name), None
-        )
-        if node_data is None:
-            return False, f"Node {node_name} not found"
-        if node_data.get("cpu", 0) >= cpu_threshold:
-            return False, f"CPU now at {node_data['cpu']*100:.0f}% (≥{cpu_threshold*100:.0f}%)"
-        maxmem = node_data.get("maxmem", 0)
-        mem = node_data.get("mem", 0)
-        if maxmem > 0 and (mem + memory_mb * 1024 * 1024) / maxmem >= ram_threshold:
-            free_gb = bytes_to_gb(maxmem - mem)
-            return False, f"Only {free_gb} GB RAM free — insufficient for {memory_mb/1024:.1f} GB"
-        # Check storage space
-        for s in proxmox.nodes(node_name).storage.get(enabled=1):
-            if s["storage"] == storage:
-                # lvmthin pools report avail=0 (thin-provisioned — no hard free space limit)
-                if s.get("type") == "lvmthin":
-                    break
-                avail = s.get("avail", 0)
-                needed = disk_gb * 1024 ** 3
-                if avail < needed:
-                    avail_gb = bytes_to_gb(avail)
-                    return False, f"Storage '{storage}' only has {avail_gb} GB free — need {disk_gb} GB"
-                break
-    except Exception as e:
-        return False, f"Could not verify resources: {e}"
-    return True, ""
 
 
 # ─────────────────────────────────────────────
@@ -632,7 +402,7 @@ def main() -> None:
 
     def step_template(s):
         with console.status(f"[bold green]Fetching templates from {s['node_name']}..."):
-            templates = get_templates(proxmox, s["node_name"])
+            templates = get_lxc_templates(proxmox, s["node_name"])
         if not templates:
             console.print(f"[red]No LXC templates found on {s['node_name']}.[/red]")
             console.print("Download templates in Proxmox: local storage > CT Templates > Templates")
@@ -676,7 +446,7 @@ def main() -> None:
 
     def step_storage(s):
         with console.status(f"[bold green]Querying storage pools on {s['node_name']}..."):
-            storage_pools = get_disk_storages(proxmox, s["node_name"])
+            storage_pools = get_lxc_disk_storages(proxmox, s["node_name"])
         if silent:
             storage = str(deploy.get("storage", storage_pools[0] if storage_pools else "local-lvm"))
             console.print(f"  [dim]Storage (from deployment file): {storage}[/dim]")
@@ -830,47 +600,14 @@ def main() -> None:
     if nesting_only:
         create_params["features"] = nesting_only
 
-    for _vmid_attempt in range(3):
-        create_params["vmid"] = next_vmid
-        try:
-            with console.status(f"[bold green]Creating container {next_vmid} ({hostname}) on {node_name}..."):
-                task = proxmox.nodes(node_name).lxc.post(**create_params)
-                wait_for_task(proxmox, node_name, task, timeout=180)
-            console.print(f"[green]✓ Container {next_vmid} created[/green]")
-            break
-        except Exception as e:
-            if "already exists" in str(e) and _vmid_attempt < 2:
-                old_vmid = next_vmid
-                next_vmid = get_next_vmid(proxmox)
-                console.print(
-                    f"[yellow]⚠ VMID {old_vmid} already in use (race condition) — "
-                    f"retrying with VMID {next_vmid}[/yellow]"
-                )
-            else:
-                console.print(f"[red]✗ Container creation failed: {e}[/red]")
-                sys.exit(1)
+    try:
+        next_vmid = create_lxc(proxmox, node_name, create_params)
+    except Exception as e:
+        console.print(f"[red]✗ Container creation failed: {e}[/red]")
+        sys.exit(1)
 
-    # Apply feature flags via SSH (pct set) — required for non-nesting flags which the
-    # Proxmox API rejects unless authenticated as root@pam directly (not via token).
-    # Using pct set for all flags (including nesting) keeps it consistent.
     if features_str:
-        pve = cfg["proxmox"]
-        ssh_host = node_ssh_host(cfg, node_name)
-        ssh_key = os.path.expanduser(pve.get("ssh_key", "~/.ssh/id_rsa"))
-        console.print(f"  [dim]Applying LXC feature flags via SSH ({features_str})...[/dim]")
-        try:
-            _ssh = paramiko.SSHClient()
-            _ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            _ssh.connect(ssh_host, username="root", key_filename=ssh_key, timeout=30)
-            _, _out, _err = _ssh.exec_command(f"pct set {next_vmid} -features '{features_str}'")
-            _exit = _out.channel.recv_exit_status()
-            _ssh.close()
-            if _exit != 0:
-                console.print(f"[yellow]⚠ pct set features returned exit {_exit} — check Proxmox GUI[/yellow]")
-            else:
-                console.print(f"[green]✓ Feature flags applied: {features_str}[/green]")
-        except Exception as e:
-            console.print(f"[yellow]⚠ Could not apply feature flags via SSH: {e}[/yellow]")
+        apply_lxc_features_ssh(cfg, node_name, next_vmid, features_str)
 
     # Apply tag colors to cluster (non-fatal if it fails)
     tag_colors = resolve_tag_colors(package_profile, profiles)
@@ -881,10 +618,7 @@ def main() -> None:
     # ═══════════════════════════════════════════
     console.print("[bold cyan]─── Step 2/7: Starting container ───[/bold cyan]")
     try:
-        with console.status("[bold green]Starting container..."):
-            task = proxmox.nodes(node_name).lxc(next_vmid).status.start.post()
-            wait_for_task(proxmox, node_name, task, timeout=60)
-        console.print("[green]✓ Container started[/green]")
+        start_lxc(proxmox, node_name, next_vmid)
     except Exception as e:
         console.print(f"[red]✗ Failed to start container: {e}[/red]")
         sys.exit(1)
@@ -895,7 +629,7 @@ def main() -> None:
     console.print("[bold cyan]─── Step 3/7: Waiting for DHCP IP address ───[/bold cyan]")
     try:
         with console.status("[bold green]Polling for DHCP lease (up to 2 min)..."):
-            container_ip, prefix_len = wait_for_ip(proxmox, node_name, next_vmid, timeout=120)
+            container_ip, prefix_len = wait_for_lxc_ip(proxmox, node_name, next_vmid, timeout=120)
         console.print(f"[green]✓ Container IP: [bold]{container_ip}[/bold] /{prefix_len}[/green]")
     except TimeoutError as e:
         console.print(f"[red]✗ {e}[/red]")
@@ -907,7 +641,7 @@ def main() -> None:
     # ═══════════════════════════════════════════
     console.print("[bold cyan]─── Step 4/7: Bootstrapping SSH in container ───[/bold cyan]")
     try:
-        bootstrap_container(
+        bootstrap_lxc_ssh(
             cfg, node_name, next_vmid, password,
             container_ip=container_ip, prefix_len=prefix_len,
             nameserver=defaults.get("nameserver", "8.8.8.8 8.8.4.4"),

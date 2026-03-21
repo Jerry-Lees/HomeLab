@@ -36,18 +36,11 @@ from urllib.parse import quote
 
 import json
 import yaml
-import paramiko
 import questionary
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
-
-try:
-    from proxmoxer import ProxmoxAPI
-except ImportError:
-    print("ERROR: proxmoxer not installed. Run: pip install -r requirements.txt")
-    sys.exit(1)
 
 from modules.lib import (
     load_config,
@@ -91,6 +84,17 @@ from modules.lib import (
     dry_run_validate_and_load,
     write_deployment_file,
     make_common_wizard_steps,
+    get_vm_disk_storages,
+    get_iso_capable_storages,
+    get_storage_iso_path,
+    list_cloud_images_on_storage,
+    import_cloud_image,
+    write_guest_agent_snippet,
+    wait_for_guest_agent_ip,
+    create_vm,
+    configure_vm_disk_and_cloudinit,
+    start_vm,
+    check_node_resources,
 )
 
 console = Console()
@@ -247,103 +251,11 @@ def run_dry_run(args) -> None:
     print_dry_run_footer()
 
 
-# ─────────────────────────────────────────────
-# Proxmox helpers
-# ─────────────────────────────────────────────
-
-
-def get_vm_disk_storages(proxmox: ProxmoxAPI, node: str) -> list[str]:
-    """Return storage pools that can hold VM disk images (content type: images)."""
-    pools = []
-    try:
-        for s in proxmox.nodes(node).storage.get(enabled=1):
-            if "images" in s.get("content", ""):
-                pools.append(s["storage"])
-    except Exception:
-        pass
-    return pools if pools else ["local-lvm"]
-
-
-def get_iso_capable_storages(proxmox: ProxmoxAPI, node: str) -> list[dict]:
-    """Return storages on this node that support ISO content, with free space info."""
-    result = []
-    try:
-        for s in proxmox.nodes(node).storage.get(enabled=1):
-            if "iso" in s.get("content", "").split(","):
-                try:
-                    status = proxmox.nodes(node).storage(s["storage"]).status.get()
-                    s["avail"] = status.get("avail", 0)
-                    s["total"] = status.get("total", 0)
-                except Exception:
-                    s["avail"] = 0
-                    s["total"] = 0
-                result.append(s)
-    except Exception:
-        pass
-    return result
-
-
-def get_storage_iso_path(proxmox: ProxmoxAPI, storage_name: str) -> str:
-    """
-    Return the filesystem path of the cloud-images directory for a given storage.
-    Files are stored under {storage_path}/cloud-images/ — NOT under template/iso/ —
-    so they are invisible to the Proxmox GUI ISO picker and can't be accidentally
-    attached as a CD-ROM during manual VM creation.
-    Falls back to /mnt/pve/{storage_name}/cloud-images for unknown storage types.
-    """
-    try:
-        configs = proxmox.storage.get()
-        for s in configs:
-            if s.get("storage") == storage_name:
-                path = s.get("path", f"/mnt/pve/{storage_name}")
-                return f"{path}/cloud-images"
-    except Exception:
-        pass
-    return f"/mnt/pve/{storage_name}/cloud-images"
-
-
-def list_cloud_images_on_storage(cfg: dict, proxmox: ProxmoxAPI,
-                                  node_name: str, storage_name: str) -> list[dict]:
-    """
-    List cloud image files in the storage's cloud-images directory via SSH.
-    Returns list of dicts with 'filename' and 'size' (bytes).
-    Returns empty list if directory doesn't exist yet or SSH fails.
-    """
-    cloud_path = get_storage_iso_path(proxmox, storage_name)
-    ssh_host   = node_ssh_host(cfg, node_name)
-    ssh_key    = os.path.expanduser(cfg["proxmox"].get("ssh_key", "~/.ssh/id_rsa"))
-
-    ssh = paramiko.SSHClient()
-    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    try:
-        ssh.connect(ssh_host, username="root", key_filename=ssh_key, timeout=15)
-        _, out, _ = run_ssh_cmd(
-            ssh,
-            f'find {cloud_path} -maxdepth 1 -type f -printf "%f\\t%s\\n" 2>/dev/null || true',
-        )
-        files = []
-        for line in out.splitlines():
-            if "\t" in line:
-                fname, size_str = line.split("\t", 1)
-                fname = fname.strip()
-                size  = int(size_str.strip()) if size_str.strip().isdigit() else 0
-                if fname:
-                    files.append({"filename": fname, "size": size})
-        return sorted(files, key=lambda x: x["filename"])
-    except Exception:
-        return []
-    finally:
-        try:
-            ssh.close()
-        except Exception:
-            pass
-
-
 _BACK = "__back__"
 
 
 def select_image_with_storage(
-    proxmox: ProxmoxAPI, node_name: str, cfg: dict,
+    proxmox, node_name: str, cfg: dict,
     deploy: dict, silent: bool, catalog: list[dict],
     nav: bool = False,
 ) -> tuple[str, str, str | None, bool]:
@@ -492,167 +404,6 @@ def select_image_with_storage(
 
         image_refresh = selected["action"] == "download"
         return selected_storage, selected["filename"], selected.get("url"), image_refresh
-
-
-def wait_for_guest_agent_ip(proxmox: ProxmoxAPI, node: str, vmid: int,
-                             timeout: int = 300) -> str:
-    """
-    Poll the QEMU guest agent until it reports a non-loopback IPv4 address.
-    Used for DHCP VMs where the IP isn't known at deploy time.
-    Requires qemu-guest-agent to be installed and running inside the VM
-    For DHCP VMs a cloud-init vendor-data snippet pre-installs qemu-guest-agent
-    so it is running before this function is called. See write_guest_agent_snippet().
-    """
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            result = proxmox.nodes(node).qemu(vmid).agent("network-get-interfaces").get()
-            for iface in result.get("result", []):
-                for addr in iface.get("ip-addresses", []):
-                    if addr.get("ip-address-type") == "ipv4":
-                        ip = addr.get("ip-address", "")
-                        if ip and not ip.startswith("127."):
-                            return ip
-        except Exception:
-            pass
-        time.sleep(5)
-    raise TimeoutError(
-        f"Guest agent did not report a non-loopback IP within {timeout}s. "
-        "Ensure qemu-guest-agent is available in the cloud image and the VM booted successfully."
-    )
-
-
-# ─────────────────────────────────────────────
-# Cloud image import via SSH to Proxmox node
-# ─────────────────────────────────────────────
-
-def run_ssh_cmd(ssh: paramiko.SSHClient, cmd: str) -> tuple[int, str, str]:
-    """Run a command over SSH, blocking until completion. Returns (exit_code, stdout, stderr)."""
-    _, stdout, stderr = ssh.exec_command(cmd)
-    exit_code = stdout.channel.recv_exit_status()
-    return exit_code, stdout.read().decode().strip(), stderr.read().decode().strip()
-
-
-def import_cloud_image(cfg: dict, proxmox: ProxmoxAPI, node_name: str, vmid: int,
-                       disk_storage: str, image_storage_name: str,
-                       image_filename: str, image_url: str | None,
-                       image_refresh: bool, catalog: list[dict]) -> None:
-    """
-    Ensure the cloud image is present on image_storage_name, then import as VM disk.
-
-    image_refresh=True  — Always re-download (user explicitly chose "Download:" in UI
-                          or set image_refresh: true in deployment file).
-    image_refresh=False — Use existing file; auto-download only if missing.
-
-    Auto-recovery: if the file is gone (e.g. someone cleaned up the storage),
-    the URL is resolved from catalog first (handles URL changes), then falls
-    back to image_url from the deployment file.
-
-    After import the disk appears as unused0 in the VM config.
-    """
-    pve = cfg["proxmox"]
-    iso_path   = get_storage_iso_path(proxmox, image_storage_name)
-    image_file = f"{iso_path}/{image_filename}"
-    ssh_host   = node_ssh_host(cfg, node_name)
-    ssh_key    = os.path.expanduser(pve.get("ssh_key", "~/.ssh/id_rsa"))
-
-    ssh = paramiko.SSHClient()
-    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    try:
-        ssh.connect(ssh_host, username="root", key_filename=ssh_key, timeout=30)
-    except paramiko.AuthenticationException:
-        raise RuntimeError(
-            f"SSH key auth to {ssh_host} failed. "
-            f"Ensure {ssh_key} is authorized on the node."
-        )
-
-    try:
-        # Check if image is already on the storage
-        _, out, _ = run_ssh_cmd(ssh, f'test -f {image_file} && echo exists || echo missing')
-        file_exists = "exists" in out
-
-        need_download = image_refresh or not file_exists
-
-        if need_download:
-            if not file_exists:
-                console.print(
-                    f"  [yellow]Image not found on {image_storage_name} — downloading...[/yellow]"
-                )
-            else:
-                console.print(f"  [dim]Downloading fresh copy of {image_filename}...[/dim]")
-
-            # Resolve URL: catalog is authoritative (handles stale URLs), fall back to stored URL
-            url = lookup_url_in_catalog(catalog, image_filename) or image_url
-            if not url:
-                raise RuntimeError(
-                    f"Cannot download '{image_filename}': URL not found in cloud-images.yaml "
-                    f"and none stored in deployment file. Add it to cloud-images.yaml to fix this."
-                )
-
-            console.print(f"  [dim](this may take 1–2 minutes for a ~600 MB image)[/dim]")
-            run_ssh_cmd(ssh, f"mkdir -p {iso_path}")
-            exit_code, out, err = run_ssh_cmd(ssh, f'wget -q -O {image_file} "{url}"')
-            if exit_code != 0:
-                raise RuntimeError(f"wget failed (exit {exit_code}): {err or out}")
-            console.print(f"  [green]✓ Image ready at {image_storage_name}:{image_filename}[/green]")
-        else:
-            console.print(f"  [dim]Using existing image: {image_storage_name}:{image_filename}[/dim]")
-
-        # Import disk into VM
-        console.print(f"  [dim]Importing disk into VM {vmid} on storage '{disk_storage}'...[/dim]")
-        exit_code, out, err = run_ssh_cmd(ssh, f"qm importdisk {vmid} {image_file} {disk_storage}")
-        if exit_code != 0:
-            raise RuntimeError(f"qm importdisk failed (exit {exit_code}): {err or out}")
-        console.print(f"  [green]✓ Disk imported[/green]")
-    finally:
-        ssh.close()
-
-
-def write_guest_agent_snippet(cfg: dict, node_name: str, vmid: int) -> str:
-    """
-    Write a minimal cloud-init user-data snippet to the Proxmox node's local
-    snippets directory (/var/lib/vz/snippets/) that pre-installs and starts
-    qemu-guest-agent during first boot.
-
-    Required for DHCP VMs: the agent must be running before we can poll the
-    guest agent API to discover the dynamically assigned IP address.
-
-    Returns the cicustom value to pass to the Proxmox VM config, e.g.:
-      "vendor=local:snippets/vm-113-userdata.yaml"
-    """
-    snippet = (
-        "#cloud-config\n"
-        "package_update: false\n"
-        "package_upgrade: false\n"
-        "packages:\n"
-        "  - qemu-guest-agent\n"
-        "runcmd:\n"
-        "  - systemctl enable --now qemu-guest-agent\n"
-    )
-    snippet_name = f"vm-{vmid}-userdata.yaml"
-    snippet_path = f"/var/lib/vz/snippets/{snippet_name}"
-
-    pve = cfg["proxmox"]
-    ssh_host = node_ssh_host(cfg, node_name)
-    ssh_key = os.path.expanduser(pve.get("ssh_key", "~/.ssh/id_rsa"))
-
-    ssh = paramiko.SSHClient()
-    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    try:
-        ssh.connect(ssh_host, username="root", key_filename=ssh_key, timeout=15)
-        run_ssh_cmd(ssh, "mkdir -p /var/lib/vz/snippets")
-        sftp = ssh.open_sftp()
-        try:
-            with sftp.open(snippet_path, "w") as f:
-                f.write(snippet)
-        finally:
-            sftp.close()
-    except Exception as e:
-        raise RuntimeError(f"Failed to write cloud-init snippet on {ssh_host}: {e}")
-    finally:
-        ssh.close()
-
-    return f"vendor=local:snippets/{snippet_name}"
 
 
 def _save_vm_deployment_file(hostname: str, vmid: int, node_name: str,
@@ -1054,25 +805,11 @@ def main() -> None:
         "description": vm_note,
     }
 
-    for _vmid_attempt in range(3):
-        create_params["vmid"] = next_vmid
-        try:
-            with console.status(f"[bold green]Creating VM {next_vmid} ({hostname}) on {node_name}..."):
-                task = proxmox.nodes(node_name).qemu.post(**create_params)
-                wait_for_task(proxmox, node_name, task, timeout=60)
-            console.print(f"[green]✓ VM {next_vmid} created[/green]")
-            break
-        except Exception as e:
-            if "already exists" in str(e) and _vmid_attempt < 2:
-                old_vmid = next_vmid
-                next_vmid = get_next_vmid(proxmox)
-                console.print(
-                    f"[yellow]⚠ VMID {old_vmid} already in use (race condition) — "
-                    f"retrying with VMID {next_vmid}[/yellow]"
-                )
-            else:
-                console.print(f"[red]✗ VM creation failed: {e}[/red]")
-                sys.exit(1)
+    try:
+        next_vmid = create_vm(proxmox, node_name, create_params)
+    except Exception as e:
+        console.print(f"[red]✗ VM creation failed: {e}[/red]")
+        sys.exit(1)
 
     # Apply tag colors to cluster (non-fatal if it fails)
     tag_colors = resolve_tag_colors(package_profile, profiles)
@@ -1084,10 +821,11 @@ def main() -> None:
     console.print("[bold green]─── Step 2/7: Importing cloud image and configuring VM ───[/bold green]")
 
     try:
+        resolved_url = lookup_url_in_catalog(catalog, image_filename) or image_url
         import_cloud_image(
             cfg, proxmox, node_name, next_vmid, storage,
-            image_storage_name, image_filename, image_url,
-            image_refresh, catalog,
+            image_storage_name, image_filename, resolved_url,
+            image_refresh,
         )
     except Exception as e:
         console.print(f"[red]✗ Cloud image import failed: {e}[/red]")
@@ -1100,37 +838,6 @@ def main() -> None:
     # Attach imported disk and configure cloud-init
     console.print("  [dim]Attaching disk and configuring cloud-init...[/dim]")
     try:
-        # Find unused disk (appears as unused0 after qm importdisk)
-        vm_config = proxmox.nodes(node_name).qemu(next_vmid).config.get()
-        unused_disk = None
-        for key in sorted(vm_config.keys()):
-            if key.startswith("unused"):
-                unused_disk = vm_config[key]
-                break
-        if not unused_disk:
-            raise RuntimeError("Imported disk not found in VM config (no unused0 key)")
-
-        # Attach as scsi0
-        proxmox.nodes(node_name).qemu(next_vmid).config.put(scsi0=unused_disk)
-        console.print(f"  [dim]Attached {unused_disk} as scsi0[/dim]")
-
-        # Add cloud-init drive on ide2
-        proxmox.nodes(node_name).qemu(next_vmid).config.put(ide2=f"{storage}:cloudinit")
-        console.print(f"  [dim]Added cloud-init drive (ide2)[/dim]")
-
-        # Enable serial console (required for Ubuntu cloud images)
-        proxmox.nodes(node_name).qemu(next_vmid).config.put(serial0="socket", vga="serial0")
-
-        # Set boot order
-        proxmox.nodes(node_name).qemu(next_vmid).config.put(boot="order=scsi0")
-
-        # Resize disk to requested size
-        proxmox.nodes(node_name).qemu(next_vmid).resize.put(
-            disk="scsi0", size=f"{disk_gb_str}G"
-        )
-        console.print(f"  [dim]Resized scsi0 to {disk_gb_str} GB[/dim]")
-
-        # Configure cloud-init
         ci_params = {
             "ciuser":       "root",
             "cipassword":   password,
@@ -1141,17 +848,13 @@ def main() -> None:
         if pub_key_encoded:
             ci_params["sshkeys"] = pub_key_encoded
         if use_dhcp:
-            # Pre-install qemu-guest-agent via cloud-init snippet so it is
-            # running when we poll the guest agent API for the DHCP-assigned IP.
-            cicustom = write_guest_agent_snippet(cfg, node_name, next_vmid)
-            ci_params["cicustom"] = cicustom
-        proxmox.nodes(node_name).qemu(next_vmid).config.put(**ci_params)
+            ci_params["cicustom"] = write_guest_agent_snippet(cfg, node_name, next_vmid)
+        configure_vm_disk_and_cloudinit(proxmox, node_name, next_vmid, storage, disk_gb_str, ci_params)
         console.print(
             f"  [dim]Cloud-init: {'DHCP' if use_dhcp else f'{ip_address}/{prefix_len} gw {gateway}'}"
             f"{' + SSH key' if pub_key_encoded else ''}"
             f"{' + guest-agent snippet' if use_dhcp else ''}[/dim]"
         )
-
         console.print("[green]✓ VM configured[/green]")
     except Exception as e:
         console.print(f"[red]✗ VM configuration failed: {e}[/red]")
@@ -1166,10 +869,7 @@ def main() -> None:
     # ═══════════════════════════════════════════
     console.print("[bold green]─── Step 3/7: Starting VM ───[/bold green]")
     try:
-        with console.status("[bold green]Starting VM..."):
-            task = proxmox.nodes(node_name).qemu(next_vmid).status.start.post()
-            wait_for_task(proxmox, node_name, task, timeout=60)
-        console.print("[green]✓ VM started[/green]")
+        start_vm(proxmox, node_name, next_vmid)
     except Exception as e:
         console.print(f"[red]✗ Failed to start VM: {e}[/red]")
         sys.exit(1)
