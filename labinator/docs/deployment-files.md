@@ -41,6 +41,32 @@ Deployment files are organized by resource type under the `deployments/` directo
 
 Saved to `deployments/lxc/<hostname>.json` at the end of a successful deployment:
 
+**DHCP deployment** (IP assigned at boot):
+
+```json
+{
+  "hostname": "myserver",
+  "fqdn": "myserver.example.com",
+  "node": "proxmox03",
+  "vmid": 142,
+  "template_volid": "Net-Images:vztmpl/ubuntu-24.04-standard_24.04-2_amd64.tar.zst",
+  "template_name": "ubuntu-24.04-standard_24.04-2_amd64.tar.zst",
+  "cpus": 2,
+  "memory_gb": 4.0,
+  "disk_gb": 100,
+  "storage": "local-lvm",
+  "vlan": 220,
+  "bridge": "vmbr0",
+  "password": "changeme",
+  "ip_address": "dhcp",
+  "assigned_ip": "10.20.20.150",
+  "prefix_len": "24",
+  "deployed_at": "2026-03-06 14:22:00"
+}
+```
+
+**Static IP deployment:**
+
 ```json
 {
   "hostname": "myserver",
@@ -57,12 +83,9 @@ Saved to `deployments/lxc/<hostname>.json` at the end of a successful deployment
   "bridge": "vmbr0",
   "password": "changeme",
   "ip_address": "10.20.20.150",
-  "assigned_ip": "10.20.20.150",
   "prefix_len": "24",
-  "deployed_at": "2026-03-06 14:22:00",
-  "ttl": "7d",
-  "expires_at": "2026-03-13T14:22:00.000000+00:00",
-  "preflight": true
+  "gateway": "10.20.20.1",
+  "deployed_at": "2026-03-06 14:22:00"
 }
 ```
 
@@ -83,17 +106,19 @@ Saved to `deployments/lxc/<hostname>.json` at the end of a successful deployment
 | `vlan` | integer | VLAN tag |
 | `bridge` | string | Proxmox bridge interface |
 | `password` | string | Root and admin user password |
-| `ip_address` | string | Configured IP (static or DHCP-discovered then locked as static) |
-| `assigned_ip` | string | Actual IP assigned to the container at runtime |
+| `ip_address` | string | `"dhcp"` for DHCP deployments; the configured static IP address for static deployments. Used for DNS registration and the static IP preflight check. |
+| `assigned_ip` | string | Present for DHCP deployments only — records the IP assigned by DHCP at boot. Used by the decommission pipeline for DNS record removal. Absent for static deployments (where `ip_address` is already the live address). |
 | `prefix_len` | string | Network prefix length (e.g. `"24"`) |
+| `gateway` | string | Default gateway — present for static IP deployments; absent for DHCP deployments |
 | `deployed_at` | string | ISO-style timestamp of deployment |
 | `ttl` | string | TTL string (e.g. `"7d"`) — present only if `--ttl` was used |
 | `expires_at` | string | ISO 8601 UTC expiry timestamp — present only if `--ttl` was used |
 | `preflight` | boolean | Controls whether preflight checks run before this deployment |
 
 **Key notes:**
-- `ip_address` — the configured IP. Used for DNS registration and static IP preflight check.
-- `assigned_ip` — the actual IP assigned to the container. Same as `ip_address` for static assignments; the DHCP-assigned address for DHCP deployments. Used by the decommission pipeline for DNS record removal.
+- `ip_address` — `"dhcp"` for DHCP deployments, or the configured static IP for static deployments. Used for DNS registration and the static IP preflight check. DHCP deployments skip the preflight ping check.
+- `assigned_ip` — present for DHCP deployments; records the IP actually assigned at boot. The decommission pipeline uses `assigned_ip` (falling back to `ip_address`) when removing DNS records. Absent for static deployments.
+- `gateway` — present for static IP deployments; the default gateway configured at container creation time. Absent for DHCP deployments.
 - `ttl` / `expires_at` — present only if `--ttl` was used at deploy time. `expire.py` reads `expires_at` to determine expiry status.
 - `preflight` — controls whether preflight checks run before this deployment. Defaults to `true`. Set to `false` to skip all preflight for this specific host.
 - `template_volid` — if this template is no longer on the node, the script falls back to the first available template and prints a warning.
@@ -168,7 +193,7 @@ The two file types share most fields but differ in how the OS source is specifie
 | `cloud_image_filename` | absent | present |
 | `cloud_image_url` | absent | present |
 | `image_refresh` | absent | present |
-| `gateway` | absent | present (static only) |
+| `gateway` | present (static IP deployments only) | present (static only) |
 | `extra_packages` | present (if set) | present (if set) |
 | Storage location | `deployments/lxc/` | `deployments/vms/` |
 

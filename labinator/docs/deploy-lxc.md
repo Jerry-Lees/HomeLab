@@ -6,7 +6,7 @@
 
 `deploy_lxc.py` is an interactive wizard that provisions, configures, and onboards a new LXC container in your Proxmox cluster in a single guided session. It handles everything from resource creation through post-deployment configuration, DNS registration, and Ansible inventory registration.
 
-The wizard can be driven entirely interactively, pre-filled from a deployment JSON file, or run fully non-interactively in `--silent` mode for automated pipelines.
+The wizard can be driven entirely interactively, pre-filled from a deployment JSON file, or run fully non-interactively in `--silent` mode for automated pipelines. Both DHCP and static IP addressing are supported.
 
 ## Table of Contents
 
@@ -21,8 +21,11 @@ The wizard can be driven entirely interactively, pre-filled from a deployment JS
 - [VLAN Check Behavior](#vlan-check-behavior)
 - [Preflight Behavior](#preflight-behavior)
 - [LXC Feature Flags](#lxc-feature-flags)
+- [Static IP Deployment](#static-ip-deployment)
 - [Walkthrough: LXC Prompt Order](#walkthrough-lxc-prompt-order)
 - [The 7 LXC Deployment Steps](#the-7-lxc-deployment-steps)
+- [Deployment Logs](#deployment-logs)
+- [Example Scenarios](#example-scenarios)
 
 ---
 
@@ -80,7 +83,7 @@ Loads a previously saved deployment JSON and pre-fills all prompts with its valu
 | Field | Example | Notes |
 |---|---|---|
 | `hostname` | `"myserver"` | Short name, no domain suffix |
-| `ip_address` | `"dhcp"` | LXC always uses DHCP — use the literal string `"dhcp"` |
+| `ip_address` | `"dhcp"` or `"10.220.220.50"` | `"dhcp"` for DHCP assignment; a static IP address for fixed addressing |
 | `cpus` | `2` | |
 | `memory_gb` | `4` | |
 | `disk_gb` | `20` | |
@@ -91,9 +94,16 @@ Loads a previously saved deployment JSON and pre-fills all prompts with its valu
 | `template_volid` | `"local:vztmpl/ubuntu-24.04-..."` | Used by `--dry-run` display; wizard re-prompts at deploy time |
 | `template_name` | `"ubuntu-24.04-..."` | Display name matching the volid |
 
+For static IP deployments, also include:
+
+| Field | Example | Notes |
+|---|---|---|
+| `prefix_len` | `"24"` | Subnet mask bits (e.g. `"24"` for /24) |
+| `gateway` | `"10.220.220.1"` | Default gateway; auto-derived from IP if omitted in silent mode |
+
 Optional fields: `package_profile`, `extra_packages`, `lxc_features`, `ttl`.
 
-> **Note:** LXC containers always use DHCP — the IP is assigned at boot. `ip_address: "dhcp"` is required by the validator as an explicit acknowledgement of this, not because you're setting the IP yourself.
+> **Note:** `ip_address` must be either the literal string `"dhcp"` or a valid IPv4 address. DHCP deployments skip the static IP conflict preflight check. Static deployments run a ping check to confirm the IP is not already in use before creating the container.
 
 ---
 
@@ -224,6 +234,35 @@ In `--silent` mode, only the profile's `lxc_features` are used — the interacti
 
 ---
 
+## Static IP Deployment
+
+By default, LXC containers use DHCP — the IP is assigned by your network's DHCP server at boot and discovered by labinator via the Proxmox API. Static IP addressing is also supported when you need a predictable, fixed address.
+
+**At the IP address prompt**, enter a static IP address instead of leaving it blank:
+
+```
+? IP address for container: (leave blank for DHCP) 10.220.220.50
+? Prefix length (subnet mask bits): 24
+? Gateway: 10.220.220.1
+```
+
+Leaving the IP prompt blank selects DHCP. Entering an IP address triggers two additional prompts for prefix length (defaulting to `24`) and gateway (auto-derived from the IP if left blank — e.g. `10.220.220.1` for a `10.220.220.x` address).
+
+The deployment summary shows which mode was selected:
+
+```
+│  Network   │  vmbr0.220  (DHCP)                                     │   ← DHCP deployment
+│  Network   │  vmbr0.220  (static 10.220.220.50/24  gw 10.220.220.1)  │   ← static deployment
+```
+
+**How static IP works in Proxmox:** The IP, prefix, and gateway are passed to the Proxmox API as part of the `net0` interface configuration at container creation time — `ip=10.220.220.50/24,gw=10.220.220.1`. This is set at the hypervisor level, not inside the container, so no additional network configuration is needed inside the guest.
+
+**In the deployment JSON**, static deployments record the configured IP directly in `ip_address`. DHCP deployments record `"dhcp"` in `ip_address` and the actual DHCP-assigned address in `assigned_ip`.
+
+> **Note:** For static deployments, the preflight `Static IP in use` check pings the IP before creating the container. If it responds, the deploy is blocked — preventing duplicate IP conflicts. For DHCP deployments, this check is skipped entirely since the IP is assigned by the DHCP server at boot.
+
+---
+
 ## Walkthrough: LXC Prompt Order
 
 Resource questions come **before** node selection so that nodes without enough capacity for the requested resources are filtered out of the list.
@@ -246,7 +285,22 @@ Root / admin user password:          [changeme]
 ```
 Defaults are sourced from the `defaults:` block in `config.yaml`. The VLAN tag determines which network the container is placed on. The password is set for both `root` and the secondary admin user on the container.
 
-**3. Package profile** — Optional. Select a role-based package set or skip for a minimal baseline install. Profiles are named groups of packages defined in `config.yaml` under `package_profiles`. Each profile also applies one or more Proxmox tags to the container so it is easy to identify its role at a glance. Selecting a profile installs its packages during the Ansible post-deploy step, after the baseline tools. Install order: baseline → profile packages → any extra packages. Select `[none]` to skip and get only the baseline install.
+**3. IP address / Prefix / Gateway**
+
+```
+? IP address for container: (leave blank for DHCP)
+```
+
+Leave blank to use DHCP (the default). Enter an IPv4 address to use static addressing — two follow-up prompts will appear for prefix length and gateway:
+
+```
+? Prefix length (subnet mask bits): 24
+? Gateway: 10.220.220.1
+```
+
+The prefix length defaults to `24`. The gateway is auto-derived from the last octet of the IP (e.g. `10.220.220.50` → `10.220.220.1`) if left blank.
+
+**4. Package profile** — Optional. Select a role-based package set or skip for a minimal baseline install. Profiles are named groups of packages defined in `config.yaml` under `package_profiles`. Each profile also applies one or more Proxmox tags to the container so it is easy to identify its role at a glance. Selecting a profile installs its packages during the Ansible post-deploy step, after the baseline tools. Install order: baseline → profile packages → any extra packages. Select `[none]` to skip and get only the baseline install.
 
 ```
 Package profile (optional):
@@ -259,16 +313,16 @@ Package profile (optional):
   nfs-server
 ```
 
-**4. Extra packages** — Optional one-off packages to install on top of the baseline and profile. Enter as a comma-separated list or leave blank.
+**5. Extra packages** — Optional one-off packages to install on top of the baseline and profile. Enter as a comma-separated list or leave blank.
 
 ```
 Extra packages to install (optional):
 (comma-separated, e.g. htop, curl  —  leave blank for none)
 ```
 
-**5. LXC feature flags** — Checkbox prompt for kernel feature flags. Any flags defined in the selected profile's `lxc_features` key are pre-checked. Add or remove as needed, or leave all unchecked for no extra features. See [LXC Feature Flags](#lxc-feature-flags) for the full flag reference.
+**6. LXC feature flags** — Checkbox prompt for kernel feature flags. Any flags defined in the selected profile's `lxc_features` key are pre-checked. Add or remove as needed, or leave all unchecked for no extra features. See [LXC Feature Flags](#lxc-feature-flags) for the full flag reference.
 
-**6. Node selection** (filtered by requested resources)
+**7. Node selection** (filtered by requested resources)
 ```
 Select Proxmox node (★ = most free RAM; 2 node(s) hidden — over resource threshold):
   ★ proxmox03  —  54.2 GB free / 128.0 GB RAM  (CPU: 18%)
@@ -278,7 +332,7 @@ Only nodes with enough headroom are shown. The star (★) marks the node with th
 
 > **Note:** Resource questions (vCPUs, memory, disk) are asked *before* node selection so that nodes which cannot satisfy the request are automatically hidden from the node list.
 
-**7. OS Template**
+**8. OS Template**
 ```
 Select OS template (Ubuntu templates listed first):
   [Net-Images] ubuntu-24.04-standard_24.04-2_amd64.tar.zst
@@ -286,7 +340,7 @@ Select OS template (Ubuntu templates listed first):
 ```
 Queried live from the selected node — only templates already downloaded on that node are shown. Ubuntu versions are listed first. The storage name in brackets (e.g. `[local]`) indicates where the template is stored on the node.
 
-**8. Storage pool** — Only shown if more than one storage pool is available on the selected node. Determines where the container's root disk is created.
+**9. Storage pool** — Only shown if more than one storage pool is available on the selected node. Determines where the container's root disk is created.
 
 ```
 Select storage pool for container root disk:
@@ -294,7 +348,7 @@ Select storage pool for container root disk:
   ceph-pool
 ```
 
-**9. Confirmation summary and pre-creation resource check** — Displays a full summary of all selected values before anything is created. A final resource check is run against the selected node to confirm it still has enough capacity (resources may have changed since node selection). Confirm to proceed or abort to cancel without making any changes.
+**10. Confirmation summary and pre-creation resource check** — Displays a full summary of all selected values before anything is created. A final resource check is run against the selected node to confirm it still has enough capacity (resources may have changed since node selection). Confirm to proceed or abort to cancel without making any changes.
 
 ```
                       Deployment Summary
@@ -320,6 +374,8 @@ Select storage pool for container root disk:
 
 The **Features** row only appears when at least one flag is selected. The **TTL / Expires** row only appears when `--ttl` was passed. Selecting no flags creates the container with no extra capabilities.
 
+For static deployments, the Network row shows the configured IP, prefix, and gateway.
+
 ---
 
 ## The 7 LXC Deployment Steps
@@ -342,15 +398,20 @@ The **Features** row only appears when at least one flag is selected. The **TTL 
   ✓ Container started
 ```
 
-**Step 3** — Polls until a DHCP-assigned IP address is visible. The discovered IP is stored as `assigned_ip` in the deployment JSON so DNS cleanup works correctly on decommission.
+**Step 3** — For DHCP deployments: polls the Proxmox guest agent until a DHCP-assigned IP address is visible, up to 2 minutes. The discovered IP is stored as `assigned_ip` in the deployment JSON so DNS cleanup works correctly on decommission.
+
+For static IP deployments, this step is skipped — the IP was already set at container creation time and no polling is needed.
 
 ```
-─── Step 3/7: Waiting for DHCP IP address ───
+─── Step 3/7: Waiting for DHCP IP address ───       ← DHCP
   Polling for DHCP lease (up to 2 min)...
-  ✓ Container IP: 192.168.1.114 /24
+  ✓ Container IP: 10.220.220.114 /24
+
+─── Step 3/7: Static IP — no DHCP wait needed ───   ← static
+  Using static IP: 10.220.220.50/24  gw 10.220.220.1
 ```
 
-**Step 4** — Bootstrap via `pct exec`, running entirely on the Proxmox node before SSH is available. Installs `openssh-server`, sets passwords, enables root SSH login, detects the DHCP-assigned IP and gateway, then writes a permanent network configuration that locks in the same address as a static assignment.
+**Step 4** — Installs `openssh-server`, sets passwords, and enables root SSH login. For LXC containers, network addressing (whether DHCP or static) is handled at the hypervisor level via the Proxmox API — no additional network configuration is written inside the container.
 
 ```
 ─── Step 4/7: Bootstrapping SSH in container ───
@@ -360,7 +421,6 @@ The **Features** row only appears when at least one flag is selected. The **TTL 
   Enabling and starting SSH...
   Allowing root SSH login...
   Setting root password...
-  Configuring static IP...
   ✓ Bootstrap complete — SSH is ready
   Waiting for SSH to become reachable...
   ✓ SSH is ready
@@ -433,6 +493,76 @@ Once all steps complete, a deployment summary panel is printed:
 │                                                                                    │
 ╰────────────────────────────────────────────────────────────────────────────────────╯
 ```
+
+---
+
+## Deployment Logs
+
+Every interactive deploy (non-`--silent`) writes a full log to `logs/last-deployment.log` in the project root. The log captures everything printed to the terminal — preflight results, wizard selections, step output, and the final summary — with ANSI color codes stripped for readability.
+
+```
+logs/last-deployment.log
+```
+
+The log is overwritten on each run. It is excluded from git via `.gitignore`.
+
+The path to the log is printed at the end of every deployment:
+
+```
+Log: /home/dad/projects/HomeLab/labinator/logs/last-deployment.log
+```
+
+> **Note:** `--silent` mode (used by batch deploy) does not write to `last-deployment.log` directly. `deploy.py` captures subprocess output and writes it to `last-deployment.log` itself at the end of the batch run.
+
+---
+
+## Example Scenarios
+
+**Deploy a new container with DHCP (interactive):**
+```bash
+python3 deploy_lxc.py
+```
+Run the full wizard. Leave the IP address prompt blank to use DHCP. The container's DHCP-assigned IP is discovered at boot and recorded in the deployment file.
+
+---
+
+**Deploy a new container with a static IP (interactive):**
+```bash
+python3 deploy_lxc.py
+```
+At the IP address prompt, enter a static IP (e.g. `10.220.220.50`). Follow-up prompts for prefix length (default `24`) and gateway (auto-derived if left blank) appear. The IP is set at the hypervisor level — no manual network config needed inside the container.
+
+---
+
+**Redeploy from a saved deployment file:**
+```bash
+python3 deploy_lxc.py --deploy-file deployments/lxc/myserver.json
+```
+All prompts are pre-filled from the file. Review and accept each value (or change any of them) before confirming. Useful after decommissioning a container and rebuilding it with the same configuration.
+
+---
+
+**Check everything is ready before deploying:**
+```bash
+python3 deploy_lxc.py --preflight --deploy-file deployments/lxc/myserver.json
+```
+Runs all preflight checks — including DNS hostname conflict and static IP ping check — and exits without deploying.
+
+---
+
+**Automated / CI deploy from a complete deployment file:**
+```bash
+python3 deploy_lxc.py --deploy-file deployments/lxc/myserver.json --silent
+```
+No prompts. All values come from the file. Any preflight failure causes immediate exit 1. Used by `deploy.py` batch mode internally.
+
+---
+
+**Dry-run: see exactly what will happen without making any changes:**
+```bash
+python3 deploy_lxc.py --dry-run --deploy-file deployments/lxc/myserver.json
+```
+Validates config and deploy file, then prints a full human-readable deployment plan. Nothing is created.
 
 ---
 

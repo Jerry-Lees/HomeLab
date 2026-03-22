@@ -36,8 +36,8 @@ The following checks are run at the start of every deployment. Checks that depen
 | sshpass installed (LXC) | Yes | `sshpass` is on PATH. LXC deploy only. |
 | DNS server reachable | Warning | TCP connect to port 22 on the `server` (under `dns:`). Skipped if `enabled` is `false` under `dns:`. |
 | DNS server SSH auth | Warning | Key-based SSH to the DNS server succeeds |
-| DNS hostname check | Warning | If `--deploy-file` provided: queries the DNS server directly for the hostname — warns if a record already exists |
-| Static IP in use | **Fatal** | If `--deploy-file` provided and a static IP is configured: pings the IP and **fails if it responds** (duplicate IP prevention) |
+| DNS hostname check | Warning | If `--deploy-file` provided: queries the DNS server directly for the hostname. If a record exists and the IP **does not respond to ping** (stale orphan), the record is **auto-removed** and the check passes. If the IP is alive (real conflict), the check warns. |
+| Static IP in use | **Fatal** | If `--deploy-file` provided and `ip_address` is a static IP: pings the IP and **fails if it responds** (duplicate IP prevention). Skipped entirely for DHCP deployments (`ip_address: "dhcp"`) — the IP is assigned at boot and checking it in advance is not meaningful. |
 | Inventory server reachable | Warning | TCP connect to port 22 on the `server` (under `ansible_inventory:`). Skipped if `enabled` is `false` under `ansible_inventory:`. |
 | Inventory SSH auth | Warning | Key-based SSH to the inventory server succeeds |
 

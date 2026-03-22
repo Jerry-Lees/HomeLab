@@ -21,13 +21,15 @@ A command-line wizard for provisioning, configuring, and onboarding LXC containe
 
 ## What It Does
 
-labinator manages the complete lifecycle of Proxmox resources across six scripts:
+labinator manages the complete lifecycle of Proxmox resources across eight scripts:
 
 - **`configure.py`** — interactive wizard to build or edit `config.yaml` with per-field hints, autocomplete timezone picker, and immediate validation
-- **`deploy_lxc.py`** — interactive wizard to fully provision and onboard an LXC container (create, bootstrap SSH, run Ansible, register DNS and inventory)
-- **`decomm_lxc.py`** — permanently destroy a container and remove all associated records
-- **`deploy_vm.py`** — interactive wizard to provision and onboard a QEMU VM via cloud-init with multi-OS Ansible post-deploy
-- **`decomm_vm.py`** — permanently destroy a VM and remove all associated records
+- **`deploy_lxc.py`** — interactive wizard to fully provision and onboard an LXC container (create, bootstrap SSH, run Ansible, register DNS and inventory); supports both DHCP and static IP addressing; writes a full deployment log to `logs/last-deployment.log`
+- **`decomm_lxc.py`** — permanently destroy a container and remove all associated records; writes a full decommission log to `logs/last-decomm.log`
+- **`deploy_vm.py`** — interactive wizard to provision and onboard a QEMU VM via cloud-init with multi-OS Ansible post-deploy; writes a full deployment log to `logs/last-deployment.log`
+- **`decomm_vm.py`** — permanently destroy a VM and remove all associated records; writes a full decommission log to `logs/last-decomm.log`
+- **`deploy.py`** — batch deploy multiple LXC containers and/or VMs in parallel from deployment JSON files, with a live per-host status board (showing target node), summary table, and idempotent re-run protection
+- **`decomm.py`** — batch decommission multiple resources from deployment JSON files, sequentially by default to avoid DNS race conditions
 - **`cleanup_tagged.py`** — scan the cluster for tagged resources and keep, promote, or decommission each one interactively or via a plan file
 - **`expire.py`** — manage deployment TTLs: check, reap expired hosts, or renew a deployment's TTL
 
@@ -42,6 +44,8 @@ labinator/
 ├── decomm_lxc.py                  # LXC decommission script
 ├── deploy_vm.py                   # QEMU VM provisioning wizard
 ├── decomm_vm.py                   # QEMU VM decommission script
+├── deploy.py                      # Batch deploy — multiple LXC/VM JSON files in parallel
+├── decomm.py                      # Batch decomm — multiple LXC/VM JSON files (sequential by default)
 ├── cleanup_tagged.py              # Cluster-wide tag-based cleanup (keep/promote/decomm)
 ├── expire.py                      # Deployment TTL manager (check/reap/renew)
 ├── config.yaml                    # Credentials + defaults (excluded from git — never commit)
@@ -54,7 +58,18 @@ labinator/
 ├── .gitignore                     # Excludes config.yaml, .venv, deployments/, test files
 ├── modules/
 │   ├── __init__.py                # Package marker
-│   └── lib.py                     # Shared functions used by all 6 scripts
+│   ├── lib.py                     # Shared utility functions (config, Proxmox connect, DNS, inventory)
+│   ├── preflight.py               # Preflight check suite
+│   ├── validation.py              # Deployment file and config validation
+│   ├── proxmox.py                 # Proxmox API helpers (resource queries, task polling)
+│   ├── startup.py                 # Wizard startup (banner, config load, cluster connect)
+│   ├── profiles.py                # Package profile helpers
+│   ├── ui.py                      # Interactive wizard helpers (prompts, back-navigation)
+│   ├── io.py                      # I/O helpers (logging, file utilities)
+│   ├── deploy.py                  # Shared deploy pipeline steps
+│   ├── decomm.py                  # Shared decommission pipeline steps
+│   ├── ansible.py                 # Ansible integration helpers
+│   └── bind.py                    # BIND DNS integration helpers
 ├── deployments/
 │   ├── lxc/                       # One JSON file per deployed LXC (gitignored except example-*)
 │   │   └── example-lxc.json       # Example deployment file (tracked)
@@ -200,9 +215,10 @@ The scripts auto-activate the virtualenv at startup, so you can run them with `p
 |---|---|
 | [docs/configuration.md](docs/configuration.md) | Proxmox API token setup, SSH key auth, full `config.yaml` reference, `cloud-images.yaml`, `--config` flag, multi-node failover |
 | [docs/configure.md](docs/configure.md) | Interactive config wizard — build, edit, and validate `config.yaml` with guided prompts |
-| [docs/deploy-lxc.md](docs/deploy-lxc.md) | All `deploy_lxc.py` flags, interactive walkthrough, deploy from file, silent mode, dry-run, TTL, VLAN check, preflight |
+| [docs/deploy-lxc.md](docs/deploy-lxc.md) | All `deploy_lxc.py` flags, interactive walkthrough, static IP and DHCP deployment, deploy from file, silent mode, dry-run, TTL, VLAN check, preflight, deployment logs, example scenarios |
 | [docs/deploy-vm.md](docs/deploy-vm.md) | All `deploy_vm.py` flags, interactive walkthrough, deploy from file, silent mode, dry-run, TTL, VLAN check, preflight |
-| [docs/decommission.md](docs/decommission.md) | `decomm_lxc.py` and `decomm_vm.py` flags, interactive and file-based mode, `--purge`, `--silent` |
+| [docs/decommission.md](docs/decommission.md) | `decomm_lxc.py` and `decomm_vm.py` flags, interactive and file-based mode, `--purge`, `--silent`, decommission logs, example scenarios |
+| [docs/batch.md](docs/batch.md) | `deploy.py` and `decomm.py` — batch operations, `--parallel`, `--validate`, `--batch-dir`, `--yolo`, `--ttl`, `--purge` |
 | [docs/expiry.md](docs/expiry.md) | All `expire.py` flags, `--check` output example, `--reap`, `--renew`, TTL format reference |
 | [docs/cleanup.md](docs/cleanup.md) | All `cleanup_tagged.py` flags, tag-based cleanup, `--list-file`, action list format, `--dry-run` |
 | [docs/preflight.md](docs/preflight.md) | Every preflight check, fatal vs warning, standalone mode, disabling preflight, `--yolo`, `--silent` |
@@ -223,7 +239,7 @@ python3 configure.py --edit
 # Validate config.yaml without changing anything
 python3 configure.py --validate
 
-# Deploy an LXC container interactively
+# Deploy an LXC container interactively (DHCP or static IP — wizard will ask)
 python3 deploy_lxc.py
 
 # Deploy a VM interactively
@@ -233,9 +249,21 @@ python3 deploy_vm.py
 python3 deploy_lxc.py --deploy-file deployments/lxc/myserver.json --silent
 python3 deploy_vm.py --deploy-file deployments/vms/myvm.json --silent
 
+# Check the deployment log after any interactive run
+cat logs/last-deployment.log
+
 # Decommission a container or VM
 python3 decomm_lxc.py
 python3 decomm_vm.py
+
+# Batch deploy multiple resources in parallel (up to 3 at a time by default)
+python3 deploy.py --batch deployments/lxc/web1.json deployments/lxc/db1.json
+python3 deploy.py --batch-dir deployments/lxc/ --validate
+python3 deploy.py --batch deployments/lxc/web1.json deployments/vms/db1.json --parallel 5
+
+# Batch decommission multiple resources (sequential by default — safe for DNS)
+python3 decomm.py --batch deployments/lxc/web1.json deployments/lxc/db1.json
+python3 decomm.py --batch-dir deployments/lxc/
 
 # Check for expired or expiring-soon deployments
 ./expire.py --check
@@ -274,12 +302,16 @@ python3 decomm_vm.py
 | labinator version / commit | git rev-parse --short HEAD |
 
 ### Which script and step failed?
+**Batch:**
+- [ ] deploy.py — batch deploy
+- [ ] decomm.py — batch decommission
+
 **LXC (deploy_lxc.py):**
 - [ ] Startup / config / Proxmox connection
 - [ ] Step 1 — Container creation
 - [ ] Step 2 — Container start
-- [ ] Step 3 — DHCP IP assignment
-- [ ] Step 4 — SSH bootstrap / static IP (pct exec)
+- [ ] Step 3 — DHCP IP assignment (or static IP skip)
+- [ ] Step 4 — SSH bootstrap (pct exec)
 - [ ] Step 5 — Ansible post-deploy
 - [ ] Step 6 — DNS registration
 - [ ] Step 7 — Ansible inventory update
