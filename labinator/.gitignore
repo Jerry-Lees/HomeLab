@@ -24,7 +24,8 @@ venv/
 # Test plans (ephemeral — deleted as tests pass)
 test-plan.md
 
-# Log files
+# Log files / log directory
+logs/
 **/*.log
 *.log
 
