@@ -85,40 +85,6 @@ package_profiles:
 
 ---
 
-## Batch Deploy
-
-Deploy multiple containers and/or VMs in sequence from a list of deployment JSON files using a
-single unified script, rather than running deploy_lxc.py or deploy_vm.py once per host.
-
-### Usage
-
-```bash
-python3 deploy.py --batch deployments/vms/web1.json deployments/lxc/db1.json deployments/vms/app1.json
-python3 deploy.py --batch-dir deployments/batch/
-```
-
-### Design decisions
-
-- **One script for everything** — a single `deploy.py` entry point reads the `"type"` field
-  from each deployment JSON (`"vm"` or `"lxc"`) and dispatches to the appropriate deploy logic.
-  No need to remember which script to use.
-- **Continue on failure** — if one host fails, the error is logged and the batch continues with
-  the remaining files. A summary table is printed at the end showing each host's result.
-- **Sequential, not parallel** — deploys run one at a time to avoid VMID conflicts and Proxmox
-  API rate issues.
-
-### Implementation notes
-
-- `--batch` accepts one or more JSON file paths; `--batch-dir` processes all JSON files in a
-  directory alphabetically. Both are mutually exclusive with `--deploy-file`.
-- Each file is deployed in silent mode (no interactive prompts) — all required values must be
-  present in the deployment file.
-- Skip any file whose VMID is already running in Proxmox (idempotent re-runs).
-- Print a `rich` summary table at the end: hostname, type, result (✓ / ✗), and elapsed time.
-- The `--validate` flag pairs naturally with batch — validate all files before starting any deploys.
-
----
-
 ## Proxmox Cluster Import / Scan (`import.py`)
 
 **Scope: the entire cluster, no tag filter.** This is for adopting an existing Proxmox
