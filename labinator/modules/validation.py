@@ -275,3 +275,40 @@ def check_vlan_exists(proxmox, node: str, bridge: str, vlan: int | str,
     if not proceed:
         console.print("[yellow]Deployment aborted.[/yellow]")
         sys.exit(0)
+
+
+def validate_lxc_deployment(deploy_path: Path) -> list[str]:
+    """Return a list of error strings; empty means the LXC deployment JSON is valid."""
+    try:
+        with open(deploy_path) as f:
+            d = json.load(f)
+    except FileNotFoundError:
+        return [f"File not found: {deploy_path}"]
+    except json.JSONDecodeError as e:
+        return [f"Invalid JSON: {e}"]
+    if not isinstance(d, dict):
+        return ["Deployment file is not a JSON object"]
+    if d.get("type") == "vm":
+        return ['This looks like a VM deployment file ("type": "vm") — use deploy_vm.py instead']
+    return validate_deployment_common(
+        d, ("hostname", "node", "template_name", "storage", "bridge", "password")
+    )
+
+
+def validate_vm_deployment(deploy_path: Path) -> list[str]:
+    """Return a list of error strings; empty means the VM deployment JSON is valid."""
+    try:
+        with open(deploy_path) as f:
+            d = json.load(f)
+    except FileNotFoundError:
+        return [f"File not found: {deploy_path}"]
+    except json.JSONDecodeError as e:
+        return [f"Invalid JSON: {e}"]
+    if not isinstance(d, dict):
+        return ["Deployment file is not a JSON object"]
+    if d.get("type") not in (None, "vm") or "template_name" in d:
+        return ["This looks like an LXC deployment file — use deploy_lxc.py instead"]
+    return validate_deployment_common(
+        d, ("hostname", "node", "cloud_image_storage", "cloud_image_filename",
+            "storage", "bridge", "password")
+    )

@@ -20,7 +20,7 @@
   tasks:
     - name: Write A-record removal script
       copy:
-        dest: /tmp/remove_dns_forward.py
+        dest: /tmp/remove_dns_forward_{{ hostname }}.py
         content: |
           import os, re, datetime
 
@@ -63,7 +63,7 @@
               print(f"A record for {hostname} not found — nothing to remove")
 
     - name: Remove A record from forward zone
-      shell: python3 /tmp/remove_dns_forward.py
+      shell: python3 /tmp/remove_dns_forward_{{ hostname }}.py
       environment:
         ZONE_FILE: "{{ forward_zone_file }}"
         HOSTNAME: "{{ hostname }}"
@@ -76,7 +76,7 @@
 
     - name: Write PTR-record removal script
       copy:
-        dest: /tmp/remove_dns_reverse.py
+        dest: /tmp/remove_dns_reverse_{{ hostname }}.py
         content: |
           import os, re, datetime
 
@@ -124,7 +124,7 @@
               print(f"PTR record for {last_octet} not found — nothing to remove")
 
     - name: Remove PTR record from reverse zone
-      shell: python3 /tmp/remove_dns_reverse.py
+      shell: python3 /tmp/remove_dns_reverse_{{ hostname }}.py
       environment:
         ZONE_FILE: "{{ reverse_zone_file }}"
         IP_ADDRESS: "{{ ip_address }}"
@@ -144,5 +144,5 @@
         path: "{{ item }}"
         state: absent
       loop:
-        - /tmp/remove_dns_forward.py
-        - /tmp/remove_dns_reverse.py
+        - /tmp/remove_dns_forward_{{ hostname }}.py
+        - /tmp/remove_dns_reverse_{{ hostname }}.py

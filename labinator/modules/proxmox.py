@@ -568,7 +568,8 @@ def create_vm(proxmox: ProxmoxAPI, node_name: str, create_params: dict) -> int:
             console.print(f"[green]✓ VM {next_vmid} created[/green]")
             return next_vmid
         except Exception as e:
-            if "already exists" in str(e) and _attempt < 2:
+            retryable = "already exists" in str(e) or "can't lock file" in str(e)
+            if retryable and _attempt < 2:
                 old_vmid = next_vmid
                 next_vmid = get_next_vmid(proxmox)
                 console.print(
@@ -626,7 +627,7 @@ def start_vm(proxmox: ProxmoxAPI, node_name: str, vmid: int) -> None:
 
 
 def wait_for_lxc_ip(proxmox: ProxmoxAPI, node: str, vmid: int,
-                    timeout: int = 120) -> tuple[str, str]:
+                    timeout: int = 300) -> tuple[str, str]:
     """
     Poll the container's interface list until a non-loopback IPv4 appears.
     Returns (ip, prefix_len) e.g. ("10.20.20.133", "24").
@@ -662,18 +663,16 @@ def run_pct_exec(ssh: paramiko.SSHClient, vmid: int, cmd: str, check: bool = Tru
     return exit_code, out, err
 
 
-def bootstrap_lxc_ssh(cfg: dict, node_name: str, vmid: int, password: str,
-                       container_ip: str, prefix_len: str,
-                       nameserver: str, searchdomain: str) -> None:
+def bootstrap_lxc_ssh(cfg: dict, node_name: str, vmid: int, password: str) -> None:
     """
-    SSH to the proxmox node and use pct exec to:
+    SSH to the Proxmox node and use pct exec to:
       1. Update apt cache
       2. Install openssh-server
       3. Enable SSH daemon
       4. Allow PermitRootLogin and PasswordAuthentication
       5. Set root password
-      6. Write static netplan config and apply it (network-safe via pct exec)
     This enables Ansible to then SSH directly into the container.
+    LXC containers always use DHCP — no network reconfiguration is done here.
     """
     pve = cfg["proxmox"]
     ssh_host = node_ssh_host(cfg, node_name)
@@ -714,47 +713,10 @@ def bootstrap_lxc_ssh(cfg: dict, node_name: str, vmid: int, password: str,
     )
     stdout.channel.recv_exit_status()
 
-    console.print("  [dim]Configuring static IP...[/dim]")
-    try:
-        net_script = (
-            "import subprocess, json\n"
-            "d = json.loads(subprocess.check_output(['ip', '-j', 'route', 'show', 'default']))\n"
-            "r = d[0]\n"
-            "print(r.get('gateway', '') + '|' + r.get('dev', 'eth0'))\n"
-        )
-        encoded = base64.b64encode(net_script.encode()).decode()
-        run_pct_exec(ssh, vmid, f"echo {encoded!r} | base64 -d > /tmp/_getnet.py")
-        _, info, _ = run_pct_exec(ssh, vmid, "python3 /tmp/_getnet.py")
-        run_pct_exec(ssh, vmid, "rm -f /tmp/_getnet.py", check=False)
-        parts = info.strip().split('|', 1)
-        gateway = parts[0].strip() if parts else ''
-        iface = parts[1].strip() if len(parts) > 1 else 'eth0'
-        iface = iface or 'eth0'
-        ns_list = ", ".join(nameserver.split())
-
-        netplan = (
-            f"network:\n"
-            f"  version: 2\n"
-            f"  ethernets:\n"
-            f"    {iface}:\n"
-            f"      dhcp4: false\n"
-            f"      addresses:\n"
-            f"        - {container_ip}/{prefix_len}\n"
-            f"      routes:\n"
-            f"        - to: default\n"
-            f"          via: {gateway}\n"
-            f"      nameservers:\n"
-            f"        addresses: [{ns_list}]\n"
-            f"        search: [{searchdomain}]\n"
-        )
-        encoded = base64.b64encode(netplan.encode()).decode()
-        run_pct_exec(ssh, vmid,
-            f"echo {encoded!r} | base64 -d > /etc/netplan/01-static.yaml")
-        run_pct_exec(ssh, vmid,
-            "find /etc/netplan -name '*.yaml' ! -name '01-static.yaml' -delete")
-        run_pct_exec(ssh, vmid, "netplan apply")
-    except Exception as e:
-        console.print(f"  [yellow]Warning: static IP config failed: {e}[/yellow]")
+    # LXC containers always use DHCP (ip=dhcp is hardcoded at creation).
+    # No static network config is needed or safe here — applying a static
+    # netplan during bootstrap causes the DHCP lease to be abandoned while
+    # other containers are still acquiring leases, leading to IP conflicts.
 
     ssh.close()
     console.print("  [green]✓ Bootstrap complete — SSH is ready[/green]")
@@ -773,7 +735,8 @@ def create_lxc(proxmox: ProxmoxAPI, node_name: str, create_params: dict) -> int:
             console.print(f"[green]✓ Container {next_vmid} created[/green]")
             return next_vmid
         except Exception as e:
-            if "already exists" in str(e) and _attempt < 2:
+            retryable = "already exists" in str(e) or "can't lock file" in str(e)
+            if retryable and _attempt < 2:
                 old_vmid = next_vmid
                 next_vmid = get_next_vmid(proxmox)
                 console.print(
@@ -813,6 +776,44 @@ def start_lxc(proxmox: ProxmoxAPI, node_name: str, vmid: int) -> None:
         task = proxmox.nodes(node_name).lxc(vmid).status.start.post()
         wait_for_task(proxmox, node_name, task, timeout=60)
     console.print("[green]✓ Container started[/green]")
+
+
+def find_lxc_by_hostname(proxmox: ProxmoxAPI, hostname: str) -> dict | None:
+    """Search all nodes for an LXC container whose name matches hostname.
+    Returns {"node": ..., "vmid": ..., "status": ...} or None."""
+    for node_info in proxmox.nodes.get():
+        node = node_info["node"]
+        try:
+            for ct in proxmox.nodes(node).lxc.get():
+                if ct.get("name") == hostname:
+                    return {
+                        "node":   node,
+                        "vmid":   int(ct["vmid"]),
+                        "status": ct.get("status", "unknown"),
+                    }
+        except Exception:
+            pass
+    return None
+
+
+def get_running_vmids(proxmox: ProxmoxAPI) -> set[int]:
+    """Return set of VMIDs currently running across all nodes (both lxc and qemu)."""
+    running = set()
+    for node_info in proxmox.nodes.get():
+        node = node_info["node"]
+        try:
+            for ct in proxmox.nodes(node).lxc.get():
+                if ct.get("status") == "running":
+                    running.add(int(ct["vmid"]))
+        except Exception:
+            pass
+        try:
+            for vm in proxmox.nodes(node).qemu.get():
+                if vm.get("status") == "running":
+                    running.add(int(vm["vmid"]))
+        except Exception:
+            pass
+    return running
 
 
 def preflight_checks(cfg: dict, kind: str) -> list:

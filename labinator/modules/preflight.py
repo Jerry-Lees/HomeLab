@@ -152,27 +152,49 @@ def _pf_dns_hostname(cfg: dict, deploy: dict) -> _PF:
         return _PF("DNS hostname check", True, "dig not available — skipped", fatal=False)
     if not existing_ips:
         return _PF("DNS hostname check", True, f"{fqdn} — no existing record", fatal=False)
+
+    # Check whether each existing IP is actually alive
+    def _ip_alive(ip: str) -> bool:
+        try:
+            r = subprocess.run(["ping", "-c", "1", "-W", "2", ip],
+                               capture_output=True, timeout=5)
+            return r.returncode == 0
+        except Exception:
+            return False
+
+    live_ips   = [ip for ip in existing_ips if _ip_alive(ip)]
+    stale_ips  = [ip for ip in existing_ips if not _ip_alive(ip)]
+
+    if not live_ips:
+        # All records are stale — auto-remove them and pass
+        from modules.bind import remove_dns
+        for stale_ip in stale_ips:
+            remove_dns(cfg, {"hostname": hostname, "assigned_ip": stale_ip})
+        return _PF(
+            "DNS hostname check", True,
+            f"{fqdn} had stale record(s) ({', '.join(stale_ips)}) — auto-removed",
+            fatal=False,
+        )
+
+    # At least one live host is at this name — this is a real conflict
     known_ip = deploy.get("assigned_ip") or deploy.get("ip_address", "")
-    count = len(existing_ips)
+    count = len(live_ips)
     if count == 1:
-        msg = f"{fqdn} already resolves to {existing_ips[0]}"
-        if known_ip and existing_ips[0] == known_ip:
-            msg += "  (matches deploy file — existing host may be orphaned if not decommissioned first)"
-        elif known_ip:
-            msg += f"  (deploy file IP: {known_ip})"
+        msg = f"{fqdn} already resolves to {live_ips[0]} (host is alive)"
+        if known_ip and live_ips[0] == known_ip:
+            msg += " — decomm first or this host will be orphaned"
+        else:
+            msg += " — decomm first or this host will be orphaned"
     else:
-        msg = f"{fqdn} has {count} existing records: {', '.join(existing_ips)}"
-        if known_ip:
-            msg += f"  (deploy file IP: {known_ip})"
-    msg += "  — decomm first or this host will be orphaned"
+        msg = f"{fqdn} has {count} live records: {', '.join(live_ips)} — decomm first"
     return _PF("DNS hostname check", False, msg, fatal=False)
 
 
 def _pf_ip_in_use(deploy: dict) -> _PF:
     """Ping the static IP from the deploy file — fail if it's already in use."""
     ip = deploy.get("ip_address", "").strip()
-    if not ip:
-        return _PF("Static IP in use", True, "No ip_address in deploy file (DHCP) — skipped", fatal=False)
+    if not ip or ip == "dhcp":
+        return _PF("Static IP in use", True, "DHCP deployment — IP conflict check skipped", fatal=False)
     try:
         result = subprocess.run(
             ["ping", "-c", "2", "-W", "2", ip],

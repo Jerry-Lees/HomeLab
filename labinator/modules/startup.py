@@ -47,6 +47,7 @@ def connect_proxmox(cfg: dict) -> ProxmoxAPI:
                 token_name=pve["token_name"],
                 token_value=pve["token_secret"],
                 verify_ssl=pve.get("verify_ssl", False),
+                timeout=30,
             )
             api.nodes.get()  # verify connectivity
             return api

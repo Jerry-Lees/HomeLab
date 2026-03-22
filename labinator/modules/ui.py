@@ -60,7 +60,9 @@ def pt_text(question: str, *, default: str = "", validate=None, instruction: str
     if val is not None and silent:
         console.print(f"  [dim]{question} (from deployment file): {val}[/dim]")
         return val
-    effective_default = str(val) if val is not None else str(default)
+    # Prefer wizard state (default) so back-nav re-shows what the user last typed.
+    # Fall back to deploy file value (val) only when wizard state has nothing yet.
+    effective_default = str(default) if default != "" else (str(val) if val is not None else "")
 
     _back = [False]
     kb = KeyBindings()

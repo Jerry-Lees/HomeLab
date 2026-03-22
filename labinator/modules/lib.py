@@ -50,6 +50,8 @@ from modules.validation import (
     dry_run_validate_and_load,
     node_passes_filter,
     check_vlan_exists,
+    validate_lxc_deployment,
+    validate_vm_deployment,
 )
 
 # ── proxmox ──────────────────────────────────────────────────────────────────
@@ -84,6 +86,8 @@ from modules.proxmox import (
     create_lxc,
     apply_lxc_features_ssh,
     start_lxc,
+    get_running_vmids,
+    find_lxc_by_hostname,
 )
 
 # ── bind (DNS) ───────────────────────────────────────────────────────────────

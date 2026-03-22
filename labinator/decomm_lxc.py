@@ -17,6 +17,38 @@ _venv = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".venv", "bin",
 if os.path.exists(_venv) and os.path.realpath(sys.executable) != os.path.realpath(_venv):
     os.execv(_venv, [_venv] + sys.argv)
 
+# Tee stdout to a log file for standalone (non-batch) runs
+import re as _re, pathlib as _pathlib, datetime as _dt
+_SKIP_LOG = {"--silent", "--help", "--?"}
+_decomm_log_path = None
+if not any(a in sys.argv for a in _SKIP_LOG):
+    _ANSI = _re.compile(r'\x1b(?:\[[0-9;?]*[a-zA-Z]|\][^\x07]*\x07|.)')
+    _CR   = _re.compile(r'\r(?!\n)')
+    def _clean(s):
+        return _CR.sub('', _ANSI.sub('', s))
+    class _TeeIO:
+        def __init__(self, stream, path):
+            self._stream = stream
+            self._file   = open(path, "w")
+            self._file.write(
+                f"Labinator LXC Decomm — {_dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                f"Command: {' '.join(sys.argv)}\n\n"
+            )
+        def write(self, data):
+            self._stream.write(data)
+            if not self._file.closed:
+                self._file.write(_clean(data))
+        def flush(self):
+            self._stream.flush()
+            if not self._file.closed:
+                self._file.flush()
+        def isatty(self):   return self._stream.isatty()
+        def fileno(self):   return self._stream.fileno()
+    _log_dir = _pathlib.Path(__file__).parent / "logs"
+    _log_dir.mkdir(exist_ok=True)
+    _decomm_log_path = _log_dir / "last-decomm.log"
+    sys.stdout = _TeeIO(sys.stdout, _decomm_log_path)
+
 import argparse
 import json
 import time
@@ -242,6 +274,8 @@ def main() -> None:
         border_style="red",
         title=f"[bold red]{SKULL}  Done[/bold red]",
     ))
+    if _decomm_log_path:
+        console.print(f"[dim]Log: {_decomm_log_path}[/dim]")
 
 
 if __name__ == "__main__":

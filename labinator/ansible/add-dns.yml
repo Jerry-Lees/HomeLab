@@ -21,7 +21,7 @@
   tasks:
     - name: Write A-record insertion script
       copy:
-        dest: /tmp/add_dns_forward.py
+        dest: /tmp/add_dns_forward_{{ new_hostname }}.py
         content: |
           import os, re, datetime
 
@@ -84,7 +84,7 @@
           print(f"Added A record: {hostname} -> {ip}")
 
     - name: Add A record to forward zone
-      shell: python3 /tmp/add_dns_forward.py
+      shell: python3 /tmp/add_dns_forward_{{ new_hostname }}.py
       environment:
         ZONE_FILE: "{{ forward_zone_file }}"
         NEW_HOSTNAME: "{{ new_hostname }}"
@@ -98,7 +98,7 @@
 
     - name: Write PTR-record insertion script
       copy:
-        dest: /tmp/add_dns_reverse.py
+        dest: /tmp/add_dns_reverse_{{ new_hostname }}.py
         content: |
           import os, re, datetime
 
@@ -151,7 +151,7 @@
           print(f"Added PTR record: {last_octet} -> {fqdn_dot}")
 
     - name: Add PTR record to reverse zone
-      shell: python3 /tmp/add_dns_reverse.py
+      shell: python3 /tmp/add_dns_reverse_{{ new_hostname }}.py
       environment:
         ZONE_FILE: "{{ reverse_zone_file }}"
         NEW_IP: "{{ new_ip }}"
@@ -173,5 +173,5 @@
         path: "{{ item }}"
         state: absent
       loop:
-        - /tmp/add_dns_forward.py
-        - /tmp/add_dns_reverse.py
+        - /tmp/add_dns_forward_{{ new_hostname }}.py
+        - /tmp/add_dns_reverse_{{ new_hostname }}.py

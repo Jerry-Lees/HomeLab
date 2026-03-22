@@ -25,6 +25,41 @@ _venv = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".venv", "bin",
 if os.path.exists(_venv) and os.path.realpath(sys.executable) != os.path.realpath(_venv):
     os.execv(_venv, [_venv] + sys.argv)
 
+# ── Deployment log tee ────────────────────────────────────────────────────────
+# Must be set up BEFORE importing Rich so every Console() picks it up.
+# Skipped for validate/dry-run/preflight — those are read-only checks.
+import re as _re, pathlib as _pathlib, datetime as _dt
+_SKIP_LOG = {"--validate", "--dry-run", "--preflight", "--help", "--?"}
+_deploy_log_path = None
+if not any(a in sys.argv for a in _SKIP_LOG):
+    _ANSI = _re.compile(r'\x1b(?:\[[0-9;?]*[a-zA-Z]|\][^\x07]*\x07|.)')
+    _CR   = _re.compile(r'\r(?!\n)')
+    def _clean(s):
+        return _CR.sub('', _ANSI.sub('', s))
+    class _TeeIO:
+        def __init__(self, stream, path):
+            self._stream = stream
+            self._file   = open(path, "w")
+            self._file.write(
+                f"Labinator VM Deploy — {_dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                f"Command: {' '.join(sys.argv)}\n\n"
+            )
+        def write(self, data):
+            self._stream.write(data)
+            if not self._file.closed:
+                self._file.write(_clean(data))
+        def flush(self):
+            self._stream.flush()
+            if not self._file.closed:
+                self._file.flush()
+        def isatty(self):   return self._stream.isatty()
+        def fileno(self):   return self._stream.fileno()
+    _log_dir = _pathlib.Path(__file__).parent / "logs"
+    _log_dir.mkdir(exist_ok=True)
+    _deploy_log_path = _log_dir / "last-deployment.log"
+    sys.stdout = _TeeIO(sys.stdout, _deploy_log_path)
+# ─────────────────────────────────────────────────────────────────────────────
+
 import argparse
 import ipaddress
 import socket
@@ -84,6 +119,7 @@ from modules.lib import (
     dry_run_validate_and_load,
     write_deployment_file,
     make_common_wizard_steps,
+    validate_vm_deployment,
     get_vm_disk_storages,
     get_iso_capable_storages,
     get_storage_iso_path,
@@ -134,32 +170,6 @@ def lookup_url_in_catalog(catalog: list[dict], filename: str) -> str | None:
         if img.get("filename") == filename:
             return img.get("url")
     return None
-
-
-# ─────────────────────────────────────────────
-# Validation (--validate flag)
-# ─────────────────────────────────────────────
-
-
-def validate_vm_deployment(deploy_path: Path) -> list[str]:
-    """Return a list of error strings; empty means deployment JSON is valid."""
-    try:
-        with open(deploy_path) as f:
-            d = json.load(f)
-    except FileNotFoundError:
-        return [f"File not found: {deploy_path}"]
-    except json.JSONDecodeError as e:
-        return [f"Invalid JSON: {e}"]
-    if not isinstance(d, dict):
-        return ["Deployment file is not a JSON object"]
-
-    if d.get("type") not in (None, "vm") or "template_name" in d:
-        return ["This looks like an LXC deployment file — use deploy_lxc.py instead"]
-
-    return validate_deployment_common(
-        d, ("hostname", "node", "cloud_image_storage", "cloud_image_filename",
-            "storage", "bridge", "password")
-    )
 
 
 def run_validate(args) -> None:
@@ -997,6 +1007,8 @@ def main() -> None:
         border_style="green",
         title="[bold green]✓ All Done[/bold green]",
     ))
+    if _deploy_log_path:
+        console.print(f"[dim]Log: {_deploy_log_path}[/dim]")
 
 
 if __name__ == "__main__":

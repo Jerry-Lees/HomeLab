@@ -22,6 +22,17 @@
     # --------------------------------------------------------
     # SSH key setup: dev server -> new container
     # --------------------------------------------------------
+    - name: Remove stale known_hosts entry for container IP
+      shell: "ssh-keygen -R {{ new_ip }} 2>/dev/null || true"
+      changed_when: false
+      failed_when: false
+
+    - name: Remove stale known_hosts entry for container FQDN
+      shell: "ssh-keygen -R {{ new_hostname }}.{{ node_domain }} 2>/dev/null || true"
+      changed_when: false
+      failed_when: false
+      when: node_domain is defined and node_domain != ''
+
     - name: Add container to known_hosts (by IP)
       shell: "ssh-keyscan -H {{ new_ip }} >> ~/.ssh/known_hosts"
       changed_when: true
@@ -72,7 +83,7 @@
 
     - name: Write host insertion script
       copy:
-        dest: /tmp/insert_host.py
+        dest: /tmp/insert_host_{{ new_hostname }}.py
         content: |
           import os
           group = os.environ['INV_GROUP']
@@ -96,7 +107,7 @@
       when: host_exists.stdout | int == 0
 
     - name: Add host at end of [{{ inventory_group }}] section
-      shell: python3 /tmp/insert_host.py
+      shell: python3 /tmp/insert_host_{{ new_hostname }}.py
       environment:
         INV_GROUP: "{{ inventory_group }}"
         INV_ENTRY: "{{ new_hostname }} ansible_host={{ new_hostname }}.{{ node_domain }} ansible_python_interpreter=/usr/bin/python3"
@@ -107,7 +118,7 @@
 
     - name: Remove insertion script
       file:
-        path: /tmp/insert_host.py
+        path: /tmp/insert_host_{{ new_hostname }}.py
         state: absent
 
     - name: Show result

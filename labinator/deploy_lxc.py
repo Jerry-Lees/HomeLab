@@ -24,6 +24,41 @@ _venv = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".venv", "bin",
 if os.path.exists(_venv) and os.path.realpath(sys.executable) != os.path.realpath(_venv):
     os.execv(_venv, [_venv] + sys.argv)
 
+# ── Deployment log tee ────────────────────────────────────────────────────────
+# Must be set up BEFORE importing Rich so every Console() picks it up.
+# Skipped for validate/dry-run/preflight — those are read-only checks.
+import re as _re, pathlib as _pathlib, datetime as _dt
+_SKIP_LOG = {"--validate", "--dry-run", "--preflight", "--help", "--?"}
+_deploy_log_path = None
+if not any(a in sys.argv for a in _SKIP_LOG):
+    _ANSI = _re.compile(r'\x1b(?:\[[0-9;?]*[a-zA-Z]|\][^\x07]*\x07|.)')
+    _CR   = _re.compile(r'\r(?!\n)')
+    def _clean(s):
+        return _CR.sub('', _ANSI.sub('', s))
+    class _TeeIO:
+        def __init__(self, stream, path):
+            self._stream = stream
+            self._file   = open(path, "w")
+            self._file.write(
+                f"Labinator LXC Deploy — {_dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                f"Command: {' '.join(sys.argv)}\n\n"
+            )
+        def write(self, data):
+            self._stream.write(data)
+            if not self._file.closed:
+                self._file.write(_clean(data))
+        def flush(self):
+            self._stream.flush()
+            if not self._file.closed:
+                self._file.flush()
+        def isatty(self):   return self._stream.isatty()
+        def fileno(self):   return self._stream.fileno()
+    _log_dir = _pathlib.Path(__file__).parent / "logs"
+    _log_dir.mkdir(exist_ok=True)
+    _deploy_log_path = _log_dir / "last-deployment.log"
+    sys.stdout = _TeeIO(sys.stdout, _deploy_log_path)
+# ─────────────────────────────────────────────────────────────────────────────
+
 import argparse
 import ipaddress
 import os
@@ -87,6 +122,7 @@ from modules.lib import (
     dry_run_validate_and_load,
     write_deployment_file,
     make_common_wizard_steps,
+    validate_lxc_deployment,
     get_lxc_templates,
     get_lxc_disk_storages,
     wait_for_lxc_ip,
@@ -96,9 +132,17 @@ from modules.lib import (
     create_lxc,
     apply_lxc_features_ssh,
     start_lxc,
+    find_lxc_by_hostname,
 )
 
 console = Console()
+
+
+def derive_gateway(ip: str) -> str:
+    """Derive gateway as the .1 address of the subnet."""
+    parts = ip.rsplit(".", 1)
+    return f"{parts[0]}.1"
+
 
 # LXC feature flag choices shown in the interactive checkbox prompt.
 # Values match the Proxmox API feature string format.
@@ -110,31 +154,6 @@ LXC_FEATURE_CHOICES = [
     ("mount=nfs",  "mount=nfs   — NFS mounts inside the container"),
     ("mount=cifs", "mount=cifs  — CIFS/SMB mounts inside the container"),
 ]
-
-
-# ─────────────────────────────────────────────
-# Validation (--validate flag)
-# ─────────────────────────────────────────────
-
-
-def validate_lxc_deployment(deploy_path: Path) -> list[str]:
-    """Return a list of error strings; empty means deployment JSON is valid."""
-    try:
-        with open(deploy_path) as f:
-            d = json.load(f)
-    except FileNotFoundError:
-        return [f"File not found: {deploy_path}"]
-    except json.JSONDecodeError as e:
-        return [f"Invalid JSON: {e}"]
-    if not isinstance(d, dict):
-        return ["Deployment file is not a JSON object"]
-
-    if d.get("type") == "vm":
-        return ["This looks like a VM deployment file (\"type\": \"vm\") — use deploy_vm.py instead"]
-
-    return validate_deployment_common(
-        d, ("hostname", "node", "template_name", "storage", "bridge", "password")
-    )
 
 
 def run_validate(args) -> None:
@@ -181,7 +200,9 @@ def run_dry_run(args) -> None:
     tbl.add_row("vCPUs",       str(cpus))
     tbl.add_row("Memory",      f"{memory_gb} GB")
     tbl.add_row("Disk",        f"{disk_gb} GB → {storage}")
-    tbl.add_row("IP",          "DHCP (assigned at boot)")
+    ip           = d.get("ip_address", "dhcp")
+    ip_display   = ip if ip != "dhcp" else "DHCP (assigned at boot)"
+    tbl.add_row("IP",          ip_display)
     tbl.add_row("Profile pkgs", ", ".join(profile_packages) if profile_packages else "(none)")
     tbl.add_row("Extra pkgs",  ", ".join(extra_pkgs) if extra_pkgs else "(none)")
     tbl.add_row("Tags",        tags)
@@ -198,7 +219,10 @@ def run_dry_run(args) -> None:
     console.print()
     console.print(f"  {DRY} Step 1/7  Create LXC container (next available VMID) — {hostname} on {node}")
     console.print(f"  {DRY} Step 2/7  Start container")
-    console.print(f"  {DRY} Step 3/7  Wait for DHCP IP address")
+    if ip == "dhcp":
+        console.print(f"  {DRY} Step 3/7  Wait for DHCP IP address")
+    else:
+        console.print(f"  {DRY} Step 3/7  [dim]DHCP wait SKIPPED — static IP {ip}[/dim]")
     console.print(f"  {DRY} Step 4/7  Bootstrap SSH via pct exec on {node}")
 
     if ansible_enabled:
@@ -211,7 +235,8 @@ def run_dry_run(args) -> None:
         console.print(f"  {DRY} Step 5/7  [dim]Ansible post-deploy SKIPPED (ansible.enabled: false)[/dim]")
 
     if dns_enabled:
-        console.print(f"  {DRY} Step 6/7  Register DNS: {fqdn} → <DHCP> on {dns_cfg.get('server', '?')}")
+        ip_note = "<DHCP-assigned>" if ip == "dhcp" else ip
+        console.print(f"  {DRY} Step 6/7  Register DNS: {fqdn} → {ip_note} on {dns_cfg.get('server', '?')}")
     else:
         console.print(f"  {DRY} Step 6/7  [dim]DNS registration SKIPPED (dns.enabled: false)[/dim]")
 
@@ -227,10 +252,12 @@ def _save_lxc_deployment_file(hostname: str, vmid: int, node_name: str,
                                template_volid: str, template_name: str,
                                cpus_str: str, memory_gb_str: str, disk_gb_str: str,
                                storage: str, vlan_str: str, bridge: str,
-                               password: str, container_ip: str, prefix_len: str,
+                               password: str, ip_address: str, assigned_ip: str,
+                               prefix_len: str, gateway: str,
                                cfg: dict, package_profile: str = "",
                                extra_packages: list = (), lxc_features: list = (),
                                ttl: str = "") -> None:
+    """ip_address: 'dhcp' or a static IP. assigned_ip: actual IP received (DHCP case only)."""
     domain = cfg["proxmox"].get("node_domain", "")
     fqdn = f"{hostname}.{domain}" if domain else hostname
     data = {
@@ -247,14 +274,16 @@ def _save_lxc_deployment_file(hostname: str, vmid: int, node_name: str,
         "vlan": int(vlan_str),
         "bridge": bridge,
         "password": password,
-        "ip_address": container_ip,
-        "assigned_ip": container_ip,
-        "prefix_len": prefix_len,
+        "ip_address": ip_address,    # "dhcp" or static IP
+        "prefix_len": prefix_len,    # "" if DHCP
+        "gateway": gateway,          # "" if DHCP
         "package_profile": package_profile,
         "extra_packages": list(extra_packages),
         "lxc_features": list(lxc_features),
         "deployed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
+    if assigned_ip and assigned_ip != ip_address:
+        data["assigned_ip"] = assigned_ip  # DHCP-assigned address for DNS/decomm
     if ttl:
         data["ttl"] = ttl
         data["expires_at"] = expires_at_from_ttl(ttl)
@@ -377,6 +406,60 @@ def main() -> None:
     _ws = make_common_wizard_steps(cfg, deploy, silent, nodes, cpu_threshold, ram_threshold,
                                     hostname_label="container")
 
+    def step_ip(s):
+        deploy_ip = str(deploy.get("ip_address", ""))
+        ip_default = "" if deploy_ip.lower() in ("dhcp", "") else deploy_ip
+        if silent:
+            ip_address = "" if deploy_ip.lower() in ("dhcp", "") else deploy_ip
+        else:
+            r = pt_text(
+                "IP address for container:",
+                default=s.get("ip_address", ip_default),
+                instruction="leave blank for DHCP",
+                validate=lambda v: (
+                    True if v.strip() == "" or v.strip().count(".") == 3
+                    else "Enter a valid IPv4 address or leave blank for DHCP"
+                ),
+            )
+            if r is BACK:
+                return BACK
+            ip_address = r.strip()
+        return {**s, "ip_address": ip_address, "use_dhcp": (ip_address == "")}
+
+    def step_prefix(s):
+        if s.get("use_dhcp"):
+            return SKIP
+        if silent and "prefix_len" not in deploy:
+            default_pl = s.get("prefix_len", "24")
+            console.print(f"  [dim]Prefix length (default): {default_pl}[/dim]")
+            return {**s, "prefix_len": default_pl}
+        r = pt_text(
+            "Prefix length (subnet mask bits):",
+            default=s.get("prefix_len", "24"),
+            validate=lambda v: True if v.isdigit() and 1 <= int(v) <= 32 else "Must be 1–32",
+            d=deploy, key="prefix_len", silent=silent,
+        )
+        if r is BACK:
+            return BACK
+        return {**s, "prefix_len": r.strip()}
+
+    def step_gateway(s):
+        if s.get("use_dhcp"):
+            return SKIP
+        auto_gw = derive_gateway(s["ip_address"])
+        if silent and "gateway" not in deploy:
+            console.print(f"  [dim]Gateway (derived): {auto_gw}[/dim]")
+            return {**s, "gateway": auto_gw}
+        r = pt_text(
+            "Gateway:",
+            default=s.get("gateway", auto_gw),
+            validate=lambda v: True if v.count(".") == 3 else "Enter a valid IPv4 address",
+            d=deploy, key="gateway", silent=silent,
+        )
+        if r is BACK:
+            return BACK
+        return {**s, "gateway": r.strip()}
+
     def step_lxc_features(s):
         profile_features = resolve_lxc_features(s.get("package_profile", ""), profiles)
         deploy_features  = deploy.get("lxc_features", profile_features)
@@ -482,8 +565,16 @@ def main() -> None:
         table.add_row("Template",    s["template_name"])
         table.add_row("vCPUs",       s["cpus_str"])
         table.add_row("Memory",      f"{s['memory_gb_str']} GB ({memory_mb} MB)")
+        table.add_row("Swap",        f"{s['memory_gb_str']} GB ({memory_mb} MB)")
         table.add_row("Disk",        f"{s['disk_gb_str']} GB  →  {s['storage']}")
-        table.add_row("Network",     f"{bridge}.{s['vlan_str']}  (DHCP)")
+        _use_dhcp = s.get("use_dhcp", True)
+        net_detail = (
+            f"(DHCP — IP assigned at boot)"
+            if _use_dhcp else
+            f"(static {s.get('ip_address', '')}/"
+            f"{s.get('prefix_len', '24')}  gw {s.get('gateway', '')})"
+        )
+        table.add_row("Network",     f"{bridge}.{s['vlan_str']}  {net_detail}")
         tags_display = (";".join(["auto-deploy"] + s["profile_tags"])
                         if s["profile_tags"] else "auto-deploy")
         table.add_row("Tags",        tags_display)
@@ -514,6 +605,7 @@ def main() -> None:
 
     ws = run_wizard_steps([
         _ws["hostname"], _ws["cpus"], _ws["memory"], _ws["disk"], _ws["vlan"], _ws["password"],
+        step_ip, step_prefix, step_gateway,
         _ws["package_profile"], _ws["extra_packages"], step_lxc_features,
         _ws["node"], step_template, step_storage, step_confirm,
     ])
@@ -525,6 +617,10 @@ def main() -> None:
     disk_gb_str      = ws["disk_gb_str"]
     vlan_str         = ws["vlan_str"]
     password         = ws["password"]
+    use_dhcp         = ws.get("use_dhcp", True)
+    ip_address       = "" if use_dhcp else ws.get("ip_address", "")
+    prefix_len       = "" if use_dhcp else ws.get("prefix_len", "24")
+    gateway          = "" if use_dhcp else ws.get("gateway", "")
     package_profile  = ws["package_profile"]
     profile_packages = ws["profile_packages"]
     profile_tags     = ws["profile_tags"]
@@ -551,6 +647,16 @@ def main() -> None:
     # ── VLAN existence check ──
     check_vlan_exists(proxmox, node_name, bridge, vlan_str, silent=silent)
 
+    # ── Duplicate hostname check ──
+    existing = find_lxc_by_hostname(proxmox, hostname)
+    if existing:
+        console.print(
+            f"[red]✗ A container named '{hostname}' already exists on the cluster:[/red]\n"
+            f"  VMID {existing['vmid']} on {existing['node']} (status: {existing['status']})\n"
+            f"  Decomm it first, or remove it manually."
+        )
+        sys.exit(1)
+
     # ═══════════════════════════════════════════
     # Create the container
     # ═══════════════════════════════════════════
@@ -565,9 +671,10 @@ def main() -> None:
         Template   : {template_name}
         vCPUs      : {cpus_str}
         Memory     : {memory_gb_str} GB
+        Swap       : {memory_gb_str} GB
         Disk       : {disk_gb_str} GB ({storage})
         VLAN       : {vlan_str}
-        Network    : {bridge}.{vlan_str} / DHCP
+        Network    : {bridge}.{vlan_str} / {'DHCP' if use_dhcp else f'{ip_address}/{prefix_len} gw {gateway}'}
         Timezone   : {cfg.get('timezone', 'UTC')}
         NTP        : {', '.join(cfg.get('ntp', {}).get('servers', ['pool.ntp.org']))}
         SNMP       : community={cfg.get('snmp', {}).get('community', 'your-snmp-community')} (rw)
@@ -581,9 +688,13 @@ def main() -> None:
         "ostemplate":   template_volid,
         "cores":        int(cpus_str),
         "memory":       memory_mb,
-        "swap":         defaults.get("swap_mb", 512),
+        "swap":         memory_mb,
         "rootfs":       f"{storage}:{disk_gb_str}",
-        "net0":         f"name=eth0,bridge={bridge},tag={vlan_str},ip=dhcp,firewall={firewall_enabled}",
+        "net0":         (
+            f"name=eth0,bridge={bridge},tag={vlan_str},ip=dhcp,firewall={firewall_enabled}"
+            if use_dhcp else
+            f"name=eth0,bridge={bridge},tag={vlan_str},ip={ip_address}/{prefix_len},gw={gateway},firewall={firewall_enabled}"
+        ),
         "password":     password,
         "unprivileged": unprivileged,
         "onboot":       1 if defaults.get("onboot", True) else 0,
@@ -606,6 +717,19 @@ def main() -> None:
         console.print(f"[red]✗ Container creation failed: {e}[/red]")
         sys.exit(1)
 
+    # Write a stub deployment file immediately so this container is tracked even if
+    # a later step fails (DHCP timeout, Ansible error, etc.).  The file is overwritten
+    # with full data at the end of a successful deployment.
+    _save_lxc_deployment_file(
+        hostname, next_vmid, node_name, template_volid, template_name,
+        cpus_str, memory_gb_str, disk_gb_str, storage, vlan_str, bridge,
+        password, "dhcp" if use_dhcp else ip_address, "", prefix_len, gateway, cfg,
+        package_profile=package_profile,
+        extra_packages=extra_packages,
+        lxc_features=lxc_features,
+        ttl=ttl or "",
+    )
+
     if features_str:
         apply_lxc_features_ssh(cfg, node_name, next_vmid, features_str)
 
@@ -624,29 +748,29 @@ def main() -> None:
         sys.exit(1)
 
     # ═══════════════════════════════════════════
-    # Wait for DHCP IP
+    # Wait for IP (DHCP) or use static
     # ═══════════════════════════════════════════
-    console.print("[bold cyan]─── Step 3/7: Waiting for DHCP IP address ───[/bold cyan]")
-    try:
-        with console.status("[bold green]Polling for DHCP lease (up to 2 min)..."):
-            container_ip, prefix_len = wait_for_lxc_ip(proxmox, node_name, next_vmid, timeout=120)
-        console.print(f"[green]✓ Container IP: [bold]{container_ip}[/bold] /{prefix_len}[/green]")
-    except TimeoutError as e:
-        console.print(f"[red]✗ {e}[/red]")
-        console.print(f"  You can still SSH to the Proxmox node and run: pct exec {next_vmid} -- ip addr")
-        sys.exit(1)
+    if use_dhcp:
+        console.print("[bold cyan]─── Step 3/7: Waiting for DHCP IP address ───[/bold cyan]")
+        try:
+            with console.status("[bold green]Polling for DHCP lease (up to 5 min)..."):
+                container_ip, prefix_len = wait_for_lxc_ip(proxmox, node_name, next_vmid, timeout=300)
+            console.print(f"[green]✓ Container IP: [bold]{container_ip}[/bold] /{prefix_len}[/green]")
+        except TimeoutError as e:
+            console.print(f"[red]✗ {e}[/red]")
+            console.print(f"  You can still SSH to the Proxmox node and run: pct exec {next_vmid} -- ip addr")
+            sys.exit(1)
+    else:
+        console.print("[bold cyan]─── Step 3/7: Static IP — no DHCP wait needed ───[/bold cyan]")
+        container_ip = ip_address
+        console.print(f"  [dim]Using static IP: {container_ip}/{prefix_len}  gw {gateway}[/dim]")
 
     # ═══════════════════════════════════════════
     # Bootstrap SSH via pct exec
     # ═══════════════════════════════════════════
     console.print("[bold cyan]─── Step 4/7: Bootstrapping SSH in container ───[/bold cyan]")
     try:
-        bootstrap_lxc_ssh(
-            cfg, node_name, next_vmid, password,
-            container_ip=container_ip, prefix_len=prefix_len,
-            nameserver=defaults.get("nameserver", "8.8.8.8 8.8.4.4"),
-            searchdomain=defaults.get("searchdomain", "local"),
-        )
+        bootstrap_lxc_ssh(cfg, node_name, next_vmid, password)
     except Exception as e:
         console.print(f"[red]✗ Bootstrap failed: {e}[/red]")
         sys.exit(1)
@@ -712,7 +836,10 @@ def main() -> None:
     _save_lxc_deployment_file(
         hostname, next_vmid, node_name, template_volid, template_name,
         cpus_str, memory_gb_str, disk_gb_str, storage, vlan_str, bridge,
-        password, container_ip, prefix_len, cfg,
+        password,
+        "dhcp" if use_dhcp else ip_address,  # ip_address field
+        container_ip if use_dhcp else "",     # assigned_ip (DHCP-discovered IP)
+        prefix_len, gateway, cfg,
         package_profile=package_profile,
         extra_packages=extra_packages,
         lxc_features=lxc_features,
@@ -748,7 +875,7 @@ def main() -> None:
 
             [bold]Hostname   :[/bold]  {hostname}
             [bold]FQDN       :[/bold]  {fqdn}
-            [bold]IP Address :[/bold]  {container_ip}
+            [bold]IP Address :[/bold]  {container_ip}{"  (DHCP-assigned)" if use_dhcp else ""}
             [bold]VMID       :[/bold]  {next_vmid}  (on {node_name})
             [bold]SSH        :[/bold]  ssh root@{container_ip}
                       ssh {addusername}@{container_ip}
@@ -761,6 +888,8 @@ def main() -> None:
         border_style="green",
         title="[bold green]✓ All Done[/bold green]",
     ))
+    if _deploy_log_path:
+        console.print(f"[dim]Log: {_deploy_log_path}[/dim]")
 
 
 if __name__ == "__main__":

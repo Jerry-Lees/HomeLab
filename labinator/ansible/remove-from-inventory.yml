@@ -16,7 +16,7 @@
   tasks:
     - name: Write inventory removal script
       copy:
-        dest: /tmp/remove_inventory.py
+        dest: /tmp/remove_inventory_{{ hostname }}.py
         content: |
           import os, sys, re
 
@@ -43,7 +43,7 @@
               print(f"{hostname} not found in inventory — nothing to remove")
 
     - name: Remove host from inventory file
-      shell: python3 /tmp/remove_inventory.py
+      shell: python3 /tmp/remove_inventory_{{ hostname }}.py
       environment:
         INVENTORY_FILE: "{{ inventory_file }}"
         HOSTNAME: "{{ hostname }}"
@@ -56,5 +56,5 @@
 
     - name: Clean up script
       file:
-        path: /tmp/remove_inventory.py
+        path: /tmp/remove_inventory_{{ hostname }}.py
         state: absent
