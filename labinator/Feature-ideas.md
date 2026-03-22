@@ -926,3 +926,87 @@ targeted `chown` fixes.
 
 ---
 
+## Auto-enable `nesting=1` for Ubuntu 24.04 LXC Containers
+
+Proxmox logs a warning during LXC creation for Ubuntu 24.04 templates:
+
+```
+WARN: Systemd 255 detected. You may need to enable nesting.
+```
+
+Ubuntu 24.04 ships systemd 255, which requires the `nesting=1` LXC feature flag for full
+compatibility. Without it, some systemd services may behave unexpectedly inside the container.
+
+### Options
+
+1. **Auto-detect from template name** — if the selected template name contains `ubuntu-24.04`
+   (or any future template known to require nesting), silently add `nesting=1` to the feature
+   flags before container creation, with a note in the summary table.
+2. **Profile default** — allow `lxc_features` to be set per package profile in `config.yaml`,
+   so profiles that are likely to need nesting (e.g. anything running Docker) pre-select it.
+3. **Warning + prompt** — detect the template and warn the user during the wizard, pre-selecting
+   `nesting=1` in the feature flag checkbox step.
+
+### Notes
+
+- `nesting=1` is the one LXC feature flag that can be applied via the Proxmox API at creation
+  time (no SSH required). All other flags require `pct set` over SSH.
+- Option 1 is the lowest friction. Template name matching could be a list in `config.yaml`
+  (`lxc_auto_nesting_templates: ["ubuntu-24.04"]`) so it stays configurable without code changes.
+
+---
+
+## LXC Template Download from Proxmox Repository
+
+The LXC template selector only lists templates already downloaded to the cluster. If the desired
+template isn't present, there's no way to get it from within the wizard.
+
+Proxmox exposes the full community template catalog via the API, so a download flow is
+straightforward to add:
+
+- `GET /nodes/{node}/aplinfo` — returns all templates available in the Proxmox repo
+- `POST /nodes/{node}/aplinfo` with `storage=<pool>&template=<name>` — triggers download;
+  returns a task ID that can be polled until complete
+
+### Proposed UX
+
+Add a **"Download from Proxmox repo..."** option at the bottom of the template selector.
+Choosing it shows a second list of available-but-not-yet-downloaded templates. User picks one,
+wizard triggers the download, polls the task until complete, then continues to the confirm step
+with the newly downloaded template pre-selected.
+
+### Notes
+
+- This is the LXC equivalent of the VM cloud-image download feature, but uses the Proxmox
+  template repository instead of upstream distro URLs.
+- The download runs on the selected node — if the cluster has shared storage (e.g. `Net-Images`),
+  the template is immediately available to all nodes after download.
+- `--dry-run` would show the template name and note that it would be downloaded if missing.
+
+---
+
+
+## Batch Deploy Node-Aware Staging
+
+When deploying in parallel, multiple containers/VMs targeted at the same Proxmox node run
+concurrently, which can cause resource contention (CPU, disk I/O, network) during the busiest
+parts of deployment (template extraction, apt upgrade, Ansible).
+
+### Proposed behavior
+
+Add a `--node-serial` flag (or make it the default) that groups jobs by target node and ensures
+no two jobs deploying to the same node run simultaneously. Jobs on different nodes still run in
+parallel.
+
+### Implementation notes
+
+- Before dispatching jobs, group deployment files by their `node` field.
+- Use a per-node semaphore (`threading.Semaphore(1)`) so only one job per node runs at a time.
+- Jobs for different nodes are still submitted to the ThreadPoolExecutor concurrently — the
+  semaphore gates the actual work, not the submission.
+- The status board already shows the target node per host — staggered starts would be visible
+  there naturally.
+- `--parallel N` would still control total concurrency; node-serial would add an additional
+  per-node constraint on top.
+
+---
