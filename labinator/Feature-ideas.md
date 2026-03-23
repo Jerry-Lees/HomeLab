@@ -894,31 +894,12 @@ targeted `chown` fixes.
 
 ## Auto-enable `nesting=1` for Ubuntu 24.04 LXC Containers
 
-Proxmox logs a warning during LXC creation for Ubuntu 24.04 templates:
+**Implemented** — Option 1 (auto-detect from template name).
 
-```
-WARN: Systemd 255 detected. You may need to enable nesting.
-```
-
-Ubuntu 24.04 ships systemd 255, which requires the `nesting=1` LXC feature flag for full
-compatibility. Without it, some systemd services may behave unexpectedly inside the container.
-
-### Options
-
-1. **Auto-detect from template name** — if the selected template name contains `ubuntu-24.04`
-   (or any future template known to require nesting), silently add `nesting=1` to the feature
-   flags before container creation, with a note in the summary table.
-2. **Profile default** — allow `lxc_features` to be set per package profile in `config.yaml`,
-   so profiles that are likely to need nesting (e.g. anything running Docker) pre-select it.
-3. **Warning + prompt** — detect the template and warn the user during the wizard, pre-selecting
-   `nesting=1` in the feature flag checkbox step.
-
-### Notes
-
-- `nesting=1` is the one LXC feature flag that can be applied via the Proxmox API at creation
-  time (no SSH required). All other flags require `pct set` over SSH.
-- Option 1 is the lowest friction. Template name matching could be a list in `config.yaml`
-  (`lxc_auto_nesting_templates: ["ubuntu-24.04"]`) so it stays configurable without code changes.
+After the wizard completes, `deploy_lxc.py` checks the selected template name against
+`lxc_auto_nesting_templates` in `config.yaml` (default: `["ubuntu-24.04"]`). If the template
+matches and `nesting=1` isn't already enabled, it's silently added before container creation
+and a dim note is printed.
 
 ---
 
