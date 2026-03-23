@@ -387,11 +387,15 @@ def prompt_node_selection(nodes: list[dict], deploy: dict, silent: bool,
     best_node = filtered_nodes[0]
 
     if silent:
-        node_name = str(deploy.get("node", best_node["name"]))
-        if not any(n["name"] == node_name for n in nodes):
+        node_name = str(deploy.get("node", "")).strip()
+        if not node_name:
+            node_name = best_node["name"]
+            console.print(f"  [dim]Node: auto-selected {node_name} (most available resources)[/dim]")
+        elif not any(n["name"] == node_name for n in nodes):
             console.print(f"[red]ERROR: Node '{node_name}' from deployment file is not online.[/red]")
             sys.exit(1)
-        console.print(f"  [dim]Node (from deployment file): {node_name}[/dim]")
+        else:
+            console.print(f"  [dim]Node (from deployment file): {node_name}[/dim]")
         return node_name
 
     deploy_node = str(deploy.get("node", ""))
