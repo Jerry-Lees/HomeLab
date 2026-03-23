@@ -635,9 +635,29 @@ def main() -> None:
     now_str          = ws["now_str"]
     memory_mb        = int(float(memory_gb_str) * 1024)
 
+    # ── Auto-nesting: silently add nesting=1 for templates that require it ──
+    _auto_nesting_patterns = cfg.get("lxc_auto_nesting_templates", ["ubuntu-24.04"])
+    if (
+        any(pat in template_name for pat in _auto_nesting_patterns)
+        and "nesting=1" not in lxc_features
+    ):
+        lxc_features = list(lxc_features) + ["nesting=1"]
+        console.print(
+            f"  [dim]Auto-enabled nesting=1 for {template_name} "
+            f"(systemd 255 requires nesting — see lxc_auto_nesting_templates in config.yaml)[/dim]"
+        )
+
     # ── Pre-creation resource re-check ──
     console.print("[dim]Pre-creation resource check...[/dim]")
     ok, reason = check_node_resources(proxmox, node_name, memory_mb, int(disk_gb_str), storage, cpu_threshold, ram_threshold)
+    if not ok and reason.startswith("Could not verify resources:"):
+        # API connection dropped while wizard was open — reconnect and retry once
+        console.print("[dim]API connection dropped — reconnecting...[/dim]")
+        try:
+            proxmox = connect_proxmox(cfg)
+            ok, reason = check_node_resources(proxmox, node_name, memory_mb, int(disk_gb_str), storage, cpu_threshold, ram_threshold)
+        except Exception as e:
+            ok, reason = False, f"Could not reconnect: {e}"
     if not ok:
         console.print(f"[red]✗ Resource check failed: {reason}[/red]")
         console.print("[red]Deployment aborted. Resources may have changed since node selection.[/red]")
