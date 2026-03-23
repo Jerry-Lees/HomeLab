@@ -267,27 +267,104 @@ plaintext in the deployment JSON. On decommission, delete the secret.
 After a container or VM is deployed, automatically add a monitor in Uptime Kuma. Remove it on
 decommission.
 
+**Live test target available:** `kuma.lees-family.io` (deployed via labinator, running Uptime Kuma 2.2.1).
+
 ### Deploy: Create monitor
 
-- Add a TCP ping or HTTP monitor for the new host's IP / FQDN.
-- Tag the monitor with the hostname for easy filtering.
+- Add a ping or TCP monitor for the new host's IP / FQDN.
+- Tag the monitor with the hostname for easy filtering in the Kuma UI.
 
 ### Decommission: Remove monitor
 
-- Look up the monitor by hostname/tag and delete it.
+- Look up the monitor by the stored monitor ID and delete it.
+
+### API approach — check REST API availability at implementation time
+
+> **Note (2026-03-22):** Uptime Kuma 2.2.1 (current latest) does NOT have a monitor
+> management REST API. The `/api/v1/monitors` endpoint does not exist — all routes
+> return the Vue SPA. The API keys generated in Settings → API Keys authenticate
+> Socket.IO connections only, not a REST API. This was confirmed by inspecting
+> `server/routers/api-router.js` on the live kuma instance.
+>
+> **Before implementing:** check the latest Uptime Kuma release to see if a monitor
+> management REST API has been added. If yes, use `requests` with
+> `Authorization: Bearer <api_key>`. If no, use the Socket.IO approach below.
+
+#### Option A — REST API (use this if available in current release)
+
+```
+Authorization: Bearer <api_key>
+
+GET    /api/v1/monitors              list all monitors
+POST   /api/v1/monitors              create a monitor
+DELETE /api/v1/monitors/{id}         delete a monitor
+PATCH  /api/v1/monitors/{id}         update a monitor
+```
+
+Minimal create payload:
+```json
+{
+  "type": "ping",
+  "name": "myserver",
+  "hostname": "10.220.220.150",
+  "interval": 60
+}
+```
+
+No new Python dependencies — `requests` is already installed.
+
+#### Option B — Socket.IO API via `uptime-kuma-api` library (fallback)
+
+The `uptime-kuma-api` Python library wraps the Socket.IO interface that the Kuma web UI
+uses internally. As of 2.2.1 this is the only way to programmatically manage monitors.
+API key auth is supported by newer versions of the library.
+
+```python
+from uptime_kuma_api import UptimeKumaApi, MonitorType
+
+with UptimeKumaApi("http://kuma.lees-family.io:3001") as api:
+    api.login_by_token("uk1_...")   # API key auth
+    api.add_monitor(
+        type=MonitorType.PING,
+        name="myserver",
+        hostname="10.220.220.150",
+        interval=60,
+    )
+```
+
+Add `uptime-kuma-api` to `requirements.txt` if using this approach.
 
 ### Implementation notes
 
-- Use the `uptime-kuma-api` Python library (add to `requirements.txt`), which wraps the
-  Uptime Kuma Socket.IO API.
 - Config keys under a new `uptime_kuma:` block in `config.yaml`:
   - `enabled: true/false`
-  - `url:` (e.g. `https://uptime.example.com`)
-  - `username:`
-  - `password:`
-  - `default_monitor_type:` (e.g. `ping` or `tcp` — `ping` is a good default for all hosts)
-  - `notification_id:` (optional — attach an existing Uptime Kuma notification channel)
-- Store the monitor ID in the deployment JSON for reliable lookup during decommission.
+  - `url:` (e.g. `http://kuma.lees-family.io:3001`)
+  - `api_key:` (generated in Kuma Settings → API Keys — stored in `labinator/kuma` file)
+  - `default_monitor_type:` (`ping` or `port` — `ping` is a good default for all hosts)
+  - `default_port:` (port to check when type is `port`, default: `22`)
+  - `notification_id:` (optional — attach an existing Kuma notification channel ID)
+- Store the returned monitor `id` in the deployment JSON as `uptime_kuma_monitor_id` for
+  reliable lookup during decommission — do not rely on name-based lookup.
+- If `uptime_kuma.enabled: false` or the block is absent, skip silently (same pattern as DNS and inventory).
+- On decomm: if `uptime_kuma_monitor_id` is missing from the JSON, fall back to searching
+  monitors by name. Log a warning if not found (monitor may have been deleted manually).
+
+### Default monitors to create per host
+
+- **Ping** — every labinator-managed host (universal)
+- **TCP port 22** — every host (labinator bootstraps SSH on all LXC and VM deployments)
+- **Profile-aware extras** (based on `package_profile` in the deployment JSON):
+  - `web-server` profile → HTTP port 80, HTTPS port 443
+  - `database` profile → TCP port 3306 (MySQL/MariaDB) or 5432 (Postgres)
+  - `dns` profile → TCP port 53
+
+### Infrastructure monitors (one-time manual setup, outside labinator scope)
+
+These are not per-host but should exist in Kuma for full coverage:
+- Proxmox web UI — HTTPS port 8006 on each node
+- BIND DNS server — TCP port 53
+- The Kuma host itself (self-monitor or external ping)
+- Default gateway / router
 
 ---
 
@@ -952,3 +1029,452 @@ parallel.
   per-node constraint on top.
 
 ---
+
+## ssh.py — Post-Deploy SSH Jump and ~/.ssh/config Manager
+
+Two related capabilities in one script:
+
+1. **Jump** — after any successful deploy, offer to drop directly into an SSH session on the new host. The IP is already known at the end of the deploy flow, so no lookup is needed.
+2. **Standalone** — `python3 ssh.py <hostname>` looks up the deployment JSON by hostname, resolves the IP (`assigned_ip` → `ip_address`), and execs SSH. Works like a smarter alias for any labinator-managed host.
+3. **`~/.ssh/config` updater** — optionally write (or update) a `Host` entry in `~/.ssh/config` so you can `ssh myserver` directly from anywhere.
+
+### Usage
+
+```bash
+# Standalone — look up hostname in deployment JSONs
+python3 ssh.py myserver
+python3 ssh.py myserver --user dad        # connect as a specific user (default: root)
+python3 ssh.py myserver --update-config   # also write/update entry in ~/.ssh/config
+python3 ssh.py                            # interactive picker — same style as decomm scripts
+```
+
+### Post-deploy integration
+
+At the very end of `deploy_lxc.py` and `deploy_vm.py`, after the `✓ All Done` panel and only when NOT `--silent`:
+
+```python
+if questionary.confirm(
+    f"Connect to {hostname} now? (ssh root@{container_ip})", default=False
+).ask():
+    os.execvp("ssh", ["ssh", f"root@{container_ip}"])
+```
+
+Default is **No** — in pipelines or when the deploy finishes late, the user may not want a session. `os.execvp` replaces the Python process entirely so the terminal behaves normally (resize, Ctrl-C, colors all work).
+
+### Standalone lookup logic
+
+1. Search `deployments/lxc/<hostname>.json` then `deployments/vms/<hostname>.json`. Accept FQDN — strip domain suffix.
+2. If not found by filename, scan all JSONs and match on `hostname` field.
+3. If multiple matches, show a picker.
+4. Resolve IP: `assigned_ip` → `ip_address`. Exit with error if `"dhcp"` and no `assigned_ip`.
+
+### ~/.ssh/config management
+
+Write or update a stanza in `~/.ssh/config`:
+
+```
+Host myserver
+    HostName 10.220.220.180
+    User root
+    IdentityFile ~/.ssh/id_rsa
+```
+
+- Key path from `cfg["proxmox"]["ssh_key"]`.
+- If the stanza already exists, update `HostName` in place (the IP may have changed after a redeploy).
+- Parse the config file line-by-line — do not use a third-party SSH config parser.
+- `--update-config` flag enables this. Add `ssh.update_config: true` to `config.yaml` to make it the default.
+
+### Implementation notes
+
+- `list_deployment_files("lxc")` and `list_deployment_files("vms")` from `modules/io.py` are the data source.
+- No Proxmox API connection needed — pure file lookup + exec.
+- Interactive picker (no argument given): show a rich table of all known hosts with IP and node, then exec SSH on selection.
+
+---
+
+## health.py — Batch Host Reachability Check
+
+Reads every deployment JSON in `deployments/lxc/` and `deployments/vms/`, probes each host's SSH port (22 by default), and prints a color-coded table. Cron-friendly: exits 0 if all hosts are reachable, 1 if any are down.
+
+### Usage
+
+```bash
+python3 health.py                   # check all managed hosts
+python3 health.py --timeout 3       # TCP connect timeout per host in seconds (default: 3)
+python3 health.py --port 22         # port to probe (default: 22)
+python3 health.py --type lxc        # filter to LXC only (or --type vm)
+python3 health.py --node proxmox01  # filter to hosts deployed on a specific node
+python3 health.py --json            # machine-readable JSON output
+python3 health.py --down-only       # only print hosts that are down or unreachable
+```
+
+### Output table
+
+```
+┏━━━━━━━━━━━━━┳━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━┓
+┃ Hostname    ┃ Type ┃ IP             ┃ Node      ┃ Status  ┃
+┡━━━━━━━━━━━━━╇━━━━━━╇━━━━━━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━┩
+│ kuma        │ lxc  │ 10.220.220.180 │ proxmox01 │ ✓ up    │
+│ myserver    │ vm   │ 10.220.220.150 │ proxmox02 │ ✗ down  │
+│ dhcp-host   │ lxc  │ —              │ proxmox01 │ ? no IP │
+└─────────────┴──────┴────────────────┴───────────┴─────────┘
+2 up  1 down  1 skipped (no IP)
+```
+
+### Implementation notes
+
+- IP resolution: `assigned_ip` → `ip_address`. If resolved value is `"dhcp"` and no `assigned_ip` exists, skip with `? no IP` — cannot probe.
+- Probe method: `socket.create_connection((ip, port), timeout=timeout)` — pure TCP connect, no SSH handshake. Fast and zero extra dependencies.
+- Run probes in parallel with `concurrent.futures.ThreadPoolExecutor(max_workers=20)` — large inventories return quickly.
+- Status colors: green `✓ up`, red `✗ down`, yellow `? no IP` / `? skipped`.
+- Exit code: `sys.exit(1)` if any host is `down`. Skipped hosts (no IP) do not count as failures.
+- `--json` output:
+  ```json
+  [{"hostname": "kuma", "type": "lxc", "ip": "10.220.220.180", "node": "proxmox01", "status": "up"}, ...]
+  ```
+- No Proxmox API connection needed — pure local file read + TCP probe.
+- Data source: `list_deployment_files("lxc")` and `list_deployment_files("vms")` from `modules/io.py`.
+
+---
+
+## rerun-ansible.py — Re-run Post-Deploy Ansible Playbook
+
+Re-runs the labinator Ansible post-deploy playbook against an already-running host without touching Proxmox at all. Use it to push updated SNMP config, install additional packages, rotate NTP servers, or apply any other change the playbook manages.
+
+### Usage
+
+```bash
+python3 rerun-ansible.py --deploy-file deployments/lxc/myserver.json
+python3 rerun-ansible.py --deploy-file deployments/vms/myvm.json
+python3 rerun-ansible.py --deploy-file deployments/lxc/myserver.json --tags snmp,ntp
+python3 rerun-ansible.py --deploy-file deployments/lxc/myserver.json --extra-vars "extra_packages=[vim,htop]"
+python3 rerun-ansible.py --deploy-file deployments/lxc/myserver.json --check
+```
+
+### How it works
+
+1. Load the deployment JSON.
+2. Determine type: `deploy.get("type") == "vm"` → use `ansible/post-deploy-vm.yml`; otherwise → `ansible/post-deploy.yml`.
+3. Resolve IP: `assigned_ip` → `ip_address`. Exit with error if no usable IP.
+4. Call `run_ansible_post_deploy(ip, password, hostname, cfg, kind, ...)` from `modules/ansible.py` — the exact same function called by the deploy scripts. No new Ansible logic needed.
+5. Print output in the same format as a normal deploy.
+
+### CLI options
+
+| Option | Description |
+|---|---|
+| `--deploy-file FILE` | Deployment JSON to target. Required. |
+| `--tags TAG,...` | Ansible `--tags` pass-through — run only specific roles/tasks. |
+| `--skip-tags TAG,...` | Ansible `--skip-tags` pass-through. |
+| `--extra-vars VARS` | Additional Ansible `-e` variables (override any playbook default). |
+| `--check` | Ansible `--check` dry-run — show what would change without applying. |
+| `--config FILE` | Alternate config file. |
+
+### Implementation notes
+
+- Password read from deployment JSON. If absent (e.g. after Vault integration), exit with a clear error.
+- For VMs: SSH key auth (same as normal VM deploy flow). For LXC: password auth via sshpass.
+- Pass `profile_packages` and `extra_packages` from the JSON to `run_ansible_post_deploy()` so the playbook state matches the original deployment.
+- No Proxmox API connection needed at all.
+- Optional `--all` flag: iterate every deployment JSON and re-run against each, with `--parallel N` for concurrent execution. Useful for fleet-wide config rollouts.
+- `run_ansible_post_deploy()` already accepts a `tags` and `extra_vars` argument — add those parameters if not present, or build the ansible command with them appended.
+
+---
+
+## migrate.py — Live-Migrate LXC/VM Between Proxmox Nodes
+
+Move a running or stopped LXC container or VM from one Proxmox node to another using the Proxmox migration API, then update the deployment JSON with the new node.
+
+### Usage
+
+```bash
+python3 migrate.py --deploy-file deployments/lxc/myserver.json
+python3 migrate.py --deploy-file deployments/vms/myvm.json --target proxmox02
+python3 migrate.py --deploy-file deployments/lxc/myserver.json --target proxmox03 --online
+```
+
+### How it works
+
+1. Load the deployment JSON. Read `vmid`, current `node`, and type.
+2. Connect to Proxmox API. Call `get_nodes_with_load()` to list online nodes.
+3. If `--target` not given, show an interactive node picker (same `prompt_node_selection()` as deploy wizards) excluding the current node.
+4. Check migration feasibility:
+   - **VMs**: online migration requires shared storage (NFS, Ceph). Query storage type from API. If local storage, warn that the VM will be stopped during migration.
+   - **LXC**: `--online` requires shared storage for rootfs. If local storage, the container must be stopped; warn before proceeding.
+5. Trigger migration via Proxmox API:
+   - LXC: `POST /nodes/{current_node}/lxc/{vmid}/migrate` — body: `{"target": target_node, "online": 0|1}`
+   - VM: `POST /nodes/{current_node}/qemu/{vmid}/migrate` — body: `{"target": target_node, "online": 0|1, "with-local-disks": 1}`
+6. Poll the returned task ID with `wait_for_task(proxmox, current_node, task_id, timeout=600)`.
+7. On success: update deployment JSON `"node"` field and save with `write_deployment_file()`.
+
+### CLI options
+
+| Option | Description |
+|---|---|
+| `--deploy-file FILE` | Deployment JSON for the host to migrate. Required. |
+| `--target NODE` | Destination Proxmox node name. Interactive picker if omitted. |
+| `--online` | Attempt live migration (no downtime). Requires shared storage. |
+| `--config FILE` | Alternate config file. |
+
+### Implementation notes
+
+- Migration timeout is longer than most operations — use 600s default.
+- If the migration task fails, the deployment JSON is NOT updated. Host stays on original node.
+- After migration, confirm success: query `proxmox.nodes(target_node).lxc(vmid).status.current.get()` and verify it responds. Print ✓ confirmed or a warning.
+- `with-local-disks: 1` is required for VM migration with local storage — include it unconditionally.
+- For LXC with local storage: migration copies the rootfs as a tar to the target node. Warn the user this may be slow for large containers.
+
+---
+
+## vlan-report.py — VLAN Inventory Report
+
+Read all deployment JSONs and produce a table grouped by VLAN showing every managed host, its IP, type, and Proxmox node. Useful for IP planning, subnet auditing, and spotting gaps.
+
+### Usage
+
+```bash
+python3 vlan-report.py               # all VLANs, grouped
+python3 vlan-report.py --vlan 220    # filter to a specific VLAN
+python3 vlan-report.py --sort ip     # sort within each group by IP (default: hostname)
+python3 vlan-report.py --format csv  # CSV output for spreadsheets
+python3 vlan-report.py --format json # JSON output for scripting
+```
+
+### Output
+
+```
+VLAN 220 — Servers
+┏━━━━━━━━━━━━━┳━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Hostname    ┃ Type ┃ IP             ┃ Node       ┃ FQDN                   ┃
+┡━━━━━━━━━━━━━╇━━━━━━╇━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ kuma        │ lxc  │ 10.220.220.180 │ proxmox01  │ kuma.lees-family.io    │
+│ myserver    │ vm   │ 10.220.220.150 │ proxmox02  │ myserver.lees-family.io│
+│ dhcp-host   │ lxc  │ (DHCP)         │ proxmox01  │ dhcp-host.lees-family.io│
+└─────────────┴──────┴────────────────┴────────────┴────────────────────────┘
+
+Summary: 3 hosts across 2 VLANs
+```
+
+### Implementation notes
+
+- Data source: all JSONs from `deployments/lxc/` and `deployments/vms/` via `list_deployment_files()`. No Proxmox API connection needed.
+- VLAN from `"vlan"` field in each JSON. Group numerically, sort hosts within each group by hostname (or IP if `--sort ip`).
+- IP display: `assigned_ip` → `ip_address`. If value is `"dhcp"` and no `assigned_ip`, show `(DHCP)`.
+- FQDN from `"fqdn"` field.
+- CSV columns: `vlan,hostname,fqdn,type,ip,node`.
+- Optional `vlan_names` block in `config.yaml` for section headers:
+  ```yaml
+  vlan_names:
+    10: "Management"
+    220: "Servers"
+    230: "IoT"
+  ```
+  If not configured, section headers show `VLAN <N>` only.
+
+---
+
+## usage.py — Resource Usage Report from Proxmox RRD Data
+
+Pull CPU, RAM, disk I/O, and network usage trends for all managed hosts directly from the Proxmox built-in RRD database. No external monitoring stack required.
+
+### Usage
+
+```bash
+python3 usage.py                     # all hosts, last hour average
+python3 usage.py --timeframe day     # last 24 hours (hour|day|week|month|year)
+python3 usage.py --node proxmox02    # filter to one node
+python3 usage.py --type vm           # filter to VMs only
+python3 usage.py --sort cpu          # sort by column (cpu|ram|netin|netout)
+python3 usage.py --top 10            # show only top N by sort column
+```
+
+### Output table
+
+```
+Resource Usage — last hour average
+┏━━━━━━━━━━━━━┳━━━━━━┳━━━━━━━━┳━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━┓
+┃ Hostname    ┃ Type ┃ CPU %  ┃ RAM      ┃ RAM % ┃ Net In   ┃ Net Out  ┃
+┡━━━━━━━━━━━━━╇━━━━━━╇━━━━━━━━╇━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━┩
+│ kuma        │ lxc  │  12.4% │ 1.1 GB   │  27%  │ 1.2 MB/s │ 0.4 MB/s │
+│ myserver    │ vm   │   3.1% │ 2.8 GB   │  70%  │ 0.1 MB/s │ 0.0 MB/s │
+│ stopped-vm  │ vm   │     —  │ —        │   —   │ —        │ —        │
+└─────────────┴──────┴────────┴──────────┴───────┴──────────┴──────────┘
+```
+
+### Proxmox RRD API
+
+```
+GET /nodes/{node}/lxc/{vmid}/rrddata?timeframe={tf}&cf=AVERAGE
+GET /nodes/{node}/qemu/{vmid}/rrddata?timeframe={tf}&cf=AVERAGE
+```
+
+Returns a list of timestamped data points, each with fields: `cpu`, `mem`, `maxmem`, `netin`, `netout`, `diskread`, `diskwrite`. Average the non-null values for the summary figure.
+
+### Implementation notes
+
+- Load deployment JSONs for the hostname → VMID → node mapping. Query RRD for each VMID.
+- Skip hosts where VMID is not found on the expected node (ghost files) — print a dim warning row.
+- Skip hosts where all RRD values are null (stopped hosts with no recent data) — show dashes.
+- Run API queries in parallel with `ThreadPoolExecutor` — one query per host, bounded to ~10 workers to avoid hammering the API.
+- `timeframe` maps directly to Proxmox RRD strings: `hour`, `day`, `week`, `month`, `year`.
+- RAM: `mem` is bytes used, `maxmem` is bytes allocated. Show used value and percentage.
+- Network/disk RRD values are bytes/second — display as MB/s.
+- Color CPU column: green < 50%, yellow 50–80%, red > 80%. Same thresholds for RAM %.
+- No new config keys required.
+
+---
+
+## freshen.py — Template and Cloud Image Freshness Check
+
+Compare locally downloaded LXC templates and VM cloud images against what is available upstream. Flag anything with a newer version available.
+
+### Usage
+
+```bash
+python3 freshen.py                    # check both LXC templates and cloud images, all nodes
+python3 freshen.py --lxc              # LXC templates only
+python3 freshen.py --vm               # cloud images only
+python3 freshen.py --node proxmox01   # check templates on a specific node
+python3 freshen.py --download         # automatically download newer LXC templates
+```
+
+### LXC template freshness
+
+- **Local**: `GET /nodes/{node}/storage/{storage}/content?content=vztmpl` — currently downloaded templates.
+- **Available**: `GET /nodes/{node}/aplinfo` — full Proxmox community catalog. Already used by `get_lxc_repo_catalog()` in `modules/proxmox.py` — reuse it.
+- **Match logic**: filenames encode version (e.g. `ubuntu-24.04-standard_24.04-2_amd64.tar.zst`). Extract the version token (second `_`-delimited segment) and compare to the catalog entry for the same base name. If catalog has `_24.04-3_` and local has `_24.04-2_`, the local copy is outdated.
+- `--download`: call `download_lxc_template()` (already in `modules/proxmox.py`) for each outdated template. Does not delete the old version — Proxmox keeps both.
+
+### Cloud image freshness
+
+- **Local**: `list_cloud_images_on_storage()` (already in `modules/proxmox.py`) returns filenames and `ctime`.
+- **Available**: `cloud-images.yaml` has the upstream URL per image. Send `requests.head(url, timeout=10, allow_redirects=True)` and read `Last-Modified` header.
+- If `Last-Modified` > local `ctime`, the upstream image has been updated. If no `Last-Modified` header, show `unknown`.
+
+### Output
+
+```
+LXC Templates — proxmox01
+┏━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━┓
+┃ Template              ┃ Local Ver  ┃ Available   ┃ Status     ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━━━┩
+│ ubuntu-24.04-standard │ 24.04-2    │ 24.04-3     │ ⚠ outdated │
+│ debian-12-standard    │ 12.7-1     │ 12.7-1      │ ✓ current  │
+└───────────────────────┴────────────┴─────────────┴────────────┘
+
+Cloud Images
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━┓
+┃ Image                        ┃ Local Age  ┃ Upstream Modified    ┃ Status     ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━┩
+│ noble-server-cloudimg-amd64  │ 45 days    │ 2026-03-01           │ ⚠ outdated │
+│ jammy-server-cloudimg-amd64  │  3 days    │ 2026-03-20           │ ✓ current  │
+└──────────────────────────────┴────────────┴──────────────────────┴────────────┘
+```
+
+### Implementation notes
+
+- Requires Proxmox API connection (storage content queries + aplinfo). No SSH needed.
+- Reuse `get_lxc_templates()`, `get_lxc_repo_catalog()`, `get_iso_capable_storages()`, `list_cloud_images_on_storage()` — all in `modules/proxmox.py`.
+- For HTTP HEAD: `requests.head(url, timeout=10, allow_redirects=True)`. Handle timeouts and non-200 responses gracefully (show `unknown`).
+- Template version extraction: split filename on `_`; compare the version token. Fall back to full filename comparison for non-standard naming.
+
+---
+
+## rotate-passwd.py — Bulk Password Rotation
+
+SSH to a deployed host and change the root and secondary user passwords, then update the deployment JSON so the stored credential stays current.
+
+### Usage
+
+```bash
+python3 rotate-passwd.py --deploy-file deployments/lxc/myserver.json
+python3 rotate-passwd.py --deploy-file deployments/lxc/myserver.json --new-password "newpass"
+python3 rotate-passwd.py --all-lxc            # rotate every LXC in deployments/lxc/
+python3 rotate-passwd.py --all                # rotate every managed host
+python3 rotate-passwd.py --all --generate     # unique random password per host
+```
+
+### How it works
+
+1. Load the deployment JSON. Read IP (`assigned_ip` → `ip_address`) and current `password`.
+2. Prompt for new password if not given via `--new-password`. Confirm twice. Or generate a random one with `--generate` using `secrets.token_urlsafe(16)`.
+3. Connect via paramiko using the current stored password:
+   ```python
+   ssh.connect(ip, username="root", password=old_password)
+   ssh.exec_command(f'echo "root:{new_password}" | chpasswd && echo "{addusername}:{new_password}" | chpasswd')
+   ```
+   `addusername` from `cfg["defaults"]["addusername"]`.
+4. On success: update `"password"` in the deployment JSON and save with `write_deployment_file()`.
+5. Print ✓ success or ✗ failure per host. Never update the JSON if SSH failed.
+
+### CLI options
+
+| Option | Description |
+|---|---|
+| `--deploy-file FILE` | Single target. Mutually exclusive with `--all*` flags. |
+| `--all-lxc` | All LXC deployment files. |
+| `--all-vm` | All VM deployment files. |
+| `--all` | All deployment files (LXC + VM). |
+| `--new-password PASS` | New password. Prompted interactively if omitted. |
+| `--generate` | Generate a unique random password per host (`secrets.token_urlsafe(16)`). |
+| `--parallel N` | Concurrent hosts (default: 1 — serial for safety). |
+| `--config FILE` | Alternate config file. |
+
+### Implementation notes
+
+- Use paramiko directly (already a dependency) rather than sshpass subprocess — cleaner and no shell injection risk.
+- `--generate` with `--all`: generate a distinct password per host. Print a summary table of `hostname → new_password` after all rotations complete so the operator can record them.
+- For VMs using key auth: connect with the SSH key from config, then run the same `chpasswd` command. Still update the JSON.
+- History log entry: `"action": "rotate-passwd"` in `deployments/history.log` per successful rotation. Never log the password itself.
+- `--parallel` default is 1 — a scripting error should not simultaneously lock out every host. Only parallelize with explicit flag.
+
+---
+
+## push-key.py — SSH Public Key Push
+
+Push an SSH public key to one or more deployed hosts' `authorized_keys` without redeploying. Handles both adding and revoking keys, across root and the secondary user.
+
+### Usage
+
+```bash
+python3 push-key.py --deploy-file deployments/lxc/myserver.json
+python3 push-key.py --deploy-file deployments/lxc/myserver.json --key ~/.ssh/new_key.pub
+python3 push-key.py --all                                         # push to every managed host
+python3 push-key.py --all --key ~/.ssh/teammate.pub               # push a colleague's key
+python3 push-key.py --deploy-file deployments/lxc/myserver.json --revoke ~/.ssh/old_key.pub
+python3 push-key.py --deploy-file deployments/lxc/myserver.json --user root
+python3 push-key.py --deploy-file deployments/lxc/myserver.json --user all
+```
+
+### How it works
+
+1. Load the deployment JSON. Read IP and `password`.
+2. Read the public key from `--key` (default: `~/.ssh/id_rsa.pub`).
+3. Connect via paramiko using the stored password (or existing key if already authorized — try key first, fall back to password).
+4. For each target user:
+   - `mkdir -p ~/.ssh && chmod 700 ~/.ssh`
+   - `touch ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys`
+   - **Push**: read current `authorized_keys`, check if key body already present (compare key type + base64 body, ignore comment). Append only if not found — fully idempotent.
+   - **Revoke** (`--revoke`): filter out lines whose key body matches. Write back the filtered list.
+5. Print ✓ per host per user on success.
+
+### CLI options
+
+| Option | Description |
+|---|---|
+| `--deploy-file FILE` | Single target host. |
+| `--all-lxc` | All LXC hosts. |
+| `--all-vm` | All VM hosts. |
+| `--all` | All managed hosts. |
+| `--key FILE` | Public key file to push (default: `~/.ssh/id_rsa.pub`). |
+| `--revoke FILE` | Public key to remove instead of adding. |
+| `--user USER` | `root`, `<addusername>`, or `all` (default: `all`). |
+| `--parallel N` | Concurrent hosts (default: 5). |
+| `--config FILE` | Alternate config file. |
+
+### Implementation notes
+
+- Idempotent push: split the key line into `[type, body, comment]`. Compare only `type + body` — the comment can differ between copies of the same key. Never append a duplicate.
+- `--user all`: derive `addusername` from `cfg["defaults"]["addusername"]`. Handle both users in a single SSH session — two `authorized_keys` operations, one connection.
+- Auth order: try key auth first (`~/.ssh/id_rsa` from config). If that fails, fall back to password from deployment JSON. If both fail, report error and skip.
+- History log entry: `"action": "push-key"` with the key fingerprint (not the full key body) — use `ssh-keygen -lf <keyfile>` via subprocess or compute it from the key bytes directly.
