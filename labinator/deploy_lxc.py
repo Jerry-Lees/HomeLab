@@ -124,6 +124,9 @@ from modules.lib import (
     make_common_wizard_steps,
     validate_lxc_deployment,
     get_lxc_templates,
+    get_vztmpl_storages,
+    get_lxc_repo_catalog,
+    download_lxc_template,
     get_lxc_disk_storages,
     wait_for_lxc_ip,
     run_pct_exec,
@@ -483,49 +486,122 @@ def main() -> None:
             return BACK
         return {**s, "lxc_features": r}
 
+    _DOWNLOAD_SENTINEL = "__download_from_repo__"
+
     def step_template(s):
-        with console.status(f"[bold green]Fetching templates from {s['node_name']}..."):
-            templates = get_lxc_templates(proxmox, s["node_name"])
-        if not templates:
-            console.print(f"[red]No LXC templates found on {s['node_name']}.[/red]")
-            console.print("Download templates in Proxmox: local storage > CT Templates > Templates")
-            sys.exit(1)
-        if silent:
-            template_volid = str(deploy.get("template_volid", ""))
-            if not template_volid:
-                template_volid = templates[0]["volid"]
-            elif not any(t["volid"] == template_volid for t in templates):
-                console.print(
-                    f"[yellow]Warning: Template '{template_volid}' not found on "
-                    f"{s['node_name']}. Using first available.[/yellow]"
-                )
-                template_volid = templates[0]["volid"]
-            template_name = template_volid.split("/")[-1]
-            console.print(f"  [dim]Template (from deployment file): {template_name}[/dim]")
-        else:
+        node_name = s["node_name"]
+        pre_select_volid = s.get("template_volid", "")
+
+        while True:
+            with console.status(f"[bold green]Fetching templates from {node_name}..."):
+                templates = get_lxc_templates(proxmox, node_name)
+
+            if silent:
+                # Silent mode: no download prompts — use deployment file or first available
+                if not templates:
+                    console.print(f"[red]No LXC templates found on {node_name}.[/red]")
+                    console.print("Download a template first via Proxmox UI or run interactively.")
+                    sys.exit(1)
+                template_volid = str(deploy.get("template_volid", ""))
+                if not template_volid:
+                    template_volid = templates[0]["volid"]
+                elif not any(t["volid"] == template_volid for t in templates):
+                    console.print(
+                        f"[yellow]Warning: Template '{template_volid}' not found on "
+                        f"{node_name}. Using first available.[/yellow]"
+                    )
+                    template_volid = templates[0]["volid"]
+                template_name = template_volid.split("/")[-1]
+                console.print(f"  [dim]Template (from deployment file): {template_name}[/dim]")
+                return {**s, "template_volid": template_volid, "template_name": template_name}
+
+            # Build choices: downloaded templates + download option at bottom
             template_choices = [
                 questionary.Choice(title=f"[{t['storage']}] {t['name']}", value=t["volid"])
                 for t in templates
             ]
+            template_choices.append(
+                questionary.Choice(title="─── Download from Proxmox repo...", value=_DOWNLOAD_SENTINEL)
+            )
+
             deploy_volid = str(deploy.get("template_volid", ""))
             default_tmpl_name = defaults.get("template", "")
             default_volid = (
-                deploy_volid if deploy_volid and any(t["volid"] == deploy_volid for t in templates)
+                pre_select_volid if pre_select_volid and any(t["volid"] == pre_select_volid for t in templates)
+                else deploy_volid if deploy_volid and any(t["volid"] == deploy_volid for t in templates)
                 else next(
                     (t["volid"] for t in templates if t["name"] == default_tmpl_name),
-                    templates[0]["volid"],
+                    templates[0]["volid"] if templates else _DOWNLOAD_SENTINEL,
                 )
             )
+
             r = select_nav(
                 "Select OS template (Ubuntu templates listed first):",
                 choices=template_choices,
-                default=s.get("template_volid", default_volid),
+                default=default_volid,
             )
             if r is BACK:
                 return BACK
-            template_volid = r
-            template_name = template_volid.split("/")[-1]
-        return {**s, "template_volid": template_volid, "template_name": template_name}
+            if r != _DOWNLOAD_SENTINEL:
+                pre_select_volid = r
+                template_name = r.split("/")[-1]
+                return {**s, "template_volid": r, "template_name": template_name}
+
+            # ── Download from repo flow ──
+            downloaded_names = {t["name"] for t in templates}
+            with console.status("[bold green]Fetching Proxmox template catalog..."):
+                catalog = get_lxc_repo_catalog(proxmox, node_name, downloaded_names)
+
+            if not catalog:
+                console.print("[yellow]No additional templates available in the Proxmox repo.[/yellow]")
+                continue
+
+            catalog_choices = [
+                questionary.Choice(
+                    title=f"{t.get('description', t['template'])}",
+                    value=t["template"],
+                )
+                for t in catalog
+            ]
+            catalog_choices.insert(0, questionary.Choice(title="← Back to template list", value=BACK))
+
+            chosen_template = questionary.select(
+                "Select template to download:",
+                choices=catalog_choices,
+            ).ask()
+
+            if chosen_template is None or chosen_template is BACK:
+                continue  # back to main template list
+
+            # Pick download storage
+            dl_storages = get_vztmpl_storages(proxmox, node_name)
+            if not dl_storages:
+                console.print("[red]No storage pools support template downloads on this node.[/red]")
+                continue
+            if len(dl_storages) == 1:
+                dl_storage = dl_storages[0]
+                console.print(f"  [dim]Downloading to storage: {dl_storage}[/dim]")
+            else:
+                storage_choices = [questionary.Choice(title=s, value=s) for s in dl_storages]
+                dl_storage = questionary.select(
+                    "Select storage to download template into:",
+                    choices=storage_choices,
+                ).ask()
+                if dl_storage is None:
+                    continue
+
+            # Trigger download and poll task
+            console.print(f"  [dim]Downloading {chosen_template}...[/dim]")
+            try:
+                task_id = download_lxc_template(proxmox, node_name, dl_storage, chosen_template)
+                with console.status(f"[bold green]Downloading {chosen_template} (this may take a minute)..."):
+                    wait_for_task(proxmox, node_name, task_id, timeout=300)
+                console.print(f"  [green]✓ Downloaded {chosen_template} to {dl_storage}[/green]")
+                # Pre-select the just-downloaded template on next loop iteration
+                pre_select_volid = f"{dl_storage}:vztmpl/{chosen_template}"
+            except Exception as e:
+                console.print(f"  [red]✗ Download failed: {e}[/red]")
+            # Loop back to re-fetch and show template list with new template
 
     def step_storage(s):
         with console.status(f"[bold green]Querying storage pools on {s['node_name']}..."):

@@ -287,6 +287,56 @@ def get_storage_iso_path(proxmox: ProxmoxAPI, storage_name: str) -> str:
     return f"/mnt/pve/{storage_name}/cloud-images"
 
 
+def get_vztmpl_storages(proxmox: ProxmoxAPI, node: str) -> list[str]:
+    """Return storage pool names that support LXC template downloads (vztmpl content type)."""
+    try:
+        storages = proxmox.nodes(node).storage.get()
+        return [s["storage"] for s in storages if "vztmpl" in s.get("content", "")]
+    except Exception:
+        return []
+
+
+def get_lxc_repo_catalog(proxmox: ProxmoxAPI, node: str, downloaded_names: set) -> list[dict]:
+    """
+    Fetch the Proxmox community template catalog for a node.
+    Returns entries not already downloaded, sorted Ubuntu-first.
+    Each dict has: template, description, os, version, section.
+    """
+    try:
+        catalog = proxmox.nodes(node).aplinfo.get()
+    except Exception as e:
+        console.print(f"[yellow]Warning: Could not fetch template catalog: {e}[/yellow]")
+        return []
+    # Filter out already-downloaded, blank descriptions, and deduplicate by template filename
+    seen = set()
+    available = []
+    for t in catalog:
+        name = t.get("template", "")
+        desc = t.get("description", "").strip()
+        if not name or not desc or name in downloaded_names or name in seen:
+            continue
+        seen.add(name)
+        available.append(t)
+    ubuntu = sorted(
+        [t for t in available if "ubuntu" in t.get("os", "").lower()],
+        key=lambda x: x.get("version", ""), reverse=True,
+    )
+    others = sorted(
+        [t for t in available if "ubuntu" not in t.get("os", "").lower()],
+        key=lambda x: x.get("description", ""),
+    )
+    return ubuntu + others
+
+
+def download_lxc_template(proxmox: ProxmoxAPI, node: str, storage: str, template: str) -> str:
+    """
+    Trigger download of an LXC template from the Proxmox community repo.
+    `template` is the filename from the aplinfo catalog (e.g. ubuntu-24.04-standard_...).
+    Returns the Proxmox task ID to poll with wait_for_task().
+    """
+    return proxmox.nodes(node).aplinfo.post(storage=storage, template=template)
+
+
 def get_lxc_templates(proxmox: ProxmoxAPI, node: str) -> list[dict]:
     """
     Query all storage pools on the node for LXC templates (vztmpl).
