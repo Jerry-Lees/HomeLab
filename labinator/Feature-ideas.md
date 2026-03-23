@@ -622,6 +622,17 @@ discovered and loaded automatically.
 
 ---
 
+## Draft Deployment File Builder — **Implemented**
+
+> **Status: Implemented** — `draft-deployment.py`
+> See [docs/draft-deployment.md](docs/draft-deployment.md) for full documentation.
+
+`draft-deployment.py` runs the full LXC or VM wizard and saves the resulting deployment JSON without creating anything in Proxmox. The output file can then be used with `deploy_lxc.py --deploy-file`, `deploy_vm.py --deploy-file`, or `deploy.py --batch`.
+
+Supports `--lxc` / `--vm` flags, `--deploy-file` to edit an existing draft, `--ttl` for expiry planning, and full back-navigation through every wizard step.
+
+---
+
 ## Post-Deploy Hook Scripts — Plugins and Extensibility
 
 After a successful deployment (or decommission), run user-defined scripts or Ansible
