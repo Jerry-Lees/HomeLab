@@ -32,6 +32,7 @@ labinator manages the complete lifecycle of Proxmox resources across eight scrip
 - **`decomm.py`** — batch decommission multiple resources from deployment JSON files, sequentially by default to avoid DNS race conditions
 - **`cleanup_tagged.py`** — scan the cluster for tagged resources and keep, promote, or decommission each one interactively or via a plan file
 - **`expire.py`** — manage deployment TTLs: check, reap expired hosts, or renew a deployment's TTL
+- **`draft-deployment.py`** — interactive wizard to build a deployment JSON file without deploying; runs the full LXC or VM wizard and saves the result for use with `deploy_lxc.py`, `deploy_vm.py`, or `deploy.py`
 
 ---
 
@@ -48,6 +49,7 @@ labinator/
 ├── decomm.py                      # Batch decomm — multiple LXC/VM JSON files (sequential by default)
 ├── cleanup_tagged.py              # Cluster-wide tag-based cleanup (keep/promote/decomm)
 ├── expire.py                      # Deployment TTL manager (check/reap/renew)
+├── draft-deployment.py            # Interactive wizard to build a deployment JSON without deploying
 ├── config.yaml                    # Credentials + defaults (excluded from git — never commit)
 ├── config.yaml.example            # Documented config template (committed — copy to start)
 ├── cloud-images.yaml              # Cloud image catalog for deploy_vm.py
@@ -222,6 +224,7 @@ The scripts auto-activate the virtualenv at startup, so you can run them with `p
 | [docs/expiry.md](docs/expiry.md) | All `expire.py` flags, `--check` output example, `--reap`, `--renew`, TTL format reference |
 | [docs/cleanup.md](docs/cleanup.md) | All `cleanup_tagged.py` flags, tag-based cleanup, `--list-file`, action list format, `--dry-run` |
 | [docs/preflight.md](docs/preflight.md) | Every preflight check, fatal vs warning, standalone mode, disabling preflight, `--yolo`, `--silent` |
+| [docs/draft-deployment.md](docs/draft-deployment.md) | `draft-deployment.py` — build a deployment JSON interactively without deploying; LXC and VM wizard walkthroughs, editing drafts, TTL support |
 | [docs/deployment-files.md](docs/deployment-files.md) | Deployment JSON field reference, LXC vs VM differences, file locations, `.gitignore` behavior, history log, providers, OS support |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | All known issues, symptoms, causes, and fixes |
 
@@ -238,6 +241,11 @@ python3 configure.py --edit
 
 # Validate config.yaml without changing anything
 python3 configure.py --validate
+
+# Build a deployment file without deploying (LXC or VM)
+python3 draft-deployment.py
+python3 draft-deployment.py --lxc
+python3 draft-deployment.py --vm --ttl 7d
 
 # Deploy an LXC container interactively (DHCP or static IP — wizard will ask)
 python3 deploy_lxc.py
