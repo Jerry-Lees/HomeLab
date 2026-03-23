@@ -905,30 +905,14 @@ and a dim note is printed.
 
 ## LXC Template Download from Proxmox Repository
 
-The LXC template selector only lists templates already downloaded to the cluster. If the desired
-template isn't present, there's no way to get it from within the wizard.
+**Implemented** — "─── Download from Proxmox repo..." option appears at the bottom of the
+template selector. Fetches the full Proxmox community catalog via `GET /nodes/{node}/aplinfo`,
+filters out already-downloaded templates, lets the user pick one, then triggers the download
+via `POST /nodes/{node}/aplinfo`, polls the task until complete, and returns to the template
+list with the new template pre-selected.
 
-Proxmox exposes the full community template catalog via the API, so a download flow is
-straightforward to add:
-
-- `GET /nodes/{node}/aplinfo` — returns all templates available in the Proxmox repo
-- `POST /nodes/{node}/aplinfo` with `storage=<pool>&template=<name>` — triggers download;
-  returns a task ID that can be polled until complete
-
-### Proposed UX
-
-Add a **"Download from Proxmox repo..."** option at the bottom of the template selector.
-Choosing it shows a second list of available-but-not-yet-downloaded templates. User picks one,
-wizard triggers the download, polls the task until complete, then continues to the confirm step
-with the newly downloaded template pre-selected.
-
-### Notes
-
-- This is the LXC equivalent of the VM cloud-image download feature, but uses the Proxmox
-  template repository instead of upstream distro URLs.
-- The download runs on the selected node — if the cluster has shared storage (e.g. `Net-Images`),
-  the template is immediately available to all nodes after download.
-- `--dry-run` would show the template name and note that it would be downloaded if missing.
+Storage is chosen automatically if only one `vztmpl`-capable pool exists; otherwise a quick
+prompt appears. `--silent` mode is unaffected.
 
 ---
 

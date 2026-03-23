@@ -21,6 +21,7 @@ The wizard can be driven entirely interactively, pre-filled from a deployment JS
 - [VLAN Check Behavior](#vlan-check-behavior)
 - [Preflight Behavior](#preflight-behavior)
 - [LXC Feature Flags](#lxc-feature-flags)
+- [Downloading LXC Templates](#downloading-lxc-templates)
 - [Static IP Deployment](#static-ip-deployment)
 - [Walkthrough: LXC Prompt Order](#walkthrough-lxc-prompt-order)
 - [The 7 LXC Deployment Steps](#the-7-lxc-deployment-steps)
@@ -234,6 +235,49 @@ In `--silent` mode, only the profile's `lxc_features` are used — the interacti
 
 ---
 
+## Downloading LXC Templates
+
+The template selector shows only templates already downloaded to the selected node. If the template you want isn't in the list, scroll to the bottom and choose **─── Download from Proxmox repo...**.
+
+```
+Select OS template (Ubuntu templates listed first):
+  [Net-Images] ubuntu-24.04-standard_24.04-2_amd64.tar.zst
+  [Net-Images] ubuntu-22.04-standard_22.04-1_amd64.tar.zst
+  [Net-Images] debian-12-standard_12.2-1_amd64.tar.zst
+  ─── Download from Proxmox repo...
+```
+
+Selecting it fetches the full Proxmox community template catalog and shows only templates not yet downloaded to the node:
+
+```
+Select template to download:
+  ← Back to template list
+  Ubuntu 24.04 LTS (Noble Numbat)
+  Ubuntu 22.04 LTS (Jammy Jellyfish)
+  Debian 12 (Bookworm)
+  Rocky Linux 9
+  openSUSE Leap 15.6
+  ...
+```
+
+Pick a template and the wizard triggers the download, polls the Proxmox task until complete, then returns to the template list with the new template pre-selected. If the node has more than one storage pool that supports templates, a quick prompt appears to choose which pool to download into. If only one pool supports templates, it is used automatically.
+
+**← Back to template list** takes you back without downloading anything.
+
+In `--silent` mode, the download flow is not available — `--silent` mode requires the template to already be present on the node.
+
+> **Note:** The download runs on the selected Proxmox node. If the cluster uses a shared storage pool (e.g. `Net-Images`), the downloaded template is immediately available to all nodes in the cluster — you only need to download it once.
+
+### Appliance Templates (TurnKey and Others)
+
+The Proxmox catalog includes many **pre-configured appliance templates** — most notably the TurnKey Linux family (e.g. `TurnKey Ansible`, `TurnKey DokuWiki`, `TurnKey BookStack`). These ship with full application stacks already installed and running.
+
+> **Warning:** Appliance templates — TurnKey and possibly others — are **not compatible** with the labinator Ansible post-deploy playbook. They use custom initialization frameworks and non-standard configurations that conflict with the baseline setup steps (package install, user creation, NTP, SNMP). Deploying an appliance template will succeed through Steps 1–4 but **Ansible (Step 5) will fail**.
+>
+> Use appliance templates only if you plan to disable Ansible post-deploy (`ansible.enabled: false` in `config.yaml`) or manage configuration entirely manually after deployment.
+
+---
+
 ## Static IP Deployment
 
 By default, LXC containers use DHCP — the IP is assigned by your network's DHCP server at boot and discovered by labinator via the Proxmox API. Static IP addressing is also supported when you need a predictable, fixed address.
@@ -337,8 +381,9 @@ Only nodes with enough headroom are shown. The star (★) marks the node with th
 Select OS template (Ubuntu templates listed first):
   [Net-Images] ubuntu-24.04-standard_24.04-2_amd64.tar.zst
   [local] debian-12-standard_12.7-1_amd64.tar.zst
+  ─── Download from Proxmox repo...
 ```
-Queried live from the selected node — only templates already downloaded on that node are shown. Ubuntu versions are listed first. The storage name in brackets (e.g. `[local]`) indicates where the template is stored on the node.
+Queried live from the selected node — only templates already downloaded on that node are shown. Ubuntu versions are listed first. The storage name in brackets (e.g. `[local]`) indicates where the template is stored on the node. Select **─── Download from Proxmox repo...** to download a new template without leaving the wizard. See [Downloading LXC Templates](#downloading-lxc-templates) for details.
 
 **9. Storage pool** — Only shown if more than one storage pool is available on the selected node. Determines where the container's root disk is created.
 
