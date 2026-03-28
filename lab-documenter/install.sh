@@ -399,7 +399,7 @@ diagnose_host() {
         
         # Try to get SSH banner
         echo -n "Getting SSH banner... "
-        banner=$(timeout 3 ssh -o ConnectTimeout=2 -o BatchMode=yes "$ip_only" 2>&1 | head -1)
+        banner=$(timeout 3 bash -c "cat </dev/tcp/$ip_only/22" 2>/dev/null | head -1 | tr -d '\r')
         if [[ "$banner" == *"OpenSSH"* ]]; then
             echo "✓ SSH service detected: $banner"
         else
@@ -415,7 +415,7 @@ diagnose_host() {
             if timeout 3 bash -c "</dev/tcp/$ip_only/$port" &>/dev/null; then
                 echo "✓ Port $port is open"
                 # Try to get banner on this port
-                banner=$(timeout 3 ssh -o ConnectTimeout=2 -o BatchMode=yes -p "$port" "$ip_only" 2>&1 | head -1)
+                banner=$(timeout 3 bash -c "cat </dev/tcp/$ip_only/$port" 2>/dev/null | head -1 | tr -d '\r')
                 if [[ "$banner" == *"OpenSSH"* ]]; then
                     echo "    SSH service found on port $port: $banner"
                 fi
