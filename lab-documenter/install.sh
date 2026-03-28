@@ -247,11 +247,12 @@ setup_cron_job() {
     print_step "Setting up cron job..."
     
     # Create wrapper script for cron
-    cat > lab-documenter-cron.sh << EOF
+    cat > lab-documenter-cron.sh << 'EOF'
 #!/bin/bash
 # Lab Documenter cron wrapper script
 
-cd "$INSTALL_DIR"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
 ./venv/bin/python ./lab-documenter.py --scan >> ./logs/cron.log 2>&1
 EOF
     

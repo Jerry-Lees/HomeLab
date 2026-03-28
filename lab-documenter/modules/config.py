@@ -40,6 +40,14 @@ def load_config_file(config_path: str) -> dict:
     else:
         logger.warning(f"Configuration file {config_path} not found, using defaults")
     
+    # Resolve relative paths against the project root directory (parent of modules/)
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    base_dir = os.path.dirname(script_dir)
+    for key in ('ssh_key_path', 'output_file', 'csv_file'):
+        val = config.get(key)
+        if val and not os.path.isabs(val):
+            config[key] = os.path.join(base_dir, val)
+
     # Handle backward compatibility: convert single network_range to network_ranges list
     if 'network_range' in config and 'network_ranges' not in config:
         config['network_ranges'] = [config['network_range']]
