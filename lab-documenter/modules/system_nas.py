@@ -397,7 +397,7 @@ class NASCollector:
         if vg_info:
             for line in vg_info.split('\n'):
                 if 'VG Name' in line:
-                    vg_name = line.split(':')[1].strip()
+                    vg_name = line.split()[-1].strip()
                     pools.append({
                         'name': vg_name,
                         'type': 'lvm_volume_group',
