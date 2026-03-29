@@ -54,6 +54,7 @@ class SystemCollector:
         self.connection_type = None
         self.ssh_client = None
         self.winrm_session = None
+        self.ssh_port = 22
         
         # Platform detection
         self.platform_type = None
@@ -84,10 +85,13 @@ class SystemCollector:
                 self.in_detection_mode = False
                 return True, 'windows'
         
-        # Quick port 22 check before attempting SSH methods (saves time on hosts without SSH)
-        if not check_port_open(self.hostname, port=22, timeout=2.0):
-            logger.debug(f"Port 22 not open on {self.hostname}, skipping SSH attempts")
-            # Set a specific failure reason for port closed
+        # Quick port check before attempting SSH methods (saves time on hosts without SSH)
+        if check_port_open(self.hostname, port=22, timeout=2.0):
+            self.ssh_port = 22
+        elif check_port_open(self.hostname, port=22222, timeout=2.0):
+            self.ssh_port = 22222
+        else:
+            logger.debug(f"No SSH port open on {self.hostname}, skipping SSH attempts")
             self.connection_failure_reason = "SSH port 22 not accessible (connection refused or filtered)"
             self.in_detection_mode = False
             return False, 'unreachable'
@@ -239,6 +243,7 @@ class SystemCollector:
                 self.ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
                 self.ssh_client.connect(
                     self.hostname,
+                    port=self.ssh_port,
                     username=ssh_user,
                     key_filename=ssh_key_path,
                     timeout=ssh_timeout,
@@ -288,6 +293,7 @@ class SystemCollector:
                 self.ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
                 self.ssh_client.connect(
                     self.hostname,
+                    port=self.ssh_port,
                     username=nas_user,
                     password=nas_password,
                     timeout=ssh_timeout,
