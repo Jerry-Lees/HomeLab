@@ -4,9 +4,16 @@ This document contains potential future features for Lab Documenter, organized b
 
 ---
 
+## Regressions / Broken Features
+
+These features previously worked but are currently broken and need to be restored.
+
+- **RAM Slot Population Detail** - The script previously reported not just total RAM, but which motherboard slots were populated and the size of each DIMM (e.g. "Slot A1: 16GB, Slot A2: empty"). Now always returns "Memory module information not available". Likely a `dmidecode` permission or parsing issue introduced at some point.
+
+
 ## In progress features
 
-These features are currently operatioinal, but are a Work In Progress.
+These features are currently operational, but are a Work In Progress.
 
 - **Cacti Config Generation** - Export inventory.json as Cacti-compatible configuration (XML/SQL) for automatic device addition
 
@@ -37,6 +44,7 @@ These features are currently operatioinal, but are a Work In Progress.
 - **DNS Records Export** - Generate suggested DNS zone file entries for discovered hosts
 - **IP Address History** - Track when hosts change IP addresses
 - **Network Inventory CSV** - Export network-focused CSV with IP, MAC, vendor, hostname
+- **Cross-Subnet MAC Resolution via SSH Jump Hosts** - For failed hosts where the MAC isn't in the local ARP cache (common for devices on remote VLANs/subnets), SSH to a reachable host on the same subnet, run `ping -c 1 <ip> && arp -n <ip>`, and capture the MAC from there. Config file would need a per-VLAN/subnet jump host mapping (e.g. `192.168.0.0/24: jumphost.example.com`). Could also auto-select a jump host by finding any already-scanned reachable host on the same subnet, avoiding the need for dedicated infrastructure.
 
 ### Usability Improvements
 - **Progress Bar** - Show real-time progress during scanning (X of Y hosts complete)
