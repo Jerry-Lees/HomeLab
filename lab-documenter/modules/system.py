@@ -689,7 +689,13 @@ class SystemCollector:
         if memory_info and 'command not found' not in memory_info.lower() and len(memory_info.strip()) > 10:
             logger.debug(f"lshw successful")
             return self.parse_lshw_memory_output(memory_info)
-        
+
+        logger.debug(f"lshw unavailable or empty, trying dmidecode")
+        dmi_info = self.run_command('dmidecode -t memory 2>/dev/null')
+        if dmi_info and 'command not found' not in dmi_info.lower() and 'Memory Device' in dmi_info:
+            logger.debug(f"dmidecode successful")
+            return self.parse_dmidecode_memory_output(dmi_info)
+
         return {'bios_info': {}, 'memory_banks': [], 'cache_info': [], 'system_memory': {}, 'error': 'Memory module information not available'}
     
     def parse_lshw_memory_output(self, lshw_output: str) -> dict:
@@ -764,9 +770,81 @@ class SystemCollector:
         # Don't forget the last memory bank
         if current_bank and current_section == 'memory_bank':
             memory_data['memory_banks'].append(current_bank)
-        
-        return memory_data 
-     
+
+        return memory_data
+
+    def parse_dmidecode_memory_output(self, dmi_output: str) -> dict:
+        """Parse dmidecode -t memory output into structured data matching the lshw format"""
+        memory_data = {
+            'bios_info': {},
+            'memory_banks': [],
+            'cache_info': [],
+            'system_memory': {}
+        }
+
+        current_bank = None
+        total_size_mb = 0
+
+        for line in dmi_output.split('\n'):
+            line = line.strip()
+
+            if line == 'Memory Device':
+                if current_bank:
+                    memory_data['memory_banks'].append(current_bank)
+                current_bank = {}
+                continue
+
+            if current_bank is None:
+                continue
+
+            if ':' in line:
+                key, _, value = line.partition(':')
+                key = key.strip()
+                value = value.strip()
+
+                if key == 'Size':
+                    if 'No Module Installed' in value or 'Not Installed' in value:
+                        current_bank['size'] = 'Empty'
+                    else:
+                        current_bank['size'] = value
+                        # Accumulate total for system_memory
+                        try:
+                            if 'GB' in value:
+                                total_size_mb += int(value.split()[0]) * 1024
+                            elif 'MB' in value:
+                                total_size_mb += int(value.split()[0])
+                        except (ValueError, IndexError):
+                            pass
+                elif key == 'Locator':
+                    current_bank['slot'] = value
+                elif key == 'Bank Locator':
+                    if value and value != 'Not Specified':
+                        current_bank['bank'] = value
+                elif key == 'Type':
+                    current_bank['type'] = value
+                elif key == 'Speed':
+                    current_bank['speed'] = value
+                elif key == 'Manufacturer':
+                    if value and value.upper() not in ('UNKNOWN', 'NOT SPECIFIED', ''):
+                        current_bank['vendor'] = value.strip()
+                elif key == 'Part Number':
+                    if value and value.upper() not in ('NOT AVAILABLE', 'NOT SPECIFIED', ''):
+                        current_bank['product'] = value.strip()
+                elif key == 'Serial Number':
+                    if value and value.upper() not in ('NOT SPECIFIED', 'NOT PROVIDED', ''):
+                        current_bank['serial'] = value.strip()
+
+        if current_bank:
+            memory_data['memory_banks'].append(current_bank)
+
+        if total_size_mb:
+            if total_size_mb >= 1024:
+                memory_data['system_memory']['size'] = f"{total_size_mb // 1024} GiB"
+            else:
+                memory_data['system_memory']['size'] = f"{total_size_mb} MiB"
+
+        return memory_data
+
     def get_services(self) -> List[Dict]:
         """Get systemd services with enhanced information and auto-updating database"""
         services = []
