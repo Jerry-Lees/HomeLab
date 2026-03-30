@@ -6,9 +6,7 @@ This document contains potential future features for Lab Documenter, organized b
 
 ## Regressions / Broken Features
 
-These features previously worked but are currently broken and need to be restored.
-
-- **RAM Slot Population Detail** - The script previously reported not just total RAM, but which motherboard slots were populated and the size of each DIMM (e.g. "Slot A1: 16GB, Slot A2: empty"). Now always returns "Memory module information not available". Likely a `dmidecode` permission or parsing issue introduced at some point.
+There are no known regressions at this time.
 
 
 ## In progress features
