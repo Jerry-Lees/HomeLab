@@ -43,6 +43,8 @@ These features are currently operatioinal, but are a Work In Progress.
 - **Web Dashboard** - Simple web UI to view documentation without MediaWiki
 - **Configuration Wizard** - Interactive setup script to create config.json
 - **Dry-Run Preview** - Show what would be documented without actually connecting
+- **Auto-suggest Ignore Candidates** - After a scan, flag hosts that consistently fail SSH (printers, IoT, smart devices) and suggest adding them to ignore.csv, rather than requiring manual identification
+- **Ignore List CLI Helper** - Add/remove entries from ignore.csv via a CLI flag (e.g. `--ignore <ip> "reason"`) rather than editing the file by hand
 
 ---
 
