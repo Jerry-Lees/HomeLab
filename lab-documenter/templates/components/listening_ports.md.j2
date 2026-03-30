@@ -1,24 +1,15 @@
 {% if listening_ports %}
 ## Listening Ports
-{% if listening_ports|length <= 8 %}
-{# Show ports directly for small lists #}
+
+| Port | Service | Description | Access |
+|------|---------|-------------|--------|
 {% for port in listening_ports %}
-- {{ format_port(port) }}
-{% endfor %}
+{% if port.service_info and port.service_info.display_name %}
+{% set svc = port.service_info %}
+| {{ port.port or 'Unknown' }} | **{{ svc.display_name }}** | {{ svc.description if svc.description and svc.description != 'Unknown service' else '' }} | {{ svc.access or '' }} |
 {% else %}
-{# Show first few ports, then collapsible section #}
-{% for port in listening_ports[:4] %}
-- {{ format_port(port) }}
+| {{ port.port or 'Unknown' }} | {{ port.process_name or 'unknown' }} | | |
+{% endif %}
 {% endfor %}
 
-<details>
-<summary><strong>Show {{ listening_ports|length - 4 }} more ports (total: {{ listening_ports|length }})</strong></summary>
-
-{% for port in listening_ports[4:] %}
-- {{ format_port(port) }}
-{% endfor %}
-
-</details>
 {% endif %}
-{% endif %}
-

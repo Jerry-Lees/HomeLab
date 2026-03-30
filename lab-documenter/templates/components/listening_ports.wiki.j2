@@ -1,61 +1,19 @@
 {% if listening_ports %}
 == Listening Ports ==
-{% if listening_ports|length <= 8 %}
-{# Show ports directly for small lists #}
-{% for port in listening_ports %}
-{% if port.service_info and port.service_info.display_name %}
-  {% set service_info = port.service_info %}
-  {% set port_desc = " - '''" + service_info.display_name + "'''" %}
-  {% if service_info.description and service_info.description != 'Unknown service' %}
-    {% set port_desc = port_desc + " - " + service_info.description %}
-  {% endif %}
-  {% if service_info.access %}
-    {% set port_desc = port_desc + " - ''Access: " + service_info.access + "''" %}
-  {% endif %}
-{% else %}
-  {% set process_name = port.process_name or 'unknown' %}
-  {% set port_desc = " - " + process_name %}
-{% endif %}
-* '''{{ port.port or 'Unknown' }}'''{{ port_desc }}
-{% endfor %}
-{% else %}
-{# Show first few ports, then collapsible table #}
-{% for port in listening_ports[:4] %}
-{% if port.service_info and port.service_info.display_name %}
-  {% set service_info = port.service_info %}
-  {% set port_desc = " - '''" + service_info.display_name + "'''" %}
-  {% if service_info.description and service_info.description != 'Unknown service' %}
-    {% set port_desc = port_desc + " - " + service_info.description %}
-  {% endif %}
-  {% if service_info.access %}
-    {% set port_desc = port_desc + " - ''Access: " + service_info.access + "''" %}
-  {% endif %}
-{% else %}
-  {% set process_name = port.process_name or 'unknown' %}
-  {% set port_desc = " - " + process_name %}
-{% endif %}
-* '''{{ port.port or 'Unknown' }}'''{{ port_desc }}
-{% endfor %}
 
-{| class='wikitable mw-collapsible mw-collapsed'
-|+ Additional Ports ({{ listening_ports|length - 4 }} more, total: {{ listening_ports|length }})
+{| class='wikitable sortable'
 |-
 ! Port !! Service !! Description !! Access
-{% for port in listening_ports[4:] %}
+{% for port in listening_ports %}
 {% if port.service_info and port.service_info.display_name %}
-  {% set service_info = port.service_info %}
-  {% set service_name = service_info.display_name %}
-  {% set description = service_info.description or '' %}
-  {% set access = service_info.access or '' %}
-{% else %}
-  {% set service_name = port.process_name or 'unknown' %}
-  {% set description = '' %}
-  {% set access = '' %}
-{% endif %}
+{% set svc = port.service_info %}
 |-
-| {{ port.port or 'Unknown' }} || {{ service_name }} || {{ description }} || {{ access }}
+| {{ port.port or 'Unknown' }} || '''{{ svc.display_name }}''' || {{ svc.description if svc.description and svc.description != 'Unknown service' else '' }} || {{ svc.access or '' }}
+{% else %}
+|-
+| {{ port.port or 'Unknown' }} || {{ port.process_name or 'unknown' }} || ||
+{% endif %}
 {% endfor %}
 |}
-{% endif %}
-{% endif %}
 
+{% endif %}

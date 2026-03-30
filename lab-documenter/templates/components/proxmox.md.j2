@@ -22,30 +22,13 @@
 
 {% if proxmox_info.nodes %}
 ### Nodes ({{ proxmox_info.nodes|length }})
+
+| Node | Status | Type | IP | CPU | Memory | Uptime |
+|------|--------|------|----|-----|--------|--------|
 {% for node in proxmox_info.nodes %}
-{% set status_indicator = 'Online' if node.online else 'Offline' %}
-{% set node_line = '- **' + (node.name or 'Unknown') + '** - ' + status_indicator %}
-{% if node.type %}
-  {% set node_line = node_line + ' (' + node.type %}
-  {% if node.level %}
-    {% set node_line = node_line + ', level: ' + node.level %}
-  {% endif %}
-  {% set node_line = node_line + ')' %}
-{% endif %}
-{% if node.ip %}
-  {% set node_line = node_line + ' - IP: ' + node.ip %}
-{% endif %}
-{% if node.cpu_usage %}
-  {% set node_line = node_line + ' - CPU: ' + node.cpu_usage %}
-{% endif %}
-{% if node.memory_usage_percent %}
-  {% set node_line = node_line + ' - Memory: ' + node.memory_usage_percent %}
-{% endif %}
-{% if node.uptime %}
-  {% set node_line = node_line + ' - Uptime: ' + node.uptime %}
-{% endif %}
-{{ node_line }}
+| **{{ node.name or 'Unknown' }}** | {{ 'Online' if node.online else 'Offline' }} | {{ node.type + (' (lvl ' + node.level + ')' if node.level else '') if node.type else '' }} | {{ node.ip or '' }} | {{ node.cpu_usage or '' }} | {{ node.memory_usage_percent or '' }} | {{ node.uptime or '' }} |
 {% endfor %}
+
 {% endif %}
 
 {% if proxmox_info.cluster_resources %}
