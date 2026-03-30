@@ -470,14 +470,18 @@ def print_connection_summary(connection_failures: List[Dict[str, str]]) -> None:
                 ip_only = ip_only.split(':')[0]
             
             mac_address = get_mac_address(ip_only)
-            vendor_text = ""
             if mac_address:
                 vendor_info = lookup_mac_vendor(mac_address, use_api=True)
-                if vendor_info['vendor'] != 'Unknown':
-                    vendor_text = f" [{vendor_info['vendor']}]"
+                vendor = vendor_info['vendor']
+                if vendor != 'Unknown':
+                    vendor_text = f" [{vendor}]"
+                else:
+                    # Show OUI prefix so unknown devices can be manually identified
+                    oui = mac_address.replace(':', '')[:6].upper()
+                    vendor_text = f" [Unknown vendor, OUI: {oui}]"
                 mac_text = f" (MAC: {mac_address}{vendor_text})"
             else:
-                mac_text = " (MAC: Unknown)"
+                mac_text = " (MAC: not in ARP table)"
             
             # Format the host with reverse DNS lookup
             formatted_host = format_host_with_dns(original_host)
