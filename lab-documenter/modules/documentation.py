@@ -190,7 +190,9 @@ class DocumentationManager:
                 'docker_containers': [],
                 'kubernetes_info': {},
                 'proxmox_info': {},
-                'bios_info': {}
+                'bios_info': {},
+                'mac_info': {},
+                'bigip_info': {}
             }
             
             for key, default_value in defaults.items():

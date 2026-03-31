@@ -1,0 +1,71 @@
+{% if bigip_info %}
+## F5 BIG-IP
+
+{% if bigip_info.version_info %}
+{% set v = bigip_info.version_info %}
+- **Product:** {{ v.product or 'BIG-IP' }}
+- **Version:** {{ v.version or 'Unknown' }}{% if v.build %} (Build {{ v.build }}){% endif %}
+
+{% if v.edition %}
+- **Edition:** {{ v.edition }}
+{% endif %}
+{% endif %}
+
+{% if bigip_info.ha_status and bigip_info.ha_status.state %}
+- **HA State:** {{ bigip_info.ha_status.state }}
+{% endif %}
+
+{% if bigip_info.virtual_servers %}
+### Virtual Servers ({{ bigip_info.virtual_servers|length }})
+{% if bigip_info.virtual_servers|length <= 8 %}
+| Name | Destination | Protocol | Pool |
+|------|-------------|----------|------|
+{% for vs in bigip_info.virtual_servers %}
+| **{{ vs.name or 'Unknown' }}** | {{ vs.destination or '' }} | {{ vs.protocol or '' }} | {{ vs.pool or '' }} |
+{% endfor %}
+{% else %}
+<details>
+<summary><strong>Virtual Servers ({{ bigip_info.virtual_servers|length }} total)</strong></summary>
+
+| Name | Destination | Protocol | Pool |
+|------|-------------|----------|------|
+{% for vs in bigip_info.virtual_servers %}
+| **{{ vs.name or 'Unknown' }}** | {{ vs.destination or '' }} | {{ vs.protocol or '' }} | {{ vs.pool or '' }} |
+{% endfor %}
+
+</details>
+{% endif %}
+{% endif %}
+
+{% if bigip_info.pools %}
+### Pools ({{ bigip_info.pools|length }})
+{% if bigip_info.pools|length <= 8 %}
+| Name | Members | Monitor | LB Method |
+|------|---------|---------|-----------|
+{% for pool in bigip_info.pools %}
+| **{{ pool.name or 'Unknown' }}** | {{ pool.member_count or 0 }} | {{ pool.monitor or '' }} | {{ pool.lb_method or '' }} |
+{% endfor %}
+{% else %}
+<details>
+<summary><strong>Pools ({{ bigip_info.pools|length }} total)</strong></summary>
+
+| Name | Members | Monitor | LB Method |
+|------|---------|---------|-----------|
+{% for pool in bigip_info.pools %}
+| **{{ pool.name or 'Unknown' }}** | {{ pool.member_count or 0 }} | {{ pool.monitor or '' }} | {{ pool.lb_method or '' }} |
+{% endfor %}
+
+</details>
+{% endif %}
+{% endif %}
+
+{% if bigip_info.interfaces %}
+### Interfaces
+| Name | Status | Media |
+|------|--------|-------|
+{% for iface in bigip_info.interfaces %}
+| **{{ iface.name or 'Unknown' }}** | {{ iface.status or 'Unknown' }} | {{ iface.media or '' }} |
+{% endfor %}
+{% endif %}
+
+{% endif %}

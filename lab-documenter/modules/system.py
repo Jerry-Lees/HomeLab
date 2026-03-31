@@ -32,6 +32,22 @@ except ImportError:
     logger = logging.getLogger(__name__)
     logger.warning("NAS collector not available - NAS systems will be treated as Linux")
 
+try:
+    from modules.system_mac import MacCollector
+    HAS_MAC_COLLECTOR = True
+except ImportError:
+    HAS_MAC_COLLECTOR = False
+    logger = logging.getLogger(__name__)
+    logger.warning("Mac collector not available")
+
+try:
+    from modules.system_bigip import BigIPCollector
+    HAS_BIGIP_COLLECTOR = True
+except ImportError:
+    HAS_BIGIP_COLLECTOR = False
+    logger = logging.getLogger(__name__)
+    logger.warning("BIG-IP collector not available")
+
 # Import WinRM with fallback
 try:
     import winrm
@@ -68,6 +84,8 @@ class SystemCollector:
         self.proxmox_collector = None
         self.windows_collector = None
         self.nas_collector = None
+        self.mac_collector = None
+        self.bigip_collector = None
     
     def try_connection_cascade(self) -> Tuple[bool, str]:
         """Try connection methods in priority order: Windows → NAS → Linux"""
@@ -118,10 +136,30 @@ class SystemCollector:
         return False, 'unreachable'
     
     def refine_platform_detection(self) -> Optional[str]:
-        """After successful connection, refine platform detection (especially for TrueNAS)"""
+        """After successful connection, refine platform detection"""
         if self.platform_type != 'linux':
             return self.platform_type
-        
+
+        # Check if this is macOS/Darwin
+        if HAS_MAC_COLLECTOR and self.connection_type in ['ssh_key', 'ssh_password']:
+            temp_mac_collector = MacCollector(self.run_command) # type: ignore
+            if temp_mac_collector.detect_mac():
+                logger.info(f"Refined detection: {self.hostname} is macOS")
+                self.platform_type = 'mac'
+                self.platform_info['detection_method'] += ' (refined to macOS)'
+                self.mac_collector = temp_mac_collector
+                return 'mac'
+
+        # Check if this is an F5 BIG-IP
+        if HAS_BIGIP_COLLECTOR and self.connection_type in ['ssh_key', 'ssh_password']:
+            temp_bigip_collector = BigIPCollector(self.run_command) # type: ignore
+            if temp_bigip_collector.detect_bigip():
+                logger.info(f"Refined detection: {self.hostname} is F5 BIG-IP")
+                self.platform_type = 'bigip'
+                self.platform_info['detection_method'] += ' (refined to F5 BIG-IP)'
+                self.bigip_collector = temp_bigip_collector
+                return 'bigip'
+
         # Check if this Linux system is actually a NAS
         if HAS_NAS_COLLECTOR and self.connection_type in ['ssh_key', 'ssh_password']:
             # Create a temporary NAS collector to test detection
@@ -465,9 +503,13 @@ class SystemCollector:
                 info.update(self.collect_windows_info())
             elif final_platform_type == 'nas':
                 info.update(self.collect_nas_info())
+            elif final_platform_type == 'mac':
+                info.update(self.collect_mac_info())
+            elif final_platform_type == 'bigip':
+                info.update(self.collect_bigip_info())
             else:  # linux
                 info.update(self.collect_linux_info())
-            
+
             # Always try to collect Kubernetes and Proxmox info (Linux/NAS only)
             if final_platform_type in ['linux', 'nas']:
                 logger.debug(f"Checking for Kubernetes")
@@ -599,6 +641,143 @@ class SystemCollector:
         
         return info
     
+    def collect_mac_info(self) -> Dict:
+        """Collect macOS-specific information"""
+        logger.info(f"Collecting macOS information")
+
+        info: Dict[str, Any] = {}
+
+        # Use macOS-compatible commands for basic system info
+        commands = {
+            'kernel': 'uname -r',
+            'architecture': 'uname -m',
+            'uptime': "uptime | sed 's/.*up /up /' | sed 's/,  [0-9]* user.*//'",
+            'load_average': "uptime | awk -F'load averages:' '{print $2}'",
+            'disk_usage': "df -h / | tail -1 | awk '{print $3 \"/\" $2 \" (\" $5 \")\"}'",
+            'cpu_cores': 'sysctl -n hw.ncpu',
+            'ip_addresses': "ifconfig | grep 'inet ' | grep -v 127.0.0.1 | awk '{print $2}'",
+        }
+
+        for key, command in commands.items():
+            result = self.run_command(command)
+            info[key] = result if result else 'Unknown'
+
+        # CPU name: try Intel first, fall back to model identifier for Apple Silicon
+        cpu_name = self.run_command('sysctl -n machdep.cpu.brand_string 2>/dev/null')
+        if not cpu_name:
+            cpu_name = self.run_command('sysctl -n hw.model 2>/dev/null')
+        info['cpu_info'] = cpu_name or 'Unknown'
+
+        # Total memory
+        mem_bytes = self.run_command("sysctl -n hw.memsize 2>/dev/null")
+        if mem_bytes:
+            try:
+                info['memory_total'] = f"{int(mem_bytes) / 1024 / 1024 / 1024:.1f} GB"
+            except (ValueError, TypeError):
+                info['memory_total'] = 'Unknown'
+        else:
+            info['memory_total'] = 'Unknown'
+
+        # Active memory usage from vm_stat
+        vm_stat = self.run_command("vm_stat 2>/dev/null | grep 'Pages active' | awk '{print $3}' | tr -d '.'")
+        page_size = self.run_command("sysctl -n hw.pagesize 2>/dev/null")
+        if vm_stat and page_size:
+            try:
+                used_bytes = int(vm_stat) * int(page_size)
+                info['memory_used'] = f"{used_bytes / 1024 / 1024 / 1024:.1f} GB"
+            except (ValueError, TypeError):
+                info['memory_used'] = 'Unknown'
+        else:
+            info['memory_used'] = 'Unknown'
+
+        # Build os_release from sw_vers
+        product_name = self.run_command('sw_vers -productName 2>/dev/null') or 'macOS'
+        product_version = self.run_command('sw_vers -productVersion 2>/dev/null') or 'Unknown'
+        build_version = self.run_command('sw_vers -buildVersion 2>/dev/null') or 'Unknown'
+        info['os_release'] = {
+            'name': product_name,
+            'version': product_version,
+            'id': 'macos',
+            'pretty_name': f"{product_name} {product_version} ({build_version})"
+        }
+
+        # Collect Mac-specific hardware info
+        if self.mac_collector:
+            mac_data = self.mac_collector.collect_mac_info()
+            if mac_data:
+                info['mac_info'] = mac_data
+
+        # Listening ports (Mac-compatible)
+        if self.mac_collector:
+            info['listening_ports'] = self.mac_collector.get_listening_ports()
+        else:
+            info['listening_ports'] = []
+
+        # Docker may be present via Docker Desktop
+        info['docker_containers'] = self.get_docker_containers()
+        info['services'] = []
+        info['memory_modules'] = {}
+        info['bios_info'] = {}
+
+        return info
+
+    def collect_bigip_info(self) -> Dict:
+        """Collect F5 BIG-IP-specific information"""
+        logger.info(f"Collecting BIG-IP information")
+
+        info: Dict[str, Any] = {}
+
+        # BIG-IP runs Linux under the hood — most standard commands work
+        commands = {
+            'kernel': 'uname -r',
+            'architecture': 'uname -m',
+            'uptime': 'uptime -p 2>/dev/null || uptime',
+            'load_average': "uptime | awk -F'load average:' '{print $2}'",
+            'memory_total': "free -h 2>/dev/null | grep Mem | awk '{print $2}'",
+            'memory_used': "free -h 2>/dev/null | grep Mem | awk '{print $3}'",
+            'disk_usage': "df -h / | tail -1 | awk '{print $3 \"/\" $2 \" (\" $5 \")\"}'",
+            'cpu_info': "lscpu 2>/dev/null | grep 'Model name' | cut -d: -f2 | xargs",
+            'cpu_cores': 'nproc 2>/dev/null',
+            'ip_addresses': "ip -4 addr show 2>/dev/null | grep inet | awk '{print $2}' | grep -v 127.0.0.1",
+        }
+
+        for key, command in commands.items():
+            result = self.run_command(command)
+            info[key] = result if result else 'Unknown'
+
+        # Build os_release from BIG-IP version info via tmsh
+        version_raw = self.run_command('tmsh show sys version 2>/dev/null')
+        product = 'BIG-IP'
+        version = 'Unknown'
+        if version_raw:
+            for line in version_raw.split('\n'):
+                parts = line.split(None, 1)
+                if len(parts) == 2:
+                    if parts[0].lower() == 'product':
+                        product = parts[1].strip()
+                    elif parts[0].lower() == 'version':
+                        version = parts[1].strip()
+        info['os_release'] = {
+            'name': product,
+            'version': version,
+            'id': 'bigip',
+            'pretty_name': f"{product} {version}"
+        }
+
+        # Collect BIG-IP-specific info
+        if self.bigip_collector:
+            bigip_data = self.bigip_collector.collect_bigip_info()
+            if bigip_data:
+                info['bigip_info'] = bigip_data
+
+        info['services'] = []
+        info['docker_containers'] = []
+        info['listening_ports'] = []
+        info['memory_modules'] = {}
+        info['bios_info'] = {}
+
+        return info
+
     def collect_linux_info(self) -> Dict:
         """Collect Linux-specific information"""
         logger.info(f"Collecting Linux information")
