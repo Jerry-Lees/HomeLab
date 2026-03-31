@@ -45,10 +45,25 @@
 </details>
 
 {% if kubernetes_info.problematic_pods %}
+{% if kubernetes_info.problematic_pods|length <= 8 %}
 #### Issues Found
+| Namespace/Pod | Status | Ready | Restarts |
+|---------------|--------|-------|---------|
 {% for pod in kubernetes_info.problematic_pods %}
-- **{{ pod.namespace or 'Unknown' }}/{{ pod.name or 'Unknown' }}** - Status: {{ pod.status or 'Unknown' }}, Ready: {{ pod.ready or 'Unknown' }}, Restarts: {{ pod.restarts or 'Unknown' }}
+| **{{ pod.namespace or 'Unknown' }}/{{ pod.name or 'Unknown' }}** | {{ pod.status or 'Unknown' }} | {{ pod.ready or 'Unknown' }} | {{ pod.restarts or 'Unknown' }} |
 {% endfor %}
+{% else %}
+<details>
+<summary><strong>Issues Found ({{ kubernetes_info.problematic_pods|length }} total)</strong></summary>
+
+| Namespace/Pod | Status | Ready | Restarts |
+|---------------|--------|-------|---------|
+{% for pod in kubernetes_info.problematic_pods %}
+| **{{ pod.namespace or 'Unknown' }}/{{ pod.name or 'Unknown' }}** | {{ pod.status or 'Unknown' }} | {{ pod.ready or 'Unknown' }} | {{ pod.restarts or 'Unknown' }} |
+{% endfor %}
+
+</details>
+{% endif %}
 {% endif %}
 {% endif %}
 
