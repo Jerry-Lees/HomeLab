@@ -486,19 +486,22 @@ class ProxmoxCollector:
             if line.strip():
                 parts = line.split()
                 if len(parts) >= 3:
+                    # pct list columns: VMID Status [Lock] Name
+                    # When no active lock, the Lock column is absent and Name shifts left to position 2
+                    if len(parts) >= 4:
+                        lock_val = parts[2] if parts[2] != '-' else None
+                        name_val = parts[3]
+                    else:
+                        lock_val = None
+                        name_val = parts[2] if parts[2] != '-' else f"Container-{parts[0]}"
+
                     container: Dict[str, Any] = {
                         'vmid': parts[0],
                         'status': parts[1],
-                        'lock': parts[2] if parts[2] != '-' else None,
+                        'lock': lock_val,
+                        'name': name_val,
                         'type': 'container'
                     }
-                    
-                    # Container name might be in position 3 or later, or we need to get it from config
-                    if len(parts) > 3:
-                        container['name'] = parts[3]
-                    else:
-                        # If name not in list output, we'll get it from detailed info
-                        container['name'] = f"Container-{parts[0]}"  # Fallback name
                     
                     # Get detailed info for containers (limited for performance)
                     if container['status'] in ['running', 'stopped'] and detail_count < max_detailed:

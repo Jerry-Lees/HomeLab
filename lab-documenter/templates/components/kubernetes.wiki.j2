@@ -35,7 +35,8 @@
 {% for namespace, namespace_pods in pods_by_namespace %}
 ==== {{ namespace }} ({{ namespace_pods|list|length }} pods) ====
 
-{| class='wikitable sortable'
+{| class='wikitable sortable mw-collapsible mw-collapsed'
+|+ {{ namespace }} pods
 |-
 !  !! Name !! Status !! Ready !! Restarts !! Age
 {% for pod in namespace_pods|list|sort(attribute='name') %}
@@ -48,19 +49,15 @@
 
 {% if kubernetes_info.problematic_pods %}
 ==== Issues Found ====
-{% for pod in kubernetes_info.problematic_pods[:8] %}
+{% for pod in kubernetes_info.problematic_pods %}
 * '''{{ pod.namespace or 'Unknown' }}/{{ pod.name or 'Unknown' }}''' - Status: {{ pod.status or 'Unknown' }}, Ready: {{ pod.ready or 'Unknown' }}, Restarts: {{ pod.restarts or 'Unknown' }}
 {% endfor %}
-{% if kubernetes_info.problematic_pods|length > 8 %}
-
-''... and {{ kubernetes_info.problematic_pods|length - 8 }} more problematic pods''
-{% endif %}
 {% endif %}
 {% endif %}
 
 {% if kubernetes_info.services %}
 === Kubernetes Services ({{ kubernetes_info.services|length }}) ===
-
+{% if kubernetes_info.services|length <= 8 %}
 {| class='wikitable sortable'
 |-
 ! Namespace/Name !! Type !! Cluster IP !! External IP !! Ports
@@ -69,13 +66,23 @@
 | '''{{ svc.namespace or 'Unknown' }}/{{ svc.name or 'Unknown' }}''' || {{ svc.type or 'Unknown' }} || {{ svc.cluster_ip or 'Unknown' }} || {{ svc.external_ip or '' }} || {{ svc.ports or '' }}
 {% endfor %}
 |}
-
+{% else %}
+{| class='wikitable sortable mw-collapsible mw-collapsed'
+|+ Kubernetes Services ({{ kubernetes_info.services|length }} total)
+|-
+! Namespace/Name !! Type !! Cluster IP !! External IP !! Ports
+{% for svc in kubernetes_info.services %}
+|-
+| '''{{ svc.namespace or 'Unknown' }}/{{ svc.name or 'Unknown' }}''' || {{ svc.type or 'Unknown' }} || {{ svc.cluster_ip or 'Unknown' }} || {{ svc.external_ip or '' }} || {{ svc.ports or '' }}
+{% endfor %}
+|}
+{% endif %}
 {% endif %}
 
 {% if kubernetes_info.deployments %}
 === Deployments ===
-
 {% set deps_by_namespace = kubernetes_info.deployments | groupby('namespace') %}
+{% if kubernetes_info.deployments|length <= 8 %}
 {% for namespace, namespace_deps in deps_by_namespace %}
 ==== {{ namespace }} ({{ namespace_deps|list|length }} deployments) ====
 
@@ -89,6 +96,22 @@
 |}
 
 {% endfor %}
+{% else %}
+{% for namespace, namespace_deps in deps_by_namespace %}
+==== {{ namespace }} ({{ namespace_deps|list|length }} deployments) ====
+
+{| class='wikitable sortable mw-collapsible mw-collapsed'
+|+ {{ namespace }} deployments
+|-
+! Name !! Ready !! Up-to-date !! Available
+{% for dep in namespace_deps|list|sort(attribute='name') %}
+|-
+| '''{{ dep.name or 'Unknown' }}''' || {{ dep.ready or 'Unknown' }} || {{ dep.up_to_date or 'Unknown' }} || {{ dep.available or 'Unknown' }}
+{% endfor %}
+|}
+
+{% endfor %}
+{% endif %}
 {% endif %}
 
 {% endif %}

@@ -281,15 +281,24 @@
 {% endif %}
 
 {% if proxmox_info.problematic_resources %}
-#### Issues Found
-{% for resource in proxmox_info.problematic_resources[:8] %}
+{% if proxmox_info.problematic_resources|length > 8 %}
+<details>
+<summary><strong>Issues Found ({{ proxmox_info.problematic_resources|length }} total)</strong></summary>
+
+{% for resource in proxmox_info.problematic_resources %}
 {% set resource_type = 'VM' if resource.type == 'vm' else 'Container' %}
 {% set lock_info = ' - Locked: ' + resource.lock if resource.lock else '' %}
 - **{{ resource_type }} {{ resource.name or resource.vmid or 'Unknown' }}** (ID: {{ resource.vmid or 'Unknown' }}) - Status: {{ resource.status or 'Unknown' }}{{ lock_info }}
 {% endfor %}
-{% if proxmox_info.problematic_resources|length > 8 %}
 
-*... and {{ proxmox_info.problematic_resources|length - 8 }} more problematic resources*
+</details>
+{% else %}
+#### Issues Found
+{% for resource in proxmox_info.problematic_resources %}
+{% set resource_type = 'VM' if resource.type == 'vm' else 'Container' %}
+{% set lock_info = ' - Locked: ' + resource.lock if resource.lock else '' %}
+- **{{ resource_type }} {{ resource.name or resource.vmid or 'Unknown' }}** (ID: {{ resource.vmid or 'Unknown' }}) - Status: {{ resource.status or 'Unknown' }}{{ lock_info }}
+{% endfor %}
 {% endif %}
 {% endif %}
 

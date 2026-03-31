@@ -129,23 +129,31 @@
 {% endif %}
 
 {% set container_name = ct.name or ('Container-' + (ct.vmid or 'Unknown')) %}
-{% set display_name = container_name + ' (' + (ct.vmid or 'Unknown') + ')' %}
 |-
-| {{ status_icon }} || {{ display_name }} || {{ ct.vmid or 'Unknown' }} || {{ ct.status or 'Unknown' }} || {{ ct.lock or 'None' }}
+| {{ status_icon }} || {{ container_name }} || {{ ct.vmid or 'Unknown' }} || {{ ct.status or 'Unknown' }} || {{ ct.lock or '-' }}
 {% endfor %}
 |}
 {% endif %}
 
 {% if proxmox_info.problematic_resources %}
 ==== Issues Found ====
-{% for resource in proxmox_info.problematic_resources[:8] %}
+{% if proxmox_info.problematic_resources|length > 8 %}
+{| class='wikitable mw-collapsible mw-collapsed'
+|+ Issues Found ({{ proxmox_info.problematic_resources|length }} total)
+|-
+! Type !! Name !! ID !! Status !! Lock
+{% for resource in proxmox_info.problematic_resources %}
+{% set resource_type = 'VM' if resource.type == 'vm' else 'Container' %}
+|-
+| {{ resource_type }} || {{ resource.name or resource.vmid or 'Unknown' }} || {{ resource.vmid or 'Unknown' }} || {{ resource.status or 'Unknown' }} || {{ resource.lock or '-' }}
+{% endfor %}
+|}
+{% else %}
+{% for resource in proxmox_info.problematic_resources %}
 {% set resource_type = 'VM' if resource.type == 'vm' else 'Container' %}
 {% set lock_info = ' - Locked: ' + resource.lock if resource.lock else '' %}
 * '''{{ resource_type }} {{ resource.name or resource.vmid or 'Unknown' }}''' (ID: {{ resource.vmid or 'Unknown' }}) - Status: {{ resource.status or 'Unknown' }}{{ lock_info }}
 {% endfor %}
-{% if proxmox_info.problematic_resources|length > 8 %}
-
-''... and {{ proxmox_info.problematic_resources|length - 8 }} more problematic resources''
 {% endif %}
 {% endif %}
 
