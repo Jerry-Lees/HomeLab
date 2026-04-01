@@ -31,6 +31,7 @@ class BigIPCollector:
         info['virtual_servers'] = self._get_virtual_servers()
         info['pools'] = self._get_pools()
         info['interfaces'] = self._get_interfaces()
+        info['vlans'] = self._get_vlans()
         info['ha_status'] = self._get_ha_status()
 
         return info
@@ -151,28 +152,128 @@ class BigIPCollector:
         return pools
 
     def _get_interfaces(self) -> List[Dict[str, Any]]:
-        """Get physical interface status from tmsh"""
+        """Get physical interface status, media type, and traffic stats"""
         interfaces: List[Dict[str, Any]] = []
 
-        result = self.run_command('tmsh show net interface 2>/dev/null')
-        if not result:
+        # Get media type from list command (config, not runtime stats)
+        media_map: Dict[str, str] = {}
+        list_result = self.run_command('tmsh list net interface 2>/dev/null')
+        if list_result:
+            current_iface = None
+            for line in list_result.split('\n'):
+                line_s = line.strip()
+                m = re.match(r'^net interface (\S+)', line_s)
+                if m:
+                    current_iface = m.group(1)
+                elif current_iface and line_s.startswith('media-active '):
+                    media_map[current_iface] = line_s.split(None, 1)[1]
+
+        # Get status and traffic counters from show command
+        show_result = self.run_command('tmsh show net interface 2>/dev/null')
+        if not show_result:
+            for name, media in media_map.items():
+                interfaces.append({
+                    'name': name, 'status': 'Unknown',
+                    'media': media, 'bits_in': '', 'bits_out': ''
+                })
             return interfaces
 
-        # Skip header lines; data lines look like:
-        # 1.1    up    100TX-FD  ...
-        for line in result.split('\n'):
-            line = line.strip()
-            if not line or line.startswith('-') or line.startswith('Net') or line.startswith('Sys'):
-                continue
-            parts = line.split()
-            if len(parts) >= 2 and re.match(r'^\d+\.\d+$', parts[0]):
-                interfaces.append({
-                    'name': parts[0],
-                    'status': parts[1] if len(parts) > 1 else 'Unknown',
-                    'media': parts[2] if len(parts) > 2 else 'Unknown'
-                })
+        # tmsh show net interface can be a summary table or per-interface blocks
+        # Detect table format: lines starting with an interface name pattern
+        is_table = any(
+            re.match(r'^\d+\.\d+\s+\w+', line.strip()) or re.match(r'^mgmt\s+\w+', line.strip())
+            for line in show_result.split('\n')
+        )
+
+        if is_table:
+            for line in show_result.split('\n'):
+                line = line.strip()
+                if not line or line.startswith('-') or line.startswith('Net') or line.startswith('Name'):
+                    continue
+                parts = line.split()
+                if len(parts) >= 2 and (re.match(r'^\d+\.\d+$', parts[0]) or parts[0] == 'mgmt'):
+                    interfaces.append({
+                        'name': parts[0],
+                        'status': parts[1],
+                        'media': media_map.get(parts[0], 'Unknown'),
+                        'bits_in': parts[2] if len(parts) > 2 else '',
+                        'bits_out': parts[3] if len(parts) > 3 else '',
+                    })
+        else:
+            # Per-interface block format
+            current: Optional[Dict[str, Any]] = None
+            for line in show_result.split('\n'):
+                line_s = line.strip()
+                m = re.match(r'^Net::Interface:\s*(\S+)', line_s)
+                if m:
+                    if current:
+                        interfaces.append(current)
+                    name = m.group(1)
+                    current = {
+                        'name': name,
+                        'status': 'Unknown',
+                        'media': media_map.get(name, 'Unknown'),
+                        'bits_in': '',
+                        'bits_out': '',
+                    }
+                elif current:
+                    if re.match(r'^Status\s*:', line_s):
+                        current['status'] = line_s.split(':', 1)[1].strip()
+                    elif re.search(r'Bits In', line_s):
+                        parts = line_s.split()
+                        current['bits_in'] = parts[-1] if parts else ''
+                    elif re.search(r'Bits Out', line_s):
+                        parts = line_s.split()
+                        current['bits_out'] = parts[-1] if parts else ''
+            if current:
+                interfaces.append(current)
 
         return interfaces
+
+    def _get_vlans(self) -> List[Dict[str, Any]]:
+        """Get VLAN configuration"""
+        vlans: List[Dict[str, Any]] = []
+
+        result = self.run_command('tmsh list net vlan 2>/dev/null')
+        if not result:
+            return vlans
+
+        current_vlan: Optional[Dict[str, Any]] = None
+        in_interfaces = False
+
+        for line in result.split('\n'):
+            line_s = line.strip()
+
+            m = re.match(r'^net vlan (/\S+)', line_s)
+            if m:
+                if current_vlan:
+                    vlans.append(current_vlan)
+                name = m.group(1)
+                current_vlan = {
+                    'name': name,
+                    'tag': '',
+                    'interfaces': []
+                }
+                in_interfaces = False
+                continue
+
+            if current_vlan is None:
+                continue
+
+            if line_s == 'interfaces {':
+                in_interfaces = True
+            elif in_interfaces and line_s == '}':
+                in_interfaces = False
+            elif in_interfaces and re.match(r'^\d+\.\d+', line_s):
+                iface = line_s.split()[0]
+                current_vlan['interfaces'].append(iface)
+            elif line_s.startswith('tag '):
+                current_vlan['tag'] = line_s.split(None, 1)[1]
+
+        if current_vlan:
+            vlans.append(current_vlan)
+
+        return vlans
 
     def _get_ha_status(self) -> Dict[str, Any]:
         """Get high availability / failover status"""

@@ -61,10 +61,19 @@
 
 {% if bigip_info.interfaces %}
 ### Interfaces
-| Name | Status | Media |
-|------|--------|-------|
+| Name | Status | Media | Bits In | Bits Out |
+|------|--------|-------|---------|---------|
 {% for iface in bigip_info.interfaces %}
-| **{{ iface.name or 'Unknown' }}** | {{ iface.status or 'Unknown' }} | {{ iface.media or '' }} |
+| **{{ iface.name or 'Unknown' }}** | {{ iface.status or 'Unknown' }} | {{ iface.media or '' }} | {{ iface.bits_in or '' }} | {{ iface.bits_out or '' }} |
+{% endfor %}
+{% endif %}
+
+{% if bigip_info.vlans %}
+### VLANs ({{ bigip_info.vlans|length }})
+| Name | Tag | Interfaces |
+|------|-----|-----------|
+{% for vlan in bigip_info.vlans %}
+| **{{ vlan.name or 'Unknown' }}** | {{ vlan.tag or '' }} | {{ vlan.interfaces | join(', ') if vlan.interfaces else '' }} |
 {% endfor %}
 {% endif %}
 

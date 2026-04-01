@@ -715,7 +715,7 @@ class SystemCollector:
 
         # Docker may be present via Docker Desktop
         info['docker_containers'] = self.get_docker_containers()
-        info['services'] = []
+        info['services'] = self.get_services_launchd()
         info['memory_modules'] = {}
         info['bios_info'] = {}
 
@@ -770,9 +770,9 @@ class SystemCollector:
             if bigip_data:
                 info['bigip_info'] = bigip_data
 
-        info['services'] = []
+        info['services'] = self.get_services()
         info['docker_containers'] = []
-        info['listening_ports'] = []
+        info['listening_ports'] = self.get_listening_ports()
         info['memory_modules'] = {}
         info['bios_info'] = {}
 
@@ -1023,6 +1023,25 @@ class SystemCollector:
                 memory_data['system_memory']['size'] = f"{total_size_mb} MiB"
 
         return memory_data
+
+    def get_services_launchd(self) -> List[Dict]:
+        """Get running launchd services on macOS (non-Apple only)"""
+        services = []
+        result = self.run_command(
+            "launchctl list 2>/dev/null | awk 'NR>1 && $1 != \"-\" {print $3}'"
+            " | grep -v '^com.apple' | grep -v '^com.openssh' | head -30"
+        )
+        if not result:
+            return services
+
+        for label in result.strip().split('\n'):
+            label = label.strip()
+            if not label:
+                continue
+            enhanced_service = self.services_db.enhance_service(label, 'active', {})
+            services.append(enhanced_service)
+
+        return services
 
     def get_services(self) -> List[Dict]:
         """Get systemd services with enhanced information and auto-updating database"""

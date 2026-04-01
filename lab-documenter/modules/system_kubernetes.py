@@ -65,11 +65,11 @@ class KubernetesCollector:
         return k8s_info
     
     def collect_nodes(self) -> List[Dict[str, Optional[str]]]:
-        """Collect Kubernetes nodes information"""
+        """Collect Kubernetes nodes information including taints"""
         nodes = self.run_command('kubectl get nodes --no-headers -o wide 2>/dev/null')
         if not nodes:
             return []
-        
+
         nodes_list: List[Dict[str, Optional[str]]] = []
         for line in nodes.split('\n'):
             if line.strip():
@@ -82,8 +82,7 @@ class KubernetesCollector:
                         'age': parts[3] if len(parts) > 3 else 'Unknown',
                         'version': parts[4] if len(parts) > 4 else 'Unknown'
                     }
-                    
-                    # Add additional node details if available
+
                     if len(parts) > 5:
                         node_info['internal_ip'] = parts[5]
                     if len(parts) > 6:
@@ -94,10 +93,35 @@ class KubernetesCollector:
                         node_info['kernel_version'] = parts[8]
                     if len(parts) > 9:
                         node_info['container_runtime'] = parts[9]
-                    
+
                     nodes_list.append(node_info)
-        
+
+        # Collect taints for all nodes in one command
+        taints_map = self._collect_node_taints()
+        for node in nodes_list:
+            node['taints'] = taints_map.get(node.get('name', ''), '')
+
         return nodes_list
+
+    def _collect_node_taints(self) -> Dict[str, str]:
+        """Get taints for all nodes via kubectl describe"""
+        taints_map: Dict[str, str] = {}
+        result = self.run_command(
+            "kubectl describe nodes 2>/dev/null | grep -E '^Name:|^Taints:'"
+        )
+        if not result:
+            return taints_map
+
+        current_node = None
+        for line in result.strip().split('\n'):
+            if line.startswith('Name:'):
+                current_node = line.split(':', 1)[1].strip()
+            elif line.startswith('Taints:') and current_node:
+                taint_val = line.split(':', 1)[1].strip()
+                if taint_val and taint_val != '<none>':
+                    taints_map[current_node] = taint_val
+
+        return taints_map
     
     def collect_namespaces(self) -> List[str]:
         """Collect Kubernetes namespaces"""

@@ -14,10 +14,10 @@
 {% if kubernetes_info.nodes %}
 ### Nodes ({{ kubernetes_info.nodes|length }})
 
-| Node | Roles | Status |
-|------|-------|--------|
+| Node | Roles | Status | Taints |
+|------|-------|--------|--------|
 {% for node in kubernetes_info.nodes %}
-| **{{ node.name or 'Unknown' }}** | {{ node.roles or 'Unknown' }} | {{ 'Ready' if node.status == 'Ready' else 'NotReady' }} |
+| **{{ node.name or 'Unknown' }}** | {{ node.roles or 'Unknown' }} | {{ 'Ready' if node.status == 'Ready' else 'NotReady' }} | {{ node.taints or '' }} |
 {% endfor %}
 
 {% endif %}
@@ -73,7 +73,7 @@
 | Namespace/Name | Type | Cluster IP | External IP | Ports |
 |----------------|------|------------|-------------|-------|
 {% for svc in kubernetes_info.services %}
-| **{{ svc.namespace or 'Unknown' }}/{{ svc.name or 'Unknown' }}** | {{ svc.type or 'Unknown' }} | {{ svc.cluster_ip or 'Unknown' }} | {{ svc.external_ip or '' }} | {{ svc.ports or '' }} |
+| **{{ svc.namespace or 'Unknown' }}/{{ svc.name or 'Unknown' }}** | {{ svc.type or 'Unknown' }} | {{ svc.cluster_ip or 'Unknown' }} | {{ svc.external_ip or '' }} | {{ (svc.ports or '') | replace(',', '<br>') }} |
 {% endfor %}
 {% else %}
 <details>
@@ -82,7 +82,7 @@
 | Namespace/Name | Type | Cluster IP | External IP | Ports |
 |----------------|------|------------|-------------|-------|
 {% for svc in kubernetes_info.services %}
-| **{{ svc.namespace or 'Unknown' }}/{{ svc.name or 'Unknown' }}** | {{ svc.type or 'Unknown' }} | {{ svc.cluster_ip or 'Unknown' }} | {{ svc.external_ip or '' }} | {{ svc.ports or '' }} |
+| **{{ svc.namespace or 'Unknown' }}/{{ svc.name or 'Unknown' }}** | {{ svc.type or 'Unknown' }} | {{ svc.cluster_ip or 'Unknown' }} | {{ svc.external_ip or '' }} | {{ (svc.ports or '') | replace(',', '<br>') }} |
 {% endfor %}
 
 </details>
