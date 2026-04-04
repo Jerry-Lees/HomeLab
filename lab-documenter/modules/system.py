@@ -1095,11 +1095,20 @@ class SystemCollector:
                 if isinstance(chassis_id, dict):
                     switch_mac = chassis_id.get('value', '')
 
+                # Management IP — may be a string or list
+                mgmt_ip = ''
+                raw_mgmt = chassis_data.get('mgmt-ip', '')
+                if isinstance(raw_mgmt, list):
+                    mgmt_ip = raw_mgmt[0] if raw_mgmt else ''
+                elif isinstance(raw_mgmt, str):
+                    mgmt_ip = raw_mgmt
+
                 uplinks.append({
                     'local_interface': iface_name,
                     'switch_name': switch_name,
                     'switch_descr': sys_descr,
                     'switch_mac': switch_mac,
+                    'switch_mgmt_ip': mgmt_ip,
                     'switch_port': port_descr,
                     'vlan': vlan_id
                 })

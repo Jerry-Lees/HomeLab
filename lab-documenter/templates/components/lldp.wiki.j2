@@ -2,11 +2,16 @@
 == Switch Connections (LLDP) ==
 {| class='wikitable'
 |-
-! Local Interface !! Switch !! Switch Port !! VLAN
+! Local Interface !! Switch !! MAC !! Mgmt IP !! Switch Port !! VLAN
 {% for uplink in lldp_uplinks %}
 |-
-| <code>{{ uplink.local_interface }}</code> || [[Switch:{{ uplink.switch_name }}|{{ uplink.switch_name }}]] || {{ uplink.switch_port }} || {{ uplink.vlan if uplink.vlan else '-' }}
+| <code>{{ uplink.local_interface }}</code> || [[Switch:{{ uplink.switch_name }}|{{ uplink.switch_name }}]] || {{ uplink.switch_mac }} || {{ uplink.switch_mgmt_ip if uplink.switch_mgmt_ip else '-' }} || {{ uplink.switch_port }} || {{ uplink.vlan if uplink.vlan else '-' }}
 {% endfor %}
 |}
+{% for uplink in lldp_uplinks %}
+{% if uplink.switch_descr %}
+* '''{{ uplink.switch_name }} description:''' {{ uplink.switch_descr }}
+{% endif %}
+{% endfor %}
 
 {% endif %}
