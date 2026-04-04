@@ -1,0 +1,9 @@
+{% if lldp_uplinks %}
+## Switch Connections (LLDP)
+| Local Interface | Switch | Switch Port | VLAN |
+|----------------|--------|-------------|------|
+{% for uplink in lldp_uplinks %}
+| `{{ uplink.local_interface }}` | {{ uplink.switch_name }} | {{ uplink.switch_port }} | {{ uplink.vlan if uplink.vlan else '-' }} |
+{% endfor %}
+
+{% endif %}
