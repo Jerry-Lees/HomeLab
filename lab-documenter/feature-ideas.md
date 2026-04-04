@@ -48,11 +48,11 @@ These features are currently operational, but are a Work In Progress.
 - **Cross-Subnet MAC Resolution via SSH Jump Hosts** - For failed hosts where the MAC isn't in the local ARP cache (common for devices on remote VLANs/subnets), SSH to a reachable host on the same subnet, run `ping -c 1 <ip> && arp -n <ip>`, and capture the MAC from there. Config file would need a per-VLAN/subnet jump host mapping (e.g. `192.168.0.0/24: jumphost.example.com`). Could also auto-select a jump host by finding any already-scanned reachable host on the same subnet, avoiding the need for dedicated infrastructure.
 
 ### Per-Host Detail Collection
-- **Installed Packages** - Collect top-level installed packages (not dependencies) via `dpkg`, `rpm`, `brew`, etc. — useful for knowing what's actually running on each host. Currently implemented for Debian/Ubuntu (aptitude), RHEL/Rocky (dnf repoquery), and openSUSE (zypper). Mac (brew) not yet implemented.
-- **Cron Jobs** - Collect `crontab -l` for root and common users, document scheduled tasks per host
-- **Firewall Rules** - Collect and document open firewall rules via `iptables -L`, `ufw status`, or `firewall-cmd --list-all` per host
-- **Local Users & Sudo Access** - Document local user accounts and which have sudo privileges (`/etc/passwd`, `sudoers`)
-- **Last Login / Last Boot** - Collect `last` and `uptime` to show last user login and last system boot time
+- **Installed Packages** - ✅ Implemented. Top-level manually installed packages (not dependencies). Debian/Ubuntu via `aptitude ~i!~M`, RHEL/Rocky via `dnf repoquery --userinstalled`, openSUSE via `zypper`. Mac (brew) not yet implemented.
+- **Cron Jobs** - ✅ Implemented. Collects root crontab, `/etc/crontab`, and all `/etc/cron.d/` files. Collapsed if >8 entries.
+- **Firewall Rules** - ✅ Implemented. Detects ufw, firewalld, or iptables automatically. Shows type and status; rules only shown (collapsed) when firewall is active.
+- **Local Users & Sudo Access** - ✅ Implemented. Collects root + UID ≥ 1000 users with real shells. Sudo column shows Yes/No for regular users, N/A for root.
+- **Last Login / Last Boot** - ✅ Implemented. Last boot via `uptime -s` (full datetime), recent logins via `last` parsed into a table.
 
 ### Usability Improvements
 - **Progress Bar** - Show real-time progress during scanning (X of Y hosts complete)
