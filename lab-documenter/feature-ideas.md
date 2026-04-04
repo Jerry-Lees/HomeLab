@@ -40,9 +40,19 @@ These features are currently operational, but are a Work In Progress.
 ### Network Documentation
 - **Subnet Summary** - Generate summary showing how many hosts in each subnet, IP utilization
 - **DNS Records Export** - Generate suggested DNS zone file entries for discovered hosts
+- **DNS Zone Documentation** - SSH to BIND server, pull existing zone files, and document all A/AAAA/CNAME/MX/PTR records alongside the host that owns each record
+- **DHCP Leases & Reservations** - SSH to DHCP server (ISC dhcpd, dnsmasq, pfSense, etc.), pull current leases and static reservations, document alongside MAC/hostname inventory
+- **Router/Firewall Rules Summary** - Connect to pfSense, OPNsense, or similar via SSH/API, pull and document firewall rules, NAT rules, and interface assignments in a readable table
 - **IP Address History** - Track when hosts change IP addresses
 - **Network Inventory CSV** - Export network-focused CSV with IP, MAC, vendor, hostname
 - **Cross-Subnet MAC Resolution via SSH Jump Hosts** - For failed hosts where the MAC isn't in the local ARP cache (common for devices on remote VLANs/subnets), SSH to a reachable host on the same subnet, run `ping -c 1 <ip> && arp -n <ip>`, and capture the MAC from there. Config file would need a per-VLAN/subnet jump host mapping (e.g. `192.168.0.0/24: jumphost.example.com`). Could also auto-select a jump host by finding any already-scanned reachable host on the same subnet, avoiding the need for dedicated infrastructure.
+
+### Per-Host Detail Collection
+- **Installed Packages** - Collect top-level installed packages (not dependencies) via `dpkg`, `rpm`, `brew`, etc. — useful for knowing what's actually running on each host
+- **Cron Jobs** - Collect `crontab -l` for root and common users, document scheduled tasks per host
+- **Firewall Rules** - Collect and document open firewall rules via `iptables -L`, `ufw status`, or `firewall-cmd --list-all` per host
+- **Local Users & Sudo Access** - Document local user accounts and which have sudo privileges (`/etc/passwd`, `sudoers`)
+- **Last Login / Last Boot** - Collect `last` and `uptime` to show last user login and last system boot time
 
 ### Usability Improvements
 - **Progress Bar** - Show real-time progress during scanning (X of Y hosts complete)
@@ -59,7 +69,7 @@ These features are currently operational, but are a Work In Progress.
 ### Advanced Network Discovery
 - **VLAN Detection** - Identify and document VLAN memberships for hosts
 - **Switch Port Mapping** - Use SNMP to map hosts to physical switch ports (CDP/LLDP)
-- **Network Topology Map** - Generate visual network diagram showing connections
+- **Network Topology Map** - Generate visual network diagram showing connections. Using data already collected (hostnames, IPs, VLANs, platform types, Proxmox/K8s cluster membership), auto-generate a diagram in Graphviz DOT, Mermaid, or Draw.io XML format. Nodes grouped by type (Proxmox cluster, K8s cluster, NAS, BIG-IP pair, standalone Linux, Mac, Windows). Logical topology only (subnet/VLAN grouping) — physical topology requires switch SNMP/CDP/LLDP. Mermaid renders inline in MediaWiki with a plugin; Graphviz outputs PNG/SVG with just `apt install graphviz`. Diagram updates automatically every scan run.
 - **Gateway/Router Documentation** - Special handling for network equipment (routers, firewalls, switches)
 - **WiFi Network Documentation** - Scan and document wireless networks (SSIDs, channels, encryption)
 
@@ -76,6 +86,17 @@ These features are currently operational, but are a Work In Progress.
 - **CVE Vulnerability Scanning** - Check installed package versions against CVE databases
 - **Password Age Tracking** - Track when host passwords were last changed (manual entry)
 - **Compliance Checklist** - Customizable security baseline checks (SSH keys only, no root login, etc.)
+
+### Proxmox Enhancements
+- **Storage Pool Usage** - Document all Proxmox storage pools (local, NFS, Ceph, etc.) with usage, capacity, and type — not just node-level disk info
+- **Resource Allocation vs Actual Usage** - Show allocated vCPU/RAM across all VMs/containers vs physical node capacity; surface over-provisioning at a glance
+- **Backup Job Status** - Query Proxmox Backup Server or vzdump job history, show last backup date and result per VM/container
+
+### Kubernetes Enhancements
+- **Persistent Volume Claims (PVCs)** - Document all PVCs per namespace with status, storage class, capacity, and bound volume
+- **Ingress Rules** - Document all ingress resources showing hostname → service → port mappings per namespace
+- **Helm Releases** - List installed Helm releases per namespace with chart name and version (`helm list -A`)
+- **Resource Requests vs Limits** - Show CPU/memory requests and limits per namespace, flag namespaces with no limits set
 
 ### Backup & Recovery Documentation
 - **Backup Solution Integration** - Query Veeam, Proxmox Backup Server, or Restic for backup status
