@@ -831,25 +831,28 @@ class SystemCollector:
         """Get manually/explicitly installed packages (not auto-dependencies)"""
         packages = []
 
-        # Debian/Ubuntu: apt-mark showmanual gives manually installed packages
-        result = self.run_command('apt-mark showmanual 2>/dev/null | sort')
-        if result and 'command not found' not in result.lower():
-            names = [n.strip() for n in result.strip().split('\n') if n.strip()]
-            if names:
-                # Get versions for all at once
-                ver_result = self.run_command(
-                    "dpkg-query -W -f='${Package}\\t${Version}\\n' "
-                    + ' '.join(names[:100]) + ' 2>/dev/null'
-                )
-                ver_map: Dict[str, str] = {}
-                if ver_result:
-                    for line in ver_result.split('\n'):
-                        parts = line.split('\t', 1)
-                        if len(parts) == 2:
-                            ver_map[parts[0].strip()] = parts[1].strip()
-                for name in names[:100]:
-                    packages.append({'name': name, 'version': ver_map.get(name, '')})
-                return packages
+        # Debian/Ubuntu: aptitude '~i!~M' = installed AND not auto-installed (best filter)
+        result = self.run_command(
+            "aptitude search '~i!~M' -F '%p\t%V' 2>/dev/null | sort | head -100"
+        )
+        if result and 'command not found' not in result.lower() and result.strip():
+            for line in result.strip().split('\n'):
+                parts = line.split('\t', 1)
+                if parts[0].strip():
+                    packages.append({'name': parts[0].strip(), 'version': parts[1].strip() if len(parts) > 1 else ''})
+            return packages
+
+        # Debian/Ubuntu fallback: apt-mark showmanual + xargs to dpkg-query for versions
+        result = self.run_command(
+            "apt-mark showmanual 2>/dev/null | sort | "
+            "xargs dpkg-query -W -f='${Package}\\t${Version}\\n' 2>/dev/null | head -100"
+        )
+        if result and 'command not found' not in result.lower() and result.strip():
+            for line in result.strip().split('\n'):
+                parts = line.split('\t', 1)
+                if parts[0].strip():
+                    packages.append({'name': parts[0].strip(), 'version': parts[1].strip() if len(parts) > 1 else ''})
+            return packages
 
         # RHEL/CentOS/Fedora: all explicitly installed (dnf userinstalled if available)
         result = self.run_command(
@@ -940,9 +943,9 @@ class SystemCollector:
         """Collect local user accounts (UID >= 1000) with sudo access info"""
         users = []
 
-        # Get users with UID >= 1000 and a real shell
+        # Get root (UID 0) and regular users (UID >= 1000)
         passwd = self.run_command(
-            "getent passwd 2>/dev/null | awk -F: '$3 >= 1000 {print $1\":\"$5\":\"$6\":\"$7}'"
+            "getent passwd 2>/dev/null | awk -F: '$3 == 0 || $3 >= 1000 {print $1\":\"$5\":\"$6\":\"$7}'"
         )
         if not passwd:
             return users
@@ -960,8 +963,10 @@ class SystemCollector:
             if len(parts) < 4:
                 continue
             username, full_name, home, shell = parts[0], parts[1], parts[2], parts[3]
-            # Skip users with nologin/false shells
-            if 'nologin' in shell or 'false' in shell or not username:
+            if not username:
+                continue
+            # Skip service accounts with no-login shells (but always keep root)
+            if username != 'root' and ('nologin' in shell or 'false' in shell):
                 continue
             users.append({
                 'username': username,
@@ -977,8 +982,8 @@ class SystemCollector:
         """Collect last boot time and recent login history"""
         history: Dict[str, Any] = {}
 
-        # Last system boot
-        boot = self.run_command("who -b 2>/dev/null | awk '{print $3, $4}'")
+        # Last system boot — uptime -s gives full YYYY-MM-DD HH:MM:SS
+        boot = self.run_command("uptime -s 2>/dev/null || who -b 2>/dev/null | awk '{print $3, $4}'")
         if boot and boot.strip():
             history['last_boot'] = boot.strip()
 
