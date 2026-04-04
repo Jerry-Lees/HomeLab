@@ -1052,11 +1052,16 @@ class SystemCollector:
             if not isinstance(iface, dict):
                 continue
 
-            iface_name = iface.get('name', '')
+            # Each item is {"nic4": {...}} — interface name is the key
+            iface_name = list(iface.keys())[0]
+            iface_content = iface[iface_name]
+            if not isinstance(iface_content, dict):
+                continue
+
             if not iface_name or any(iface_name.startswith(p) for p in virtual_prefixes):
                 continue
 
-            chassis_map = iface.get('chassis', {})
+            chassis_map = iface_content.get('chassis', {})
             if not isinstance(chassis_map, dict):
                 continue
 
@@ -1070,12 +1075,12 @@ class SystemCollector:
                     continue
 
                 # Port description
-                port_info = iface.get('port', {})
+                port_info = iface_content.get('port', {})
                 port_descr = port_info.get('descr', '') if isinstance(port_info, dict) else ''
 
                 # VLAN — find the pvid (native VLAN)
                 vlan_id = ''
-                vlan_info = iface.get('vlan', {})
+                vlan_info = iface_content.get('vlan', {})
                 if isinstance(vlan_info, dict):
                     vlan_id = str(vlan_info.get('vlan-id', ''))
                 elif isinstance(vlan_info, list):
