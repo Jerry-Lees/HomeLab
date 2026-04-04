@@ -27,6 +27,17 @@ Generated on: {{ timestamp }}
 {% endif %}
 
 {% endif %}
+{% if switch_data %}
+## Network Switches
+
+| Switch | Description | Connected Hosts |
+|--------|-------------|-----------------|
+{% for switch_name, switch_info in switch_data.items()|sort %}
+{% set safe_switch = switch_name|replace(' ', '_')|replace('.', '_') %}
+| **[{{ switch_name }}](switch_{{ safe_switch }}.md)** | {{ switch_info.switch_descr or '' }} | {{ switch_info.connections|length }} |
+{% endfor %}
+
+{% endif %}
 ## Documented Servers
 
 {% if reachable_hosts %}

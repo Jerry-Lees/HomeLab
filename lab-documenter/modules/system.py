@@ -824,6 +824,7 @@ class SystemCollector:
         info['firewall_info'] = self.get_firewall_rules()
         info['local_users'] = self.get_local_users()
         info['login_history'] = self.get_login_history()
+        info['lldp_uplinks'] = self.get_lldp_info()
 
         return info
 
@@ -1020,6 +1021,85 @@ class SystemCollector:
             history['logins'] = logins
 
         return history
+
+    def get_lldp_info(self) -> List[Dict]:
+        """Collect LLDP neighbor info for physical switch uplinks (requires lldpd)"""
+        import json as _json
+
+        result = self.run_command('lldpctl -f json 2>/dev/null')
+        if not result or not result.strip():
+            return []
+
+        try:
+            data = _json.loads(result)
+        except Exception:
+            return []
+
+        lldp_data = data.get('lldp', {})
+        if not lldp_data:
+            return []
+
+        # lldpctl may return a single dict or a list for 'interface'
+        iface_data = lldp_data.get('interface', [])
+        if isinstance(iface_data, dict):
+            iface_data = [iface_data]
+
+        # Virtual/internal interface prefixes to ignore
+        virtual_prefixes = ('fwpr', 'fwln', 'veth', 'docker', 'br-', 'virbr', 'lxc', 'tap')
+
+        uplinks = []
+        for iface in iface_data:
+            if not isinstance(iface, dict):
+                continue
+
+            iface_name = iface.get('name', '')
+            if not iface_name or any(iface_name.startswith(p) for p in virtual_prefixes):
+                continue
+
+            chassis_map = iface.get('chassis', {})
+            if not isinstance(chassis_map, dict):
+                continue
+
+            for switch_name, chassis_data in chassis_map.items():
+                if not isinstance(chassis_data, dict):
+                    continue
+
+                sys_descr = chassis_data.get('descr', '')
+                # Skip Linux hosts advertising themselves via internal Proxmox veth pairs
+                if 'Linux' in sys_descr:
+                    continue
+
+                # Port description
+                port_info = iface.get('port', {})
+                port_descr = port_info.get('descr', '') if isinstance(port_info, dict) else ''
+
+                # VLAN — find the pvid (native VLAN)
+                vlan_id = ''
+                vlan_info = iface.get('vlan', {})
+                if isinstance(vlan_info, dict):
+                    vlan_id = str(vlan_info.get('vlan-id', ''))
+                elif isinstance(vlan_info, list):
+                    for v in vlan_info:
+                        if isinstance(v, dict) and v.get('pvid'):
+                            vlan_id = str(v.get('vlan-id', ''))
+                            break
+
+                # Switch MAC from chassis ID
+                switch_mac = ''
+                chassis_id = chassis_data.get('id', {})
+                if isinstance(chassis_id, dict):
+                    switch_mac = chassis_id.get('value', '')
+
+                uplinks.append({
+                    'local_interface': iface_name,
+                    'switch_name': switch_name,
+                    'switch_descr': sys_descr,
+                    'switch_mac': switch_mac,
+                    'switch_port': port_descr,
+                    'vlan': vlan_id
+                })
+
+        return uplinks
 
     def cleanup_connections(self):
         """Clean up all connections"""

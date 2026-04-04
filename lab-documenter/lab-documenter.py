@@ -415,8 +415,23 @@ Configuration:
                     logger.info(f"Updated wiki page for {host}")
                 else:
                     logger.error(f"Failed to update wiki page for {host}")
-        
+
         logger.info(f"Updated {updated_count} wiki pages")
+
+        # Generate and push switch pages
+        switch_data = docs_manager.aggregate_switch_data(inventory_manager.inventory)
+        switch_updated = 0
+        for switch_name, switch_info in switch_data.items():
+            content = docs_manager.generate_switch_wiki_content(switch_name, switch_info)
+            safe_switch = switch_name.replace(' ', '_')
+            if wiki_updater.update_page(f"Switch:{safe_switch}", content):
+                switch_updated += 1
+                logger.info(f"Updated wiki switch page: Switch:{safe_switch}")
+            else:
+                logger.error(f"Failed to update wiki switch page: Switch:{safe_switch}")
+        if switch_updated > 0:
+            logger.info(f"Updated {switch_updated} switch wiki pages")
+
     elif args.update_wiki:
         logger.warning("MediaWiki update requested but API URL not configured")
     

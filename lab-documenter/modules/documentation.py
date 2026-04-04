@@ -197,7 +197,8 @@ class DocumentationManager:
                 'cron_jobs': [],
                 'firewall_info': {},
                 'local_users': [],
-                'login_history': {}
+                'login_history': {},
+                'lldp_uplinks': []
             }
             
             for key, default_value in defaults.items():
@@ -211,17 +212,17 @@ class DocumentationManager:
         # Separate reachable and unreachable hosts
         reachable_hosts = [(hostname, data) for hostname, data in inventory.items() if data.get('reachable')]
         unreachable_hosts = [(hostname, data) for hostname, data in inventory.items() if not data.get('reachable')]
-        
+
         # Count by OS
         os_counts = {}
         service_counts = {'kubernetes': 0, 'docker': 0, 'proxmox': 0}
-        
+
         for hostname, data in reachable_hosts:
             if data.get('reachable'):
                 os_info = data.get('os_release', {})
                 os_name = os_info.get('name', 'Unknown')
                 os_counts[os_name] = os_counts.get(os_name, 0) + 1
-                
+
                 # Count special services
                 if data.get('kubernetes_info'):
                     service_counts['kubernetes'] += 1
@@ -229,7 +230,9 @@ class DocumentationManager:
                     service_counts['docker'] += 1
                 if data.get('proxmox_info'):
                     service_counts['proxmox'] += 1
-        
+
+        switch_data = self.aggregate_switch_data(inventory)
+
         return {
             'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             'total_servers': len(inventory),
@@ -238,8 +241,97 @@ class DocumentationManager:
             'reachable_hosts': reachable_hosts,
             'unreachable_hosts': unreachable_hosts,
             'os_counts': os_counts,
-            'service_counts': service_counts
+            'service_counts': service_counts,
+            'switch_data': switch_data
         }
+
+    def aggregate_switch_data(self, inventory: Dict[str, Any]) -> Dict[str, Any]:
+        """Aggregate LLDP uplink data from all hosts into per-switch dicts"""
+        switches: Dict[str, Any] = {}
+        for hostname, host_data in inventory.items():
+            if not host_data.get('reachable'):
+                continue
+            uplinks = host_data.get('lldp_uplinks', [])
+            for uplink in uplinks:
+                switch_name = uplink.get('switch_name', '')
+                if not switch_name:
+                    continue
+                if switch_name not in switches:
+                    switches[switch_name] = {
+                        'switch_name': switch_name,
+                        'switch_descr': uplink.get('switch_descr', ''),
+                        'switch_mac': uplink.get('switch_mac', ''),
+                        'connections': []
+                    }
+                switches[switch_name]['connections'].append({
+                    'host': host_data.get('actual_hostname', hostname),
+                    'local_interface': uplink.get('local_interface', ''),
+                    'switch_port': uplink.get('switch_port', ''),
+                    'vlan': uplink.get('vlan', '')
+                })
+        return switches
+
+    def generate_switch_markdown_content(self, switch_name: str, switch_info: Dict[str, Any]) -> str:
+        """Generate Markdown documentation for a switch"""
+        if not self.jinja_env:
+            return f"# Switch: {switch_name}\n\nNo template engine available.\n"
+        try:
+            template = self.jinja_env.get_template('pages/switch.md.j2')
+            try:
+                from modules.config import CONFIG
+                index_page_title = CONFIG.get('mediawiki_index_page', 'Server Documentation')
+            except (ImportError, AttributeError):
+                index_page_title = 'Server Documentation'
+            context = {
+                'switch_name': switch_name,
+                'switch_descr': switch_info.get('switch_descr', ''),
+                'switch_mac': switch_info.get('switch_mac', ''),
+                'connections': sorted(switch_info.get('connections', []), key=lambda x: x.get('switch_port', '')),
+                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'index_page_title': index_page_title,
+                'index_page_link': 'index.md'
+            }
+            return template.render(context)
+        except Exception as e:
+            logger.error(f"Error rendering switch MD template for {switch_name}: {e}")
+            return f"# Switch: {switch_name}\n\nError generating documentation: {e}\n"
+
+    def generate_switch_wiki_content(self, switch_name: str, switch_info: Dict[str, Any]) -> str:
+        """Generate MediaWiki documentation for a switch"""
+        if not self.jinja_env:
+            return f"= Switch: {switch_name} =\n\nNo template engine available.\n"
+        try:
+            template = self.jinja_env.get_template('pages/switch.wiki.j2')
+            try:
+                from modules.config import CONFIG
+                index_page_title = CONFIG.get('mediawiki_index_page', 'Server Documentation')
+            except (ImportError, AttributeError):
+                index_page_title = 'Server Documentation'
+            context = {
+                'switch_name': switch_name,
+                'switch_descr': switch_info.get('switch_descr', ''),
+                'switch_mac': switch_info.get('switch_mac', ''),
+                'connections': sorted(switch_info.get('connections', []), key=lambda x: x.get('switch_port', '')),
+                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'index_page_title': index_page_title
+            }
+            return template.render(context)
+        except Exception as e:
+            logger.error(f"Error rendering switch wiki template for {switch_name}: {e}")
+            return f"= Switch: {switch_name} =\n\nError generating documentation: {e}\n"
+
+    def save_switch_documentation(self, switch_data: Dict[str, Any]):
+        """Save Markdown documentation files for all discovered switches"""
+        for switch_name, switch_info in switch_data.items():
+            safe_name = self.sanitize_filename(switch_name)
+            doc_path = os.path.join(self.docs_dir, f"switch_{safe_name}.md")
+            try:
+                content = self.generate_switch_markdown_content(switch_name, switch_info)
+                with open(doc_path, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                logger.info(f"Switch documentation saved: {doc_path}")
+            except Exception as e:
+                logger.error(f"Error saving switch documentation for {switch_name}: {e}")
     
     def _generate_fallback_content(self, host_data: Dict[str, Any], format_type: str) -> str:
         """Fallback content generation when Jinja2 is not available"""
@@ -375,7 +467,16 @@ class DocumentationManager:
                 logger.error("Failed to create index file")
         except Exception as e:
             logger.error(f"Exception creating index file: {e}")
-        
+
+        # Generate switch documentation
+        try:
+            switch_data = self.aggregate_switch_data(inventory)
+            if switch_data:
+                self.save_switch_documentation(switch_data)
+                logger.info(f"Generated documentation for {len(switch_data)} switches")
+        except Exception as e:
+            logger.error(f"Exception generating switch documentation: {e}")
+
         logger.info(f"Documentation summary: {total_files_created} files created for {reachable_count} reachable hosts out of {len(inventory)} total hosts")
     
     def create_index_file(self, inventory: Dict[str, Any]):

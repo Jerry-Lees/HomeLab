@@ -29,6 +29,19 @@ This page provides an overview of all documented servers in the lab.
 {% endif %}
 
 {% endif %}
+{% if switch_data %}
+== Network Switches ==
+
+{| class='wikitable sortable'
+|-
+! Switch !! Description !! Connected Hosts
+{% for switch_name, switch_info in switch_data.items()|sort %}
+|-
+| [[Switch:{{ switch_name }}|{{ switch_name }}]] || {{ switch_info.switch_descr or '' }} || {{ switch_info.connections|length }}
+{% endfor %}
+|}
+
+{% endif %}
 {% if reachable_hosts %}
 == Active Servers ==
 
