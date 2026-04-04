@@ -825,6 +825,7 @@ class SystemCollector:
         info['local_users'] = self.get_local_users()
         info['login_history'] = self.get_login_history()
         info['lldp_uplinks'] = self.get_lldp_info()
+        info['bonding_info'] = self.get_bonding_info()
 
         return info
 
@@ -1074,9 +1075,14 @@ class SystemCollector:
                 if 'Linux' in sys_descr:
                     continue
 
-                # Port description
+                # Port description and link speed
                 port_info = iface_content.get('port', {})
                 port_descr = port_info.get('descr', '') if isinstance(port_info, dict) else ''
+                link_speed = ''
+                if isinstance(port_info, dict):
+                    autoneg = port_info.get('auto-negotiation', {})
+                    if isinstance(autoneg, dict):
+                        link_speed = autoneg.get('current', '')
 
                 # VLAN — find the pvid (native VLAN)
                 vlan_id = ''
@@ -1110,10 +1116,59 @@ class SystemCollector:
                     'switch_mac': switch_mac,
                     'switch_mgmt_ip': mgmt_ip,
                     'switch_port': port_descr,
+                    'link_speed': link_speed,
                     'vlan': vlan_id
                 })
 
         return uplinks
+
+    def get_bonding_info(self) -> List[Dict]:
+        """Collect bonding/LACP interface info from /proc/net/bonding/"""
+        bonds = []
+
+        bond_list = self.run_command('ls /proc/net/bonding/ 2>/dev/null')
+        if not bond_list or not bond_list.strip():
+            return []
+
+        for bond_name in bond_list.strip().split():
+            bond_name = bond_name.strip()
+            if not bond_name:
+                continue
+
+            content = self.run_command(f'cat /proc/net/bonding/{bond_name} 2>/dev/null')
+            if not content:
+                continue
+
+            bond = {'name': bond_name, 'mode': '', 'slaves': []}
+            current_slave = None
+
+            for line in content.strip().split('\n'):
+                line = line.strip()
+                if line.startswith('Bonding Mode:'):
+                    bond['mode'] = line.split(':', 1)[1].strip()
+                elif line.startswith('Slave Interface:'):
+                    if current_slave:
+                        bond['slaves'].append(current_slave)
+                    current_slave = {
+                        'name': line.split(':', 1)[1].strip(),
+                        'status': '',
+                        'speed': '',
+                        'duplex': ''
+                    }
+                elif current_slave:
+                    if line.startswith('MII Status:'):
+                        current_slave['status'] = line.split(':', 1)[1].strip()
+                    elif line.startswith('Speed:'):
+                        current_slave['speed'] = line.split(':', 1)[1].strip()
+                    elif line.startswith('Duplex:'):
+                        current_slave['duplex'] = line.split(':', 1)[1].strip()
+
+            if current_slave:
+                bond['slaves'].append(current_slave)
+
+            bonds.append(bond)
+
+        return bonds
 
     def cleanup_connections(self):
         """Clean up all connections"""

@@ -198,7 +198,8 @@ class DocumentationManager:
                 'firewall_info': {},
                 'local_users': [],
                 'login_history': {},
-                'lldp_uplinks': []
+                'lldp_uplinks': [],
+                'bonding_info': []
             }
             
             for key, default_value in defaults.items():

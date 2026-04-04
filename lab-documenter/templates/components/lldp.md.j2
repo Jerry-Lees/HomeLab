@@ -1,9 +1,9 @@
 {% if lldp_uplinks %}
 ## Switch Connections (LLDP)
-| Local Interface | Switch | MAC | Mgmt IP | Switch Port | VLAN |
-|----------------|--------|-----|---------|-------------|------|
+| Local Interface | Switch | MAC | Mgmt IP | Switch Port | Link Speed | VLAN |
+|----------------|--------|-----|---------|-------------|------------|------|
 {% for uplink in lldp_uplinks %}
-| `{{ uplink.local_interface }}` | {{ uplink.switch_name }} | {{ uplink.switch_mac }} | {{ uplink.switch_mgmt_ip if uplink.switch_mgmt_ip else '-' }} | {{ uplink.switch_port }} | {{ uplink.vlan if uplink.vlan else '-' }} |
+| `{{ uplink.local_interface }}` | {{ uplink.switch_name }} | {{ uplink.switch_mac }} | {{ uplink.switch_mgmt_ip if uplink.switch_mgmt_ip else '-' }} | {{ uplink.switch_port }} | {{ uplink.link_speed if uplink.link_speed else '-' }} | {{ uplink.vlan if uplink.vlan else '-' }} |
 {% endfor %}
 
 {% for uplink in lldp_uplinks %}
