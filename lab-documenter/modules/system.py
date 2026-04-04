@@ -854,15 +854,29 @@ class SystemCollector:
                     packages.append({'name': parts[0].strip(), 'version': parts[1].strip() if len(parts) > 1 else ''})
             return packages
 
-        # RHEL/CentOS/Fedora: all explicitly installed (dnf userinstalled if available)
+        # RHEL/CentOS/Fedora: dnf repoquery --userinstalled (explicitly installed only)
         result = self.run_command(
-            'dnf history userinstalled 2>/dev/null | tail -n +3 | awk \'{print $1}\' | head -100'
+            "dnf repoquery --userinstalled --qf '%{name}\t%{version}-%{release}' 2>/dev/null | sort | head -100"
         )
         if result and 'command not found' not in result.lower() and result.strip():
-            for name in result.strip().split('\n'):
-                name = name.strip()
-                if name:
-                    packages.append({'name': name, 'version': ''})
+            for line in result.strip().split('\n'):
+                parts = line.split('\t', 1)
+                if parts[0].strip():
+                    packages.append({'name': parts[0].strip(), 'version': parts[1].strip() if len(parts) > 1 else ''})
+            return packages
+
+        # openSUSE: zypper packages --installed-only
+        # Columns: S | Repository | Name | Version | Arch  (data starts at row 5)
+        result = self.run_command(
+            "zypper packages --installed-only 2>/dev/null | "
+            "awk -F'|' 'NR>4 {gsub(/ /,\"\",$3); gsub(/ /,\"\",$4); gsub(/ /,\"\",$5); "
+            "if($3==\"i\") print $4\"\\t\"$5}' | sort | head -100"
+        )
+        if result and 'command not found' not in result.lower() and result.strip():
+            for line in result.strip().split('\n'):
+                parts = line.split('\t', 1)
+                if parts[0].strip():
+                    packages.append({'name': parts[0].strip(), 'version': parts[1].strip() if len(parts) > 1 else ''})
             return packages
 
         # RPM fallback: all installed packages
