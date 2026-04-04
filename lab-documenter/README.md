@@ -18,11 +18,13 @@ A comprehensive home lab documentation system that automatically discovers and d
 
 ### Supported Platforms
 - **Windows Systems**: Windows Server and Desktop editions via WinRM
-- **Linux Distributions**: Ubuntu, Debian, CentOS, RHEL, Rocky Linux, Fedora, and others
+- **Linux Distributions**: Ubuntu, Debian, CentOS, RHEL, Rocky Linux, Fedora, openSUSE, and others
+- **macOS**: Mac hardware info, launchd services, listening ports
 - **NAS Systems**: Synology DSM, QNAP QTS, Asustor ADM, Buffalo, Netgear ReadyNAS
 - **FreeBSD Systems**: TrueNAS Core/Scale, generic FreeBSD installations
 - **Virtualization**: Proxmox VE hypervisors with VM/container enumeration
 - **Container Platforms**: Docker containers and Kubernetes clusters
+- **F5 BIG-IP**: Virtual servers, pools, interfaces, VLANs, and HA state via tmsh
 
 ### Data Collection
 - **System Information**: OS, kernel, hardware, uptime, resource usage (all platforms)
@@ -31,8 +33,14 @@ A comprehensive home lab documentation system that automatically discovers and d
 - **Windows Features**: Server roles/features and optional features detection
 - **NAS Capabilities**: Storage pools, shares, disk health, installed packages
 - **Docker Containers**: Container names, images, and status information
-- **Kubernetes Integration**: Cluster info, nodes, pods, services, deployments with issue detection
+- **Kubernetes Integration**: Cluster info, nodes (with taints), pods, services, deployments with issue detection
 - **Proxmox Support**: VM and container listings on Proxmox hypervisors
+- **Installed Packages**: Manually-installed packages with versions (Debian/Ubuntu via aptitude, RHEL via dnf, openSUSE via zypper)
+- **Scheduled Tasks**: Root crontab, /etc/crontab, and /etc/cron.d/* entries
+- **Firewall Rules**: ufw, firewalld, or iptables — type, status, and rules
+- **Local Users**: UID 0 and UID ≥ 1000 users with shell and sudo access
+- **Login History**: Last boot time and recent login sessions
+- **LLDP Switch Connections**: Physical switch port mapping via lldpd (bare-metal hosts)
 
 ### Advanced Features  
 - **Smart Service Discovery**: Auto-learning database that categorizes unknown services
@@ -821,17 +829,21 @@ nano my-servers.csv
 ### Wiki Output Features
 
 **Individual Server Pages**: Creates `Server:hostname` pages containing:
-- Platform-specific system information (Windows, Linux, NAS)
+- Platform-specific system information (Windows, Linux, macOS, NAS, BIG-IP)
 - Resource usage (memory, disk, CPU load)
 - Network configuration and listening ports
 - Running services with descriptions
-- Platform-specific features (Windows roles, NAS shares, etc.)
+- Platform-specific features (Windows roles, NAS shares, BIG-IP virtual servers/pools, etc.)
 - Docker containers and Kubernetes information
 - Proxmox VM/container lists
+- LLDP switch connections (physical hosts with lldpd)
+- Login history, local users, cron jobs, firewall rules, installed packages
+
+**Switch Pages**: Creates `Switch:switchname` pages listing all hosts connected to each switch with interface and port details.
 
 **Server Index Page**: Creates a configurable main index page featuring:
+- Network Switches table at the top with links to per-switch pages
 - Quick statistics (total servers, reachable/unreachable counts)
-- Platform breakdown (Windows, Linux, NAS counts)
 - Operating system breakdown
 - Special services summary (Kubernetes, Docker, Proxmox)
 - Sortable table of all active servers with links
@@ -968,26 +980,34 @@ lab-documenter/
 │
 ├── modules/                       # Python modules
 │   ├── config.py                 # Configuration management
-│   ├── documentation.py          # Template rendering
-│   ├── inventory.py              # Data collection
+│   ├── documentation.py          # Template rendering and switch aggregation
+│   ├── inventory.py              # Data collection orchestration
 │   ├── network.py                # Network scanning
 │   ├── services.py               # Service discovery
-│   ├── system.py                 # System collection
-│   ├── windows.py                # Windows collector
-│   ├── linux.py                  # Linux collector
-│   ├── nas.py                    # NAS collector
-│   ├── mediawiki.py              # Wiki integration
+│   ├── system.py                 # Linux/SSH collection (all per-host details)
+│   ├── system_mac.py             # macOS-specific collection
+│   ├── system_bigip.py           # F5 BIG-IP collection via tmsh
+│   ├── system_windows.py         # Windows collection via WinRM
+│   ├── system_nas.py             # NAS collection
+│   ├── system_kubernetes.py      # Kubernetes cluster collection
+│   ├── system_proxmox.py         # Proxmox VE collection
+│   ├── wiki.py                   # MediaWiki API integration
 │   ├── cacti.py                  # Cacti integration
 │   ├── networking_info.py        # MAC vendor lookup
 │   └── utils.py                  # Utilities
 │
+├── ansible/                       # Ansible playbooks
+│   └── setup-lab-documenter-hosts.yml  # Install prerequisites on hosts
+│
 ├── templates/                     # Jinja2 templates
-│   ├── markdown_host.j2          # Markdown format
-│   ├── mediawiki_host.j2         # MediaWiki format
-│   └── mediawiki_index.j2        # Wiki index
+│   ├── base/                     # Base templates
+│   ├── pages/                    # Full page templates (server, switch, index)
+│   └── components/               # Reusable sections (services, k8s, proxmox,
+│                                 #   bigip, mac, lldp, host_details, etc.)
 │
 ├── documentation/                 # Generated files
 │   ├── *.md                      # Markdown per host
+│   ├── switch_*.md               # Markdown per switch
 │   ├── *.json                    # JSON per host
 │   ├── index.md                  # Master index
 │   ├── cacti_import.sh           # Cacti bash script
@@ -1089,10 +1109,12 @@ The system uses a clean architecture with focused modules:
 lab-documenter/
 ├── lab-documenter.py          # Main CLI interface and orchestration
 ├── modules/
-│   ├── __init__.py           # Package initialization
+│   ├── __init__.py           # Package initialization and version
 │   ├── config.py             # Configuration management
 │   ├── network.py            # Network scanning functionality
-│   ├── system.py             # Multi-platform connections and data collection
+│   ├── system.py             # Linux SSH collection, per-host details, LLDP
+│   ├── system_mac.py         # macOS-specific collection
+│   ├── system_bigip.py       # F5 BIG-IP collection via tmsh
 │   ├── system_windows.py     # Windows-specific collection via WinRM
 │   ├── system_nas.py         # NAS-specific collection (all NAS types)
 │   ├── system_kubernetes.py  # Kubernetes cluster information
@@ -1100,8 +1122,8 @@ lab-documenter/
 │   ├── services.py           # Service database management
 │   ├── networking_info.py    # MAC vendor database and network utilities
 │   ├── inventory.py          # Host data aggregation
-│   ├── documentation.py      # Jinja2 template-based generation
-│   ├── wiki.py              # MediaWiki API integration
+│   ├── documentation.py      # Jinja2 template-based generation, switch aggregation
+│   ├── wiki.py               # MediaWiki API integration
 │   └── utils.py              # Utility functions and helpers
 ├── templates/
 │   ├── base/                 # Base templates and macros
@@ -1262,6 +1284,7 @@ tail -f ./logs/cron.log
 - **`setup-ssh-agent.sh`**: Adds SSH key to ssh-agent
 - **`distribute-key.sh`**: Enhanced SSH key distribution with diagnostics
 - **`run-lab-documenter.sh`**: Runs with proper environment
+- **`setup-hosts.sh`**: Installs lab-documenter prerequisites on all hosts via Ansible
 
 ## Security
 
@@ -1488,6 +1511,21 @@ python3 -c "import jinja2; print(jinja2.__version__)"
 - `kubectl` - For Kubernetes cluster information
 - `docker` - For Docker container information
 - `pveversion`, `qm`, `pct` - For Proxmox information
+
+### Target Host Packages (Optional)
+
+For full data collection, install these packages on documented hosts. Use `setup-hosts.sh` to deploy them automatically via Ansible:
+
+```bash
+./setup-hosts.sh
+```
+
+| Package | Purpose | Distro |
+|---------|---------|--------|
+| `lldpd` | Switch port mapping via LLDP | All Linux (bare-metal hosts) |
+| `aptitude` | Accurate manually-installed package list | Debian/Ubuntu only |
+| `dmidecode` | BIOS info and memory module details | All Linux |
+| `lshw` | Memory module details | All Linux |
 
 ## Contributing
 
@@ -1864,6 +1902,14 @@ For issues, questions, or contributions:
 # Changelog
 
 ## v1.2.1 (Current)
+- **macOS Support**: Mac hardware info (model, chip, cores, memory, serial), launchd services, listening ports via lsof
+- **F5 BIG-IP Support**: Virtual servers, pools, interfaces (with Bits In/Out and media type), VLANs, HA state via tmsh
+- **Per-Host Detail Collection**: Installed packages (aptitude/dnf/zypper), scheduled tasks (cron), firewall rules, local users with sudo, login history and last boot
+- **LLDP Switch Port Mapping**: Physical switch connections per host, auto-generated per-switch wiki pages (Switch:name), Network Switches table on index
+- **Kubernetes Enhancements**: Node taints column, multi-line service ports, collapsible issues table
+- **Host Setup Script**: `setup-hosts.sh` deploys prerequisites (lldpd, aptitude, dmidecode, lshw) to all hosts via Ansible using the labinator inventory
+
+## v1.2.0
 - **Cacti Direct Import**: SSH-based automatic device import to Cacti monitoring
 - **Automatic Device Updates**: Uses change_device.php for existing devices
 - **Configurable Templates**: Template mapping in config.json for platform detection
