@@ -12,6 +12,12 @@ from typing import Dict, Optional, Any
 
 logger = logging.getLogger(__name__)
 
+_DB_ONLY_FIELDS = frozenset({
+    'display_name', 'description', 'category', 'ports', 'access',
+    'documentation_url', 'related_services', '_auto_generated',
+    'last_updated', 'first_seen'
+})
+
 class ServiceDatabase:
     def __init__(self, services_db_path: str = 'services.json'):
         self.services_db_path = services_db_path
@@ -196,24 +202,18 @@ class ServiceDatabase:
         return self.add_unknown_service(service_name, enhanced_data)
     
     def enhance_service(self, service_name: str, status: str, enhanced_data: Optional[Dict[str, Any]] = None) -> Dict:
-        """Enhance service information with database data and runtime info"""
-        base_info = {
-            "name": service_name,
-            "status": status
-        }
-        
-        # Add enhanced data to base info
+        """Update the services DB and return only runtime fields for inventory storage.
+        DB metadata (display_name, description, etc.) is looked up at render time from services.json."""
+        # Trigger DB update as side effect (auto-adds unknown services, updates existing)
+        self.get_service_info(service_name, enhanced_data)
+
+        # Return only runtime-specific fields — DB metadata stays in services.json
+        runtime = {'name': service_name, 'status': status}
         if enhanced_data:
-            base_info.update(enhanced_data)
-        
-        # Get database info (this will auto-update if needed)
-        db_info = self.get_service_info(service_name, enhanced_data)
-        
-        # Merge database info with base info (base info takes precedence for runtime data)
-        final_info = db_info.copy()
-        final_info.update(base_info)
-        
-        return final_info
+            for k, v in enhanced_data.items():
+                if k not in _DB_ONLY_FIELDS:
+                    runtime[k] = v
+        return runtime
     
     def finalize(self) -> None:
         """Called at the end of data collection to save any new or updated services"""

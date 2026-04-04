@@ -37,7 +37,16 @@ class DocumentationManager:
             self.jinja_env = None
         
         self.ensure_docs_directory()
-    
+        self._services_db = self._load_services_db()
+
+    def _load_services_db(self) -> dict:
+        """Load services.json for render-time enrichment of service entries."""
+        try:
+            with open('services.json', 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
     def _register_filters(self):
         """Register custom Jinja2 filters for lab-specific formatting"""
         if not self.jinja_env:
@@ -205,7 +214,17 @@ class DocumentationManager:
             for key, default_value in defaults.items():
                 if key not in context:
                     context[key] = default_value
-            
+
+            # Enrich services with metadata from services.json at render time
+            if context.get('services'):
+                enriched = []
+                for svc in context['services']:
+                    db_entry = self._services_db.get(svc.get('name', ''), {})
+                    merged = db_entry.copy()
+                    merged.update(svc)  # runtime fields take precedence
+                    enriched.append(merged)
+                context['services'] = enriched
+
             return context
 
     def _prepare_index_context(self, inventory: Dict[str, Any]) -> Dict[str, Any]:
@@ -439,6 +458,7 @@ class DocumentationManager:
     
     def save_all_documentation(self, inventory: Dict[str, Any]):
         """Save documentation files for all hosts in inventory"""
+        self._services_db = self._load_services_db()
         logger.info(f"Saving documentation files to {self.docs_dir}/")
         
         if not inventory:
