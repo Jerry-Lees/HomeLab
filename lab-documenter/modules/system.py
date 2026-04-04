@@ -819,9 +819,189 @@ class SystemCollector:
         info['services'] = self.get_services()
         info['docker_containers'] = self.get_docker_containers()
         info['listening_ports'] = self.get_listening_ports()
-        
+        info['installed_packages'] = self.get_installed_packages()
+        info['cron_jobs'] = self.get_cron_jobs()
+        info['firewall_info'] = self.get_firewall_rules()
+        info['local_users'] = self.get_local_users()
+        info['login_history'] = self.get_login_history()
+
         return info
-    
+
+    def get_installed_packages(self) -> List[Dict]:
+        """Get manually/explicitly installed packages (not auto-dependencies)"""
+        packages = []
+
+        # Debian/Ubuntu: apt-mark showmanual gives manually installed packages
+        result = self.run_command('apt-mark showmanual 2>/dev/null | sort')
+        if result and 'command not found' not in result.lower():
+            names = [n.strip() for n in result.strip().split('\n') if n.strip()]
+            if names:
+                # Get versions for all at once
+                ver_result = self.run_command(
+                    "dpkg-query -W -f='${Package}\\t${Version}\\n' "
+                    + ' '.join(names[:100]) + ' 2>/dev/null'
+                )
+                ver_map: Dict[str, str] = {}
+                if ver_result:
+                    for line in ver_result.split('\n'):
+                        parts = line.split('\t', 1)
+                        if len(parts) == 2:
+                            ver_map[parts[0].strip()] = parts[1].strip()
+                for name in names[:100]:
+                    packages.append({'name': name, 'version': ver_map.get(name, '')})
+                return packages
+
+        # RHEL/CentOS/Fedora: all explicitly installed (dnf userinstalled if available)
+        result = self.run_command(
+            'dnf history userinstalled 2>/dev/null | tail -n +3 | awk \'{print $1}\' | head -100'
+        )
+        if result and 'command not found' not in result.lower() and result.strip():
+            for name in result.strip().split('\n'):
+                name = name.strip()
+                if name:
+                    packages.append({'name': name, 'version': ''})
+            return packages
+
+        # RPM fallback: all installed packages
+        result = self.run_command(
+            "rpm -qa --queryformat '%{NAME}\\t%{VERSION}-%{RELEASE}\\n' 2>/dev/null | sort | head -100"
+        )
+        if result and 'command not found' not in result.lower():
+            for line in result.strip().split('\n'):
+                parts = line.split('\t', 1)
+                if parts[0].strip():
+                    packages.append({'name': parts[0].strip(), 'version': parts[1].strip() if len(parts) > 1 else ''})
+            return packages
+
+        return packages
+
+    def get_cron_jobs(self) -> List[Dict]:
+        """Collect cron jobs from root crontab, /etc/crontab, and /etc/cron.d"""
+        cron_jobs = []
+
+        # Root's personal crontab
+        root_cron = self.run_command(
+            "crontab -l 2>/dev/null | grep -v '^#' | grep -v '^$'"
+        )
+        if root_cron:
+            for line in root_cron.strip().split('\n'):
+                if line.strip():
+                    cron_jobs.append({'source': 'root crontab', 'entry': line.strip()})
+
+        # /etc/crontab (skip comments, blanks, and variable assignments)
+        etc_cron = self.run_command(
+            "grep -v '^#' /etc/crontab 2>/dev/null | grep -v '^$' "
+            "| grep -v '^SHELL' | grep -v '^PATH' | grep -v '^MAILTO'"
+        )
+        if etc_cron:
+            for line in etc_cron.strip().split('\n'):
+                if line.strip():
+                    cron_jobs.append({'source': '/etc/crontab', 'entry': line.strip()})
+
+        # /etc/cron.d/ files - list each file name and its non-comment entries
+        cron_d_list = self.run_command('ls /etc/cron.d/ 2>/dev/null')
+        if cron_d_list:
+            for fname in cron_d_list.strip().split('\n'):
+                fname = fname.strip()
+                if not fname:
+                    continue
+                entries = self.run_command(
+                    f"grep -v '^#' /etc/cron.d/{fname} 2>/dev/null | grep -v '^$' "
+                    f"| grep -v '^SHELL' | grep -v '^PATH' | grep -v '^MAILTO'"
+                )
+                if entries:
+                    for line in entries.strip().split('\n'):
+                        if line.strip():
+                            cron_jobs.append({'source': f'/etc/cron.d/{fname}', 'entry': line.strip()})
+
+        return cron_jobs
+
+    def get_firewall_rules(self) -> Dict:
+        """Collect firewall rules — tries ufw, firewalld, then iptables"""
+        # ufw (Ubuntu/Debian)
+        ufw = self.run_command('ufw status verbose 2>/dev/null')
+        if ufw and 'Status:' in ufw:
+            status = 'active' if 'Status: active' in ufw else 'inactive'
+            return {'type': 'ufw', 'status': status, 'rules_text': ufw}
+
+        # firewalld (RHEL/CentOS/Fedora)
+        fwd = self.run_command('firewall-cmd --list-all 2>/dev/null')
+        if fwd and 'not running' not in fwd.lower() and 'command not found' not in fwd.lower() and fwd.strip():
+            return {'type': 'firewalld', 'status': 'active', 'rules_text': fwd}
+
+        # iptables fallback
+        ipt = self.run_command('iptables -L -n --line-numbers 2>/dev/null | head -60')
+        if ipt and 'command not found' not in ipt.lower() and ipt.strip():
+            return {'type': 'iptables', 'status': 'active', 'rules_text': ipt}
+
+        return {}
+
+    def get_local_users(self) -> List[Dict]:
+        """Collect local user accounts (UID >= 1000) with sudo access info"""
+        users = []
+
+        # Get users with UID >= 1000 and a real shell
+        passwd = self.run_command(
+            "getent passwd 2>/dev/null | awk -F: '$3 >= 1000 {print $1\":\"$5\":\"$6\":\"$7}'"
+        )
+        if not passwd:
+            return users
+
+        # Get all members of sudo/wheel/admin groups in one shot
+        sudo_members_raw = self.run_command(
+            "getent group sudo wheel admin 2>/dev/null | cut -d: -f4 | tr ',' '\\n' | sort -u"
+        )
+        sudo_members = set()
+        if sudo_members_raw:
+            sudo_members = {u.strip() for u in sudo_members_raw.strip().split('\n') if u.strip()}
+
+        for line in passwd.strip().split('\n'):
+            parts = line.split(':')
+            if len(parts) < 4:
+                continue
+            username, full_name, home, shell = parts[0], parts[1], parts[2], parts[3]
+            # Skip users with nologin/false shells
+            if 'nologin' in shell or 'false' in shell or not username:
+                continue
+            users.append({
+                'username': username,
+                'full_name': full_name or '',
+                'home': home or '',
+                'shell': shell or '',
+                'sudo': username in sudo_members
+            })
+
+        return users
+
+    def get_login_history(self) -> Dict:
+        """Collect last boot time and recent login history"""
+        history: Dict[str, Any] = {}
+
+        # Last system boot
+        boot = self.run_command("who -b 2>/dev/null | awk '{print $3, $4}'")
+        if boot and boot.strip():
+            history['last_boot'] = boot.strip()
+
+        # Recent logins — parse 'last' output into structured rows
+        last_raw = self.run_command(
+            "last -n 10 2>/dev/null | grep -v '^reboot' | grep -v '^wtmp' | grep -v '^$' | head -10"
+        )
+        logins = []
+        if last_raw:
+            for line in last_raw.strip().split('\n'):
+                parts = line.split()
+                if len(parts) >= 5:
+                    logins.append({
+                        'user': parts[0],
+                        'terminal': parts[1],
+                        'from': parts[2] if not parts[2].startswith(':') else 'local',
+                        'when': ' '.join(parts[3:7]) if len(parts) > 6 else ' '.join(parts[3:])
+                    })
+        if logins:
+            history['logins'] = logins
+
+        return history
+
     def cleanup_connections(self):
         """Clean up all connections"""
         if self.ssh_client:

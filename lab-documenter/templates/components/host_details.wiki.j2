@@ -1,0 +1,106 @@
+{% if login_history %}
+== Login History ==
+{% if login_history.last_boot %}
+* '''Last Boot:''' {{ login_history.last_boot }}
+{% endif %}
+{% if login_history.logins %}
+{| class='wikitable'
+|-
+! User !! Terminal !! From !! When
+{% for login in login_history.logins %}
+|-
+| {{ login.user }} || {{ login.terminal }} || {{ login.from }} || {{ login.when }}
+{% endfor %}
+|}
+{% endif %}
+
+{% endif %}
+
+{% if local_users %}
+== Local Users ==
+{% if local_users|length <= 8 %}
+{| class='wikitable sortable'
+|-
+! Username !! Full Name !! Shell !! Sudo
+{% for u in local_users %}
+|-
+| '''{{ u.username }}''' || {{ u.full_name }} || {{ u.shell }} || {{ '✅ Yes' if u.sudo else 'No' }}
+{% endfor %}
+|}
+{% else %}
+{| class='wikitable sortable mw-collapsible mw-collapsed'
+|+ Local Users ({{ local_users|length }} total)
+|-
+! Username !! Full Name !! Shell !! Sudo
+{% for u in local_users %}
+|-
+| '''{{ u.username }}''' || {{ u.full_name }} || {{ u.shell }} || {{ '✅ Yes' if u.sudo else 'No' }}
+{% endfor %}
+|}
+{% endif %}
+
+{% endif %}
+
+{% if cron_jobs %}
+== Scheduled Tasks (Cron) ==
+{% if cron_jobs|length <= 8 %}
+{| class='wikitable'
+|-
+! Source !! Entry
+{% for job in cron_jobs %}
+|-
+| <code>{{ job.source }}</code> || <code>{{ job.entry }}</code>
+{% endfor %}
+|}
+{% else %}
+{| class='wikitable mw-collapsible mw-collapsed'
+|+ Scheduled Tasks ({{ cron_jobs|length }} total)
+|-
+! Source !! Entry
+{% for job in cron_jobs %}
+|-
+| <code>{{ job.source }}</code> || <code>{{ job.entry }}</code>
+{% endfor %}
+|}
+{% endif %}
+
+{% endif %}
+
+{% if firewall_info %}
+== Firewall ==
+* '''Type:''' {{ firewall_info.type | title }}
+* '''Status:''' {{ firewall_info.status | title }}
+{% if firewall_info.rules_text %}
+{| class='wikitable mw-collapsible mw-collapsed'
+|+ Firewall Rules
+|-
+| <pre>{{ firewall_info.rules_text }}</pre>
+|}
+{% endif %}
+
+{% endif %}
+
+{% if installed_packages %}
+== Installed Packages ({{ installed_packages|length }}) ==
+{% if installed_packages|length <= 20 %}
+{| class='wikitable sortable'
+|-
+! Package !! Version
+{% for pkg in installed_packages %}
+|-
+| {{ pkg.name }} || {{ pkg.version }}
+{% endfor %}
+|}
+{% else %}
+{| class='wikitable sortable mw-collapsible mw-collapsed'
+|+ Installed Packages ({{ installed_packages|length }} total)
+|-
+! Package !! Version
+{% for pkg in installed_packages %}
+|-
+| {{ pkg.name }} || {{ pkg.version }}
+{% endfor %}
+|}
+{% endif %}
+
+{% endif %}

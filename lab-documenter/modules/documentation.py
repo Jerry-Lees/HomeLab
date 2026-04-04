@@ -192,7 +192,12 @@ class DocumentationManager:
                 'proxmox_info': {},
                 'bios_info': {},
                 'mac_info': {},
-                'bigip_info': {}
+                'bigip_info': {},
+                'installed_packages': [],
+                'cron_jobs': [],
+                'firewall_info': {},
+                'local_users': [],
+                'login_history': {}
             }
             
             for key, default_value in defaults.items():
