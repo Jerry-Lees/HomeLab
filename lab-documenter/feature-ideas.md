@@ -53,6 +53,10 @@ These features are currently operational, but are a Work In Progress.
 - **Firewall Rules** - ✅ Implemented. Detects ufw, firewalld, or iptables automatically. Shows type and status; rules only shown (collapsed) when firewall is active.
 - **Local Users & Sudo Access** - ✅ Implemented. Collects root + UID ≥ 1000 users with real shells. Sudo column shows Yes/No for regular users, N/A for root.
 - **Last Login / Last Boot** - ✅ Implemented. Last boot via `uptime -s` (full datetime), recent logins via `last` parsed into a table.
+- **Network Bonding / LACP** - ✅ Implemented. Reads `/proc/net/bonding/bond*` — bond mode, slave interfaces, status, speed, duplex per slave.
+- **NIC Details** - `ethtool` — link speed, duplex, driver, firmware version per interface. Useful for hosts without bonding.
+- **PCI Devices** - `lspci` — installed cards: NICs, HBAs, GPUs. Good for bare-metal hardware inventory.
+- **IPMI / BMC** - `ipmitool` — hardware health, fan speeds, temperatures, power consumption, remote management IP.
 
 ### Usability Improvements
 - **Progress Bar** - Show real-time progress during scanning (X of Y hosts complete)
@@ -68,7 +72,7 @@ These features are currently operational, but are a Work In Progress.
 
 ### Advanced Network Discovery
 - **VLAN Detection** - Identify and document VLAN memberships for hosts
-- **Switch Port Mapping** - Use `lldpd` (already available on Proxmox bare-metal hosts) to collect switch port mapping via `lldpctl -f json`. Filter results to keep only neighbors where the chassis SysDescr indicates a real switch (e.g. contains `UBNT`) — ignore `fwpr*/fwln*` internal Proxmox firewall veth interfaces which also appear as LLDP neighbors. For each physical uplink, capture: local interface name, switch hostname, switch port, and VLAN. `lldpd` must be installed on bare-metal hosts (`apt install lldpd`); VMs/LXCs won't see switch LLDP frames. Collect this data in the Proxmox collector and display in the Proxmox section of documentation.
+- **Switch Port Mapping** - ✅ Implemented. Uses `lldpd`/`lldpctl -f json` on any Linux host. Filters virtual interfaces (fwpr*, fwln*, veth*, etc.) and Linux neighbors. Captures: local interface, switch name, switch MAC, mgmt IP, switch port, link speed (auto-negotiation), VLAN. Generates per-switch wiki pages (`Switch:name`) and a Network Switches table at the top of the index. Install `lldpd` on bare-metal hosts; VMs return empty gracefully. Deploy via `setup-hosts.sh`.
 - **Network Topology Map** - Generate visual network diagram showing connections. Using data already collected (hostnames, IPs, VLANs, platform types, Proxmox/K8s cluster membership), auto-generate a diagram in Graphviz DOT, Mermaid, or Draw.io XML format. Nodes grouped by type (Proxmox cluster, K8s cluster, NAS, BIG-IP pair, standalone Linux, Mac, Windows). Logical topology only (subnet/VLAN grouping) — physical topology requires switch SNMP/CDP/LLDP. Mermaid renders inline in MediaWiki with a plugin; Graphviz outputs PNG/SVG with just `apt install graphviz`. Diagram updates automatically every scan run.
 - **Gateway/Router Documentation** - Special handling for network equipment (routers, firewalls, switches)
 - **WiFi Network Documentation** - Scan and document wireless networks (SSIDs, channels, encryption)
