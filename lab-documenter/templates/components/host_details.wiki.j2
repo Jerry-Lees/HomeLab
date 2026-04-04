@@ -24,7 +24,7 @@
 ! Username !! Full Name !! Shell !! Sudo
 {% for u in local_users %}
 |-
-| '''{{ u.username }}''' || {{ u.full_name }} || {{ u.shell }} || {{ '✅ Yes' if u.sudo else 'No' }}
+| '''{{ u.username }}''' || {{ u.full_name }} || {{ u.shell }} || {{ 'N/A' if u.username == 'root' else ('✅ Yes' if u.sudo else 'No') }}
 {% endfor %}
 |}
 {% else %}
@@ -34,7 +34,7 @@
 ! Username !! Full Name !! Shell !! Sudo
 {% for u in local_users %}
 |-
-| '''{{ u.username }}''' || {{ u.full_name }} || {{ u.shell }} || {{ '✅ Yes' if u.sudo else 'No' }}
+| '''{{ u.username }}''' || {{ u.full_name }} || {{ u.shell }} || {{ 'N/A' if u.username == 'root' else ('✅ Yes' if u.sudo else 'No') }}
 {% endfor %}
 |}
 {% endif %}
@@ -70,7 +70,7 @@
 == Firewall ==
 * '''Type:''' {{ firewall_info.type | title }}
 * '''Status:''' {{ firewall_info.status | title }}
-{% if firewall_info.rules_text %}
+{% if firewall_info.rules_text and firewall_info.status == 'active' %}
 {| class='wikitable mw-collapsible mw-collapsed'
 |+ Firewall Rules
 |-
