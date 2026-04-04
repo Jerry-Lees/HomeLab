@@ -68,7 +68,7 @@ These features are currently operational, but are a Work In Progress.
 
 ### Advanced Network Discovery
 - **VLAN Detection** - Identify and document VLAN memberships for hosts
-- **Switch Port Mapping** - Use SNMP to map hosts to physical switch ports (CDP/LLDP)
+- **Switch Port Mapping** - Use `lldpd` (already available on Proxmox bare-metal hosts) to collect switch port mapping via `lldpctl -f json`. Filter results to keep only neighbors where the chassis SysDescr indicates a real switch (e.g. contains `UBNT`) — ignore `fwpr*/fwln*` internal Proxmox firewall veth interfaces which also appear as LLDP neighbors. For each physical uplink, capture: local interface name, switch hostname, switch port, and VLAN. `lldpd` must be installed on bare-metal hosts (`apt install lldpd`); VMs/LXCs won't see switch LLDP frames. Collect this data in the Proxmox collector and display in the Proxmox section of documentation.
 - **Network Topology Map** - Generate visual network diagram showing connections. Using data already collected (hostnames, IPs, VLANs, platform types, Proxmox/K8s cluster membership), auto-generate a diagram in Graphviz DOT, Mermaid, or Draw.io XML format. Nodes grouped by type (Proxmox cluster, K8s cluster, NAS, BIG-IP pair, standalone Linux, Mac, Windows). Logical topology only (subnet/VLAN grouping) — physical topology requires switch SNMP/CDP/LLDP. Mermaid renders inline in MediaWiki with a plugin; Graphviz outputs PNG/SVG with just `apt install graphviz`. Diagram updates automatically every scan run.
 - **Gateway/Router Documentation** - Special handling for network equipment (routers, firewalls, switches)
 - **WiFi Network Documentation** - Scan and document wireless networks (SSIDs, channels, encryption)
