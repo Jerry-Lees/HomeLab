@@ -1085,6 +1085,14 @@ class SystemCollector:
                         raw_speed = autoneg.get('current', '')
                         link_speed = raw_speed.split(' - ')[0] if raw_speed else ''
 
+                # ethtool fallback if LLDP didn't provide link speed
+                if not link_speed:
+                    ethtool_out = self.run_command(f'ethtool {iface_name} 2>/dev/null | grep -i "speed:"')
+                    if ethtool_out and ethtool_out.strip():
+                        parts = ethtool_out.strip().split(':', 1)
+                        if len(parts) == 2:
+                            link_speed = parts[1].strip()
+
                 # VLAN — find the pvid (native VLAN)
                 vlan_id = ''
                 vlan_info = iface_content.get('vlan', {})
