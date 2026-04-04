@@ -35,12 +35,13 @@ A comprehensive home lab documentation system that automatically discovers and d
 - **Docker Containers**: Container names, images, and status information
 - **Kubernetes Integration**: Cluster info, nodes (with taints), pods, services, deployments with issue detection
 - **Proxmox Support**: VM and container listings on Proxmox hypervisors
-- **Installed Packages**: Manually-installed packages with versions (Debian/Ubuntu via aptitude, RHEL via dnf, openSUSE via zypper)
+- **Installed Packages**: All manually-installed packages with versions, excluding auto-pulled dependencies (Debian/Ubuntu via aptitude, RHEL via dnf, openSUSE via zypper)
 - **Scheduled Tasks**: Root crontab, /etc/crontab, and /etc/cron.d/* entries
 - **Firewall Rules**: ufw, firewalld, or iptables — type, status, and rules
 - **Local Users**: UID 0 and UID ≥ 1000 users with shell and sudo access
 - **Login History**: Last boot time and recent login sessions
-- **LLDP Switch Connections**: Physical switch port mapping via lldpd (bare-metal hosts)
+- **LLDP Switch Connections**: Physical switch port mapping via lldpd — switch name, MAC, management IP, switch port, link speed, VLAN, and bond membership per interface
+- **Network Bonding/LACP**: Bond mode and per-slave interface status, speed, duplex, and switch port cross-referenced from LLDP data
 
 ### Advanced Features  
 - **Smart Service Discovery**: Auto-learning database that categorizes unknown services
@@ -836,7 +837,8 @@ nano my-servers.csv
 - Platform-specific features (Windows roles, NAS shares, BIG-IP virtual servers/pools, etc.)
 - Docker containers and Kubernetes information
 - Proxmox VM/container lists
-- LLDP switch connections (physical hosts with lldpd)
+- LLDP switch connections with bond membership, switch MAC/mgmt IP, port, link speed, and VLAN
+- Network bonding/LACP — bond mode, slave interfaces with status/speed/duplex, and switch port from LLDP
 - Login history, local users, cron jobs, firewall rules, installed packages
 
 **Switch Pages**: Creates `Switch:switchname` pages listing all hosts connected to each switch with interface and port details.
@@ -1904,8 +1906,9 @@ For issues, questions, or contributions:
 ## v1.2.1 (Current)
 - **macOS Support**: Mac hardware info (model, chip, cores, memory, serial), launchd services, listening ports via lsof
 - **F5 BIG-IP Support**: Virtual servers, pools, interfaces (with Bits In/Out and media type), VLANs, HA state via tmsh
-- **Per-Host Detail Collection**: Installed packages (aptitude/dnf/zypper), scheduled tasks (cron), firewall rules, local users with sudo, login history and last boot
-- **LLDP Switch Port Mapping**: Physical switch connections per host, auto-generated per-switch wiki pages (Switch:name), Network Switches table on index
+- **Per-Host Detail Collection**: Installed packages (aptitude/dnf/zypper, no cap on count), scheduled tasks (cron), firewall rules, local users with sudo, login history and last boot
+- **LLDP Switch Port Mapping**: Physical switch connections per host with bond membership, switch MAC, management IP, link speed (trimmed), and VLAN; auto-generated per-switch wiki pages (Switch:name); Network Switches table on index; switch descriptions deduplicated
+- **Network Bonding/LACP**: Bond mode and per-slave status/speed/duplex; switch port cross-referenced from LLDP data
 - **Kubernetes Enhancements**: Node taints column, multi-line service ports, collapsible issues table
 - **Host Setup Script**: `setup-hosts.sh` deploys prerequisites (lldpd, aptitude, dmidecode, lshw) to all hosts via Ansible using the labinator inventory
 
