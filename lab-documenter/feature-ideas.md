@@ -48,7 +48,7 @@ These features are currently operational, but are a Work In Progress.
 - **Cross-Subnet MAC Resolution via SSH Jump Hosts** - For failed hosts where the MAC isn't in the local ARP cache (common for devices on remote VLANs/subnets), SSH to a reachable host on the same subnet, run `ping -c 1 <ip> && arp -n <ip>`, and capture the MAC from there. Config file would need a per-VLAN/subnet jump host mapping (e.g. `192.168.0.0/24: jumphost.example.com`). Could also auto-select a jump host by finding any already-scanned reachable host on the same subnet, avoiding the need for dedicated infrastructure.
 
 ### Per-Host Detail Collection
-- **Installed Packages** - Collect top-level installed packages (not dependencies) via `dpkg`, `rpm`, `brew`, etc. — useful for knowing what's actually running on each host
+- **Installed Packages** - Collect top-level installed packages (not dependencies) via `dpkg`, `rpm`, `brew`, etc. — useful for knowing what's actually running on each host. Currently implemented for Debian/Ubuntu (aptitude), RHEL/Rocky (dnf repoquery), and openSUSE (zypper). Mac (brew) not yet implemented.
 - **Cron Jobs** - Collect `crontab -l` for root and common users, document scheduled tasks per host
 - **Firewall Rules** - Collect and document open firewall rules via `iptables -L`, `ufw status`, or `firewall-cmd --list-all` per host
 - **Local Users & Sudo Access** - Document local user accounts and which have sudo privileges (`/etc/passwd`, `sudoers`)
