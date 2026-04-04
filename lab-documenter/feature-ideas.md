@@ -195,6 +195,7 @@ These features are currently operational, but are a Work In Progress.
 - **Plugin System** - Allow third-party plugins for custom collectors and documentation formats
 - **Event-Driven Architecture** - Real-time updates via message queue instead of periodic scanning
 - **Microservices** - Split into smaller services (scanner, collector, renderer, API)
+- **Unify Wiki Template Structure** - `server.wiki.j2` is a standalone file while `server.md.j2` extends `base/server_base.md.j2`. Refactor the wiki side to use a base template (`base/server_base.wiki.j2`) for consistency. Low risk but cosmetic — do carefully to avoid breaking existing output.
 - **GraphQL API** - Modern API for querying infrastructure data
 - **WebSocket Support** - Real-time updates to documentation viewers
 
