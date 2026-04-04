@@ -1082,7 +1082,8 @@ class SystemCollector:
                 if isinstance(port_info, dict):
                     autoneg = port_info.get('auto-negotiation', {})
                     if isinstance(autoneg, dict):
-                        link_speed = autoneg.get('current', '')
+                        raw_speed = autoneg.get('current', '')
+                        link_speed = raw_speed.split(' - ')[0] if raw_speed else ''
 
                 # VLAN — find the pvid (native VLAN)
                 vlan_id = ''
