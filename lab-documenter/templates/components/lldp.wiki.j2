@@ -2,15 +2,25 @@
 == Switch Connections (LLDP) ==
 {| class='wikitable'
 |-
-! Local Interface !! Switch !! MAC !! Mgmt IP !! Switch Port !! Link Speed !! VLAN
+! Local Interface !! Bond !! Switch !! MAC !! Mgmt IP !! Switch Port !! Link Speed !! VLAN
 {% for uplink in lldp_uplinks %}
+{% set ns = namespace(bond_name='-') %}
+{% for bond in bonding_info %}
+{% for slave in bond.slaves %}
+{% if slave.name == uplink.local_interface %}
+{% set ns.bond_name = bond.name %}
+{% endif %}
+{% endfor %}
+{% endfor %}
 |-
-| <code>{{ uplink.local_interface }}</code> || [[Switch:{{ uplink.switch_name }}|{{ uplink.switch_name }}]] || {{ uplink.switch_mac }} || {{ uplink.switch_mgmt_ip if uplink.switch_mgmt_ip else '-' }} || {{ uplink.switch_port }} || {{ uplink.link_speed if uplink.link_speed else '-' }} || {{ uplink.vlan if uplink.vlan else '-' }}
+| <code>{{ uplink.local_interface }}</code> || {{ ns.bond_name }} || [[Switch:{{ uplink.switch_name }}|{{ uplink.switch_name }}]] || {{ uplink.switch_mac }} || {{ uplink.switch_mgmt_ip if uplink.switch_mgmt_ip else '-' }} || {{ uplink.switch_port }} || {{ uplink.link_speed if uplink.link_speed else '-' }} || {{ uplink.vlan if uplink.vlan else '-' }}
 {% endfor %}
 |}
+{% set ns = namespace(seen=[]) %}
 {% for uplink in lldp_uplinks %}
-{% if uplink.switch_descr %}
+{% if uplink.switch_descr and uplink.switch_name not in ns.seen %}
 * '''{{ uplink.switch_name }} description:''' {{ uplink.switch_descr }}
+{% set ns.seen = ns.seen + [uplink.switch_name] %}
 {% endif %}
 {% endfor %}
 

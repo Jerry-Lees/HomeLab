@@ -6,10 +6,16 @@
 - **Slave Interfaces:** {{ bond.slaves | length }}
 
 {% if bond.slaves %}
-| Interface | Status | Speed | Duplex |
-|-----------|--------|-------|--------|
+| Interface | Status | Speed | Duplex | Switch Port |
+|-----------|--------|-------|--------|-------------|
 {% for slave in bond.slaves %}
-| `{{ slave.name }}` | {{ slave.status }} | {{ slave.speed if slave.speed else '-' }} | {{ slave.duplex if slave.duplex else '-' }} |
+{% set ns = namespace(switch_port='-') %}
+{% for uplink in lldp_uplinks %}
+{% if uplink.local_interface == slave.name %}
+{% set ns.switch_port = uplink.switch_port %}
+{% endif %}
+{% endfor %}
+| `{{ slave.name }}` | {{ slave.status }} | {{ slave.speed if slave.speed else '-' }} | {{ slave.duplex if slave.duplex else '-' }} | {{ ns.switch_port }} |
 {% endfor %}
 {% endif %}
 
