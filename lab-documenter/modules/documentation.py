@@ -208,7 +208,10 @@ class DocumentationManager:
                 'local_users': [],
                 'login_history': {},
                 'lldp_uplinks': [],
-                'bonding_info': []
+                'bonding_info': [],
+                'nic_details': [],
+                'pci_devices': [],
+                'ipmi_info': {}
             }
             
             for key, default_value in defaults.items():

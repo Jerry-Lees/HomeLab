@@ -826,6 +826,9 @@ class SystemCollector:
         info['login_history'] = self.get_login_history()
         info['lldp_uplinks'] = self.get_lldp_info()
         info['bonding_info'] = self.get_bonding_info()
+        info['nic_details'] = self.get_nic_details()
+        info['pci_devices'] = self.get_pci_devices()
+        info['ipmi_info'] = self.get_ipmi_info()
 
         return info
 
@@ -1178,6 +1181,137 @@ class SystemCollector:
             bonds.append(bond)
 
         return bonds
+
+    def get_nic_details(self) -> List[Dict]:
+        """Collect NIC details via ethtool for physical interfaces."""
+        nics = []
+
+        # Only physical interfaces (those with a PCI device entry)
+        iface_list = self.run_command(
+            'for i in /sys/class/net/*; do [ -e "$i/device" ] && basename "$i"; done 2>/dev/null'
+        )
+        if not iface_list or not iface_list.strip():
+            return nics
+
+        for iface in iface_list.strip().split():
+            iface = iface.strip()
+            if not iface:
+                continue
+
+            nic = {'name': iface, 'speed': '', 'duplex': '', 'link': '',
+                   'driver': '', 'firmware': '', 'bus_info': ''}
+
+            ethtool_out = self.run_command(f'ethtool {iface} 2>/dev/null')
+            if ethtool_out:
+                for line in ethtool_out.split('\n'):
+                    line = line.strip()
+                    if line.startswith('Speed:'):
+                        nic['speed'] = line.split(':', 1)[1].strip()
+                    elif line.startswith('Duplex:'):
+                        nic['duplex'] = line.split(':', 1)[1].strip()
+                    elif line.startswith('Link detected:'):
+                        nic['link'] = line.split(':', 1)[1].strip()
+
+            ethtool_i_out = self.run_command(f'ethtool -i {iface} 2>/dev/null')
+            if ethtool_i_out:
+                for line in ethtool_i_out.split('\n'):
+                    line = line.strip()
+                    if line.startswith('driver:'):
+                        nic['driver'] = line.split(':', 1)[1].strip()
+                    elif line.startswith('firmware-version:'):
+                        nic['firmware'] = line.split(':', 1)[1].strip()
+                    elif line.startswith('bus-info:'):
+                        nic['bus_info'] = line.split(':', 1)[1].strip()
+
+            if nic['driver'] or nic['speed']:
+                nics.append(nic)
+
+        return nics
+
+    def get_pci_devices(self) -> List[Dict]:
+        """Collect PCI device inventory via lspci, filtered to interesting device classes."""
+        devices = []
+
+        result = self.run_command('lspci -vmm 2>/dev/null')
+        if not result:
+            return devices
+
+        interesting = (
+            'ethernet', 'network controller', 'infiniband', 'fibre channel',
+            'scsi', 'sas', 'raid', 'nvme', 'non-volatile', 'storage controller',
+            'vga', 'display', '3d controller', 'graphics',
+            'coprocessor', 'ide interface', 'sata controller', 'serial attached scsi',
+        )
+
+        current = {}
+        for line in result.split('\n'):
+            line = line.strip()
+            if not line:
+                if current:
+                    cls = current.get('class', '').lower()
+                    if any(k in cls for k in interesting):
+                        devices.append({
+                            'slot': current.get('slot', ''),
+                            'class': current.get('class', ''),
+                            'vendor': current.get('vendor', ''),
+                            'device': current.get('device', '')
+                        })
+                current = {}
+            elif ':' in line:
+                key, _, val = line.partition(':')
+                current[key.strip().lower()] = val.strip()
+
+        # Handle last block
+        if current:
+            cls = current.get('class', '').lower()
+            if any(k in cls for k in interesting):
+                devices.append({
+                    'slot': current.get('slot', ''),
+                    'class': current.get('class', ''),
+                    'vendor': current.get('vendor', ''),
+                    'device': current.get('device', '')
+                })
+
+        return devices
+
+    def get_ipmi_info(self) -> Dict:
+        """Collect IPMI/BMC information via ipmitool."""
+        ipmi: Dict[str, Any] = {'available': False, 'bmc_ip': '', 'bmc_mac': '', 'sensors': []}
+
+        check = self.run_command('which ipmitool 2>/dev/null')
+        if not check or not check.strip():
+            return ipmi
+
+        ipmi['available'] = True
+
+        lan_out = self.run_command('ipmitool lan print 1 2>/dev/null')
+        if lan_out:
+            for line in lan_out.split('\n'):
+                if ' : ' not in line:
+                    continue
+                key, _, val = line.partition(' : ')
+                key = key.strip()
+                val = val.strip()
+                if key == 'IP Address':
+                    ipmi['bmc_ip'] = val
+                elif key == 'MAC Address':
+                    ipmi['bmc_mac'] = val
+
+        sdr_out = self.run_command('ipmitool sdr 2>/dev/null')
+        if sdr_out:
+            for line in sdr_out.strip().split('\n'):
+                parts = [p.strip() for p in line.split('|')]
+                if len(parts) >= 4:
+                    value = parts[1].strip()
+                    if value and value.lower() not in ('na', 'no reading', 'disabled'):
+                        ipmi['sensors'].append({
+                            'name': parts[0].strip(),
+                            'value': value,
+                            'unit': parts[2].strip(),
+                            'status': parts[3].strip()
+                        })
+
+        return ipmi
 
     def cleanup_connections(self):
         """Clean up all connections"""
