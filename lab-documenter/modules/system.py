@@ -835,7 +835,7 @@ class SystemCollector:
 
         # Debian/Ubuntu: aptitude '~i!~M' = installed AND not auto-installed (best filter)
         result = self.run_command(
-            "aptitude search '~i!~M' -F '%p\t%V' 2>/dev/null | sort | head -100"
+            "aptitude search '~i!~M' -F '%p\t%V' 2>/dev/null | sort"
         )
         if result and 'command not found' not in result.lower() and result.strip():
             for line in result.strip().split('\n'):
@@ -847,7 +847,7 @@ class SystemCollector:
         # Debian/Ubuntu fallback: apt-mark showmanual + xargs to dpkg-query for versions
         result = self.run_command(
             "apt-mark showmanual 2>/dev/null | sort | "
-            "xargs dpkg-query -W -f='${Package}\\t${Version}\\n' 2>/dev/null | head -100"
+            "xargs dpkg-query -W -f='${Package}\\t${Version}\\n' 2>/dev/null"
         )
         if result and 'command not found' not in result.lower() and result.strip():
             for line in result.strip().split('\n'):
@@ -858,7 +858,7 @@ class SystemCollector:
 
         # RHEL/CentOS/Fedora: dnf repoquery --userinstalled (explicitly installed only)
         result = self.run_command(
-            "dnf repoquery --userinstalled --qf '%{name}\t%{version}-%{release}' 2>/dev/null | sort | head -100"
+            "dnf repoquery --userinstalled --qf '%{name}\t%{version}-%{release}' 2>/dev/null | sort"
         )
         if result and 'command not found' not in result.lower() and result.strip():
             for line in result.strip().split('\n'):
@@ -872,7 +872,7 @@ class SystemCollector:
         result = self.run_command(
             "zypper packages --installed-only 2>/dev/null | "
             "awk -F'|' 'NR>4 {gsub(/ /,\"\",$3); gsub(/ /,\"\",$4); gsub(/ /,\"\",$5); "
-            "if($3==\"i\") print $4\"\\t\"$5}' | sort | head -100"
+            "if($3==\"i\") print $4\"\\t\"$5}' | sort"
         )
         if result and 'command not found' not in result.lower() and result.strip():
             for line in result.strip().split('\n'):
@@ -883,7 +883,7 @@ class SystemCollector:
 
         # RPM fallback: all installed packages
         result = self.run_command(
-            "rpm -qa --queryformat '%{NAME}\\t%{VERSION}-%{RELEASE}\\n' 2>/dev/null | sort | head -100"
+            "rpm -qa --queryformat '%{NAME}\\t%{VERSION}-%{RELEASE}\\n' 2>/dev/null | sort"
         )
         if result and 'command not found' not in result.lower():
             for line in result.strip().split('\n'):
