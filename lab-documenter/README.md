@@ -1528,6 +1528,9 @@ For full data collection, install these packages on documented hosts. Use `setup
 | `aptitude` | Accurate manually-installed package list | Debian/Ubuntu only |
 | `dmidecode` | BIOS info and memory module details | All Linux |
 | `lshw` | Memory module details | All Linux |
+| `ethtool` | NIC speed, duplex, driver, and firmware details | All Linux |
+| `pciutils` | PCI device inventory (`lspci`) | All Linux |
+| `ipmitool` | IPMI/BMC hardware health, sensors, remote management IP | All Linux (bare-metal hosts) |
 
 ## Contributing
 

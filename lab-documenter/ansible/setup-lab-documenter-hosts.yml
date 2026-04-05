@@ -5,6 +5,9 @@
 #   - aptitude    : Accurate manually-installed package listing (Debian/Ubuntu only)
 #   - dmidecode   : BIOS info and memory module details
 #   - lshw        : Hardware/memory info
+#   - ethtool     : NIC speed, duplex, driver, and firmware details
+#   - pciutils    : PCI device inventory via lspci
+#   - ipmitool    : IPMI/BMC hardware health, sensors, and remote management info
 
 - name: Install lab-documenter prerequisites
   hosts: Linux
@@ -26,6 +29,9 @@
           - aptitude
           - dmidecode
           - lshw
+          - ethtool
+          - pciutils
+          - ipmitool
         state: present
       when: ansible_os_family == "Debian"
 
@@ -35,6 +41,9 @@
           - lldpd
           - dmidecode
           - lshw
+          - ethtool
+          - pciutils
+          - ipmitool
         state: present
       when: ansible_os_family == "RedHat"
 
@@ -51,6 +60,9 @@
           - lldpd
           - dmidecode
           - lshw
+          - ethtool
+          - pciutils
+          - ipmitool
         state: present
       when: ansible_os_family == "Suse"
 
