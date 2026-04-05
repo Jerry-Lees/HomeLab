@@ -45,6 +45,7 @@ A comprehensive home lab documentation system that automatically discovers and d
 - **NIC Details**: Physical interface inventory via ethtool — speed, duplex, link state, driver, firmware version, and bus info per interface
 - **PCI Devices**: Hardware inventory via lspci — NICs, HBAs, GPUs, storage controllers, filtered to interesting device classes
 - **IPMI / BMC**: Hardware health via ipmitool — BMC IP, MAC address, and sensor readings (temperatures, fans, power); sensors table collapsible when >15 entries; only shown on hardware with a BMC present
+- **CVE Vulnerability Scanning**: Per-host vulnerability scan via Trivy against collected package lists — severity summary (CRITICAL/HIGH highlighted), collapsible full CVE table with package, installed version, fixed version, CVSS score, status, description, and linked references; WILL NOT FIX and End of Life entries highlighted; Linux hosts only; results cached per package/OS version within a scan run
 
 ### Advanced Features  
 - **Smart Service Discovery**: Auto-learning database that categorizes unknown services
@@ -54,6 +55,7 @@ A comprehensive home lab documentation system that automatically discovers and d
 - **Multiple Network Ranges**: Scan across different subnets in a single run
 - **Clean Operation**: Easy cleanup of generated documentation and logs
 - **Offline Mode**: Process existing data without re-scanning for iterative development
+- **Smart Scan Detection**: `smart-scan.sh` automatically uses existing data when inventory is current, or triggers a full scan when `system.py`, `servers.csv`, or `config.json` have changed
 - **Enhanced SSH Diagnostics**: Comprehensive connectivity troubleshooting tools
 - **Beep Notification**: Audio completion signal for long-running scans
 - **CSV Auto-Discovery**: Automatically add newly discovered hosts to CSV inventory
@@ -74,6 +76,7 @@ A comprehensive home lab documentation system that automatically discovers and d
 - **Comprehensive Logging**: Detailed logs with intelligent error categorization
 - **Flexible Configuration**: JSON config files with command-line overrides
 - **Template Fallback**: Graceful degradation when templates are unavailable
+- **CVE Scan Caching**: Package vulnerability results cached by OS/version within a scan run — packages shared across hosts are only scanned once; Trivy DB updated once per run (auto-updates on Trivy v0.51+)
 
 ## Quick Start
 
@@ -1535,6 +1538,14 @@ For full data collection, install these packages on documented hosts. Use `setup
 | `pciutils` | PCI device inventory (`lspci`) | All Linux |
 | `ipmitool` | IPMI/BMC hardware health, sensors, remote management IP | All Linux (bare-metal hosts) |
 
+### Scanner Host Packages (labinator)
+
+These packages are required on the machine running lab-documenter itself. `install.sh` handles these automatically:
+
+| Package | Purpose |
+|---------|---------|
+| `trivy` | CVE vulnerability scanning against collected package lists (installed via Aqua Security apt/yum repo) |
+
 ## Contributing
 
 1. Fork the repository
@@ -1919,7 +1930,9 @@ For issues, questions, or contributions:
 - **NIC Details**: Physical interface inventory via ethtool — speed, duplex, link state, driver, firmware version, bus info; Unknown/disconnected ports suppressed
 - **PCI Devices**: Hardware inventory via lspci — NICs, HBAs, GPUs, storage controllers; filtered to interesting device classes
 - **IPMI / BMC**: Hardware health via ipmitool — BMC IP/MAC and sensor readings; multi-channel detection (HP iLO, Dell iDRAC, etc.); sensors table collapsible at >15 entries; hidden on consumer hardware without a BMC
-- **Host Setup Script**: `setup-hosts.sh` deploys prerequisites (lldpd, aptitude, dmidecode, lshw, ethtool, pciutils, ipmitool) to all hosts via Ansible using the labinator inventory
+- **CVE Vulnerability Scanning**: Per-host CVE scanning via Trivy against collected package lists; severity summary with CRITICAL/HIGH in red; collapsible table with package, version, fixed version, CVSS score, status, description, and linked references per domain; WILL NOT FIX and End of Life highlighted in orange; Linux hosts only; per-package results cached by OS/version within each scan run to avoid redundant Trivy calls; Trivy DB updated once per run; compatible with Trivy v0.51+ auto-update behavior
+- **Smart Scan Script**: `smart-scan.sh` automatically selects `--use-existing-data` or `--scan` based on whether `system.py`, `servers.csv`, or `config.json` have changed since the last inventory
+- **Host Setup Script**: `setup-hosts.sh` deploys prerequisites (lldpd, aptitude, dmidecode, lshw, ethtool, pciutils, ipmitool) to all hosts via Ansible; `install.sh` installs Trivy on the scanner host with daily DB update cron at 1 AM
 
 ## v1.2.0
 - **Cacti Direct Import**: SSH-based automatic device import to Cacti monitoring
