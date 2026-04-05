@@ -278,7 +278,7 @@ class CVEScanner:
             v['vuln_id_wiki'] = f"[{url} {uid}]" if url else uid
             v['score_wiki'] = str(score) if score is not None else '-'
             v['fixed_wiki'] = v['fixed_version'] or '-'
-            ref_links = ' '.join(f"[{r} {urlparse(r).netloc or r}]" for r in refs)
+            ref_links = '<br/>'.join(f"[{r} {urlparse(r).netloc or r}]" for r in refs)
             v['details_wiki'] = f"'''{title}'''" + (f"<br/><small>{desc}</small>" if desc else '') + (f"<br/><small>{ref_links}</small>" if ref_links else '')
 
             # Markdown display fields
@@ -299,7 +299,7 @@ class CVEScanner:
             v['vuln_id_md'] = f"[{uid}]({url})" if url else uid
             v['score_md'] = str(score) if score is not None else '-'
             v['fixed_md'] = v['fixed_version'] or '-'
-            ref_md = ' '.join(f"[{urlparse(r).netloc or r}]({r})" for r in refs)
+            ref_md = '<br>'.join(f"[{urlparse(r).netloc or r}]({r})" for r in refs)
             v['details_md'] = f"**{title}**" + (f"<br><small>{desc}</small>" if desc else '') + (f"<br><small>{ref_md}</small>" if ref_md else '')
 
         # Pre-compute summary line
