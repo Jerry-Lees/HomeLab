@@ -7,6 +7,8 @@
 {% if kubernetes_info.namespaces %}
 === Namespaces ({{ kubernetes_info.namespaces|length }}) ===
 {| class='wikitable'
+|-
+! Namespace
 {% for namespace in kubernetes_info.namespaces|sort %}
 |-
 | {{ namespace }}
