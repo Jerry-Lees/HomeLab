@@ -75,7 +75,6 @@ These features are currently operational, but are a Work In Progress.
 ### Security & Compliance
 - **SSL/TLS Certificate Tracking** - Discover certificates, track expiration dates, alert on upcoming expirations
 - **Open Port Change Detection** - Alert when new ports open or close on hosts
-- **CVE Vulnerability Scanning** - Check installed package versions against CVE databases
 - **Password Age Tracking** - Track when host passwords were last changed (manual entry)
 - **Compliance Checklist** - Customizable security baseline checks (SSH keys only, no root login, etc.)
 
