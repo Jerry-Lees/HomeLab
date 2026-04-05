@@ -21,6 +21,8 @@
 * '''Uptime:''' {{ uptime or 'Unknown' }}
 * '''CPU:''' {{ cpu_info or 'Unknown' }} ({{ cpu_cores or 'Unknown' }} cores)
 
+{% include 'components/cve.wiki.j2' %}
+
 {% if bios_info %}
 === BIOS Information ===
 {% if bios_info.vendor %}

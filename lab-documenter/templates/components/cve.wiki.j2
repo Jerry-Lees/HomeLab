@@ -1,0 +1,21 @@
+{% if cve_data and cve_data.available and cve_data.vulnerabilities %}
+== CVE Vulnerabilities ==
+{% set s = cve_data.summary %}
+'''Scan Summary:'''
+{% if s.get('CRITICAL', 0) > 0 %} <span style="color:red">'''Critical: {{ s['CRITICAL'] }}'''</span>{% endif %}
+{% if s.get('HIGH', 0) > 0 %} <span style="color:red">'''High: {{ s['HIGH'] }}'''</span>{% endif %}
+{% if s.get('MEDIUM', 0) > 0 %} Medium: {{ s['MEDIUM'] }}{% endif %}
+{% if s.get('LOW', 0) > 0 %} Low: {{ s['LOW'] }}{% endif %}
+{% if s.get('UNKNOWN', 0) > 0 %} Unknown: {{ s['UNKNOWN'] }}{% endif %}
+
+{| class="wikitable sortable mw-collapsible mw-collapsed"
+|+ Vulnerabilities ({{ cve_data.vulnerabilities | length }} total)
+|-
+! Severity !! Score !! Package !! Version !! CVE ID !! Fixed In !! Status !! Title / Description
+{% for v in cve_data.vulnerabilities %}
+|-
+| {% if v.severity in ('CRITICAL', 'HIGH') %}<span style="color:red">'''{{ v.severity }}'''</span>{% else %}{{ v.severity }}{% endif %} || {{ v.cvss_score if v.cvss_score is not none else '-' }} || {{ v.pkg_name }} || {{ v.pkg_version }} || {% if v.primary_url %}[{{ v.primary_url }} {{ v.vuln_id }}]{% else %}{{ v.vuln_id }}{% endif %} || {{ v.fixed_version if v.fixed_version else '-' }} || {% if v.status == 'will_not_fix' %}<span style="color:darkorange">'''WILL NOT FIX'''</span>{% elif v.status == 'end_of_life' %}<span style="color:darkorange">'''End of Life'''</span>{% elif v.status == 'fix_deferred' %}<span style="color:darkorange">Fix Deferred</span>{% else %}{{ v.status | replace('_', ' ') | title }}{% endif %} || '''{{ v.title | wiki_safe(200) }}'''{% if v.description %}<br/><small>{{ v.description | wiki_safe(400) }}</small>{% endif %}{% if v.references %}{% for ref in v.references %}<br/><small>[{{ ref }} ref]</small>{% endfor %}{% endif %}
+{% endfor %}
+|}
+
+{% endif %}

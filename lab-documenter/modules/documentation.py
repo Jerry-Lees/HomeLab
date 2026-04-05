@@ -10,6 +10,8 @@ import logging
 from datetime import datetime
 from typing import Dict, List, Any
 
+from modules.cve import CVEScanner
+
 try:
     from jinja2 import Environment, FileSystemLoader, select_autoescape
     HAS_JINJA2 = True
@@ -38,6 +40,7 @@ class DocumentationManager:
         
         self.ensure_docs_directory()
         self._services_db = self._load_services_db()
+        self._cve_scanner = CVEScanner()
 
     def _load_services_db(self) -> dict:
         """Load services.json for render-time enrichment of service entries."""
@@ -56,6 +59,7 @@ class DocumentationManager:
         self.jinja_env.filters['selectattr_ne'] = lambda seq, attr, value: [x for x in seq if getattr(x, attr, None) != value]
         self.jinja_env.filters['group_by_attr'] = self._group_by_attr
         self.jinja_env.filters['count_status'] = self._count_status
+        self.jinja_env.filters['wiki_safe'] = lambda s, n=400: str(s or '').replace('\n', ' ').replace('|', '&#124;')[:n]
         
         # Global functions available in templates
         self.jinja_env.globals['status_icon'] = self._status_icon
@@ -211,12 +215,19 @@ class DocumentationManager:
                 'bonding_info': [],
                 'nic_details': [],
                 'pci_devices': [],
-                'ipmi_info': {}
+                'ipmi_info': {},
+                'cve_data': {'available': False, 'summary': {}, 'vulnerabilities': []}
             }
-            
+
             for key, default_value in defaults.items():
                 if key not in context:
                     context[key] = default_value
+
+            # CVE scan — uses per-package cache; only runs Trivy for uncached packages
+            try:
+                context['cve_data'] = self._cve_scanner.scan_host(host_data)
+            except Exception as e:
+                logger.warning(f"CVE scan failed for {host_data.get('hostname', 'unknown')}: {e}")
 
             # Enrich services with metadata from services.json at render time
             if context.get('services'):
@@ -462,6 +473,7 @@ class DocumentationManager:
     def save_all_documentation(self, inventory: Dict[str, Any]):
         """Save documentation files for all hosts in inventory"""
         self._services_db = self._load_services_db()
+        self._cve_scanner.update_db()
         logger.info(f"Saving documentation files to {self.docs_dir}/")
         
         if not inventory:

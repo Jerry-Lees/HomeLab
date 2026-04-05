@@ -92,6 +92,45 @@ install_dependencies() {
     fi
 }
 
+install_trivy() {
+    print_step "Installing Trivy vulnerability scanner..."
+
+    if command -v trivy >/dev/null 2>&1; then
+        print_info "Trivy already installed: $(trivy --version 2>/dev/null | head -1)"
+        return 0
+    fi
+
+    if [[ "$OS" == *"Ubuntu"* ]] || [[ "$OS" == *"Debian"* ]]; then
+        $NEED_SUDO apt-get install -y wget gnupg lsb-release apt-transport-https
+        wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key \
+            | gpg --dearmor \
+            | $NEED_SUDO tee /usr/share/keyrings/trivy.gpg > /dev/null
+        echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" \
+            | $NEED_SUDO tee /etc/apt/sources.list.d/trivy.list
+        $NEED_SUDO apt-get update
+        $NEED_SUDO apt-get install -y trivy
+    elif [[ "$OS" == *"CentOS"* ]] || [[ "$OS" == *"Red Hat"* ]] || [[ "$OS" == *"Rocky"* ]] || [[ "$OS" == *"Fedora"* ]]; then
+        cat > /tmp/trivy.repo << 'REPO'
+[trivy]
+name=Trivy repository
+baseurl=https://aquasecurity.github.io/trivy-repo/rpm/releases/$releasever/$basearch/
+gpgcheck=1
+enabled=1
+gpgkey=https://aquasecurity.github.io/trivy-repo/rpm/public.key
+REPO
+        $NEED_SUDO mv /tmp/trivy.repo /etc/yum.repos.d/trivy.repo
+        $NEED_SUDO yum -y install trivy
+    else
+        print_warning "Cannot auto-install Trivy on this OS."
+        print_info "Install manually: https://aquasecurity.github.io/trivy/latest/getting-started/installation/"
+        return 1
+    fi
+
+    print_info "Downloading initial Trivy vulnerability database..."
+    trivy db update && print_info "Trivy DB downloaded successfully" || print_warning "Trivy DB download failed — will retry on first scan"
+    print_info "Trivy installed: $(trivy --version 2>/dev/null | head -1)"
+}
+
 create_user() {
     print_step "Setting up user environment..."
     print_info "Using current user: $SERVICE_USER"
@@ -269,7 +308,17 @@ EOF
         (crontab -l 2>/dev/null; echo "$CRON_JOB") | crontab -
         print_info "Added daily cron job (runs at 6 AM)"
     fi
-    
+
+    # Trivy DB update cron (1 AM daily)
+    TRIVY_BIN="$(command -v trivy 2>/dev/null || echo trivy)"
+    TRIVY_CRON="0 1 * * * $TRIVY_BIN db update >> $LOG_DIR/trivy-db-update.log 2>&1"
+    if crontab -l 2>/dev/null | grep -q "trivy db update"; then
+        print_info "Trivy DB update cron job already exists"
+    else
+        (crontab -l 2>/dev/null; echo "$TRIVY_CRON") | crontab -
+        print_info "Added daily Trivy DB update cron job (runs at 1 AM)"
+    fi
+
     print_info "Cron job configured to run: $INSTALL_DIR/lab-documenter-cron.sh"
 }
 
@@ -638,6 +687,7 @@ print_post_install() {
     print_step "Automation:"
     echo "  Cron job runs daily at 6 AM: $INSTALL_DIR/lab-documenter-cron.sh"
     echo "  View cron logs: tail -f ./logs/cron.log"
+    echo "  Trivy DB updates daily at 1 AM (logs: ./logs/trivy-db-update.log)"
     echo "  Edit cron schedule: crontab -e"
     echo
     print_warning "Security Notes:"
@@ -665,6 +715,7 @@ main() {
     echo
     
     install_dependencies
+    install_trivy
     create_user
     setup_directories
     install_python_deps
