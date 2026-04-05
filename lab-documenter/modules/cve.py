@@ -42,10 +42,14 @@ class CVEScanner:
         return self._available
 
     def update_db(self):
-        """Update Trivy vulnerability database. Called once per scan run."""
+        """
+        Update Trivy vulnerability database. Called once per scan run.
+        Trivy v0.51+ auto-updates before each scan — no explicit command needed.
+        For older versions, try 'trivy db update' and fall back gracefully.
+        """
         if not self.is_available() or self._db_updated:
             return
-        logger.info("Updating Trivy vulnerability database...")
+        self._db_updated = True
         try:
             result = subprocess.run(
                 ['trivy', 'db', 'update'],
@@ -53,13 +57,14 @@ class CVEScanner:
             )
             if result.returncode == 0:
                 logger.info("Trivy DB updated successfully")
+            elif 'unknown command' in result.stderr or 'unknown command' in result.stdout:
+                logger.info("Trivy DB auto-updates before each scan (v0.51+ behavior)")
             else:
-                logger.warning(f"Trivy DB update returned non-zero: {result.stderr[:300]}")
+                logger.warning(f"Trivy DB update: {result.stderr[:200]}")
         except subprocess.TimeoutExpired:
             logger.warning("Trivy DB update timed out — using existing DB")
         except Exception as e:
-            logger.warning(f"Trivy DB update failed: {e} — using existing DB")
-        self._db_updated = True
+            logger.warning(f"Trivy DB update skipped: {e}")
 
     def _pkg_type(self, os_id: str, id_like: str = '') -> Optional[str]:
         """Determine package type (deb/rpm) from OS ID."""
@@ -189,7 +194,7 @@ class CVEScanner:
         if not pkg_type:
             return empty
 
-        packages = host_data.get('packages', [])
+        packages = host_data.get('installed_packages') or host_data.get('packages') or []
         if not packages:
             return empty
 

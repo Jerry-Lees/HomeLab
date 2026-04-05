@@ -310,9 +310,13 @@ EOF
     fi
 
     # Trivy DB update cron (1 AM daily)
+    # Trivy v0.51+ auto-updates before each scan; for older versions, 'trivy db update' works.
+    # This cron tries 'db update' first and falls back to a filesystem scan on /tmp to
+    # trigger the auto-update mechanism on newer versions.
     TRIVY_BIN="$(command -v trivy 2>/dev/null || echo trivy)"
-    TRIVY_CRON="0 1 * * * $TRIVY_BIN db update >> $LOG_DIR/trivy-db-update.log 2>&1"
-    if crontab -l 2>/dev/null | grep -q "trivy db update"; then
+    TRIVY_UPDATE_CMD="$TRIVY_BIN db update 2>/dev/null || $TRIVY_BIN fs --skip-java-db-update --quiet /tmp 2>/dev/null"
+    TRIVY_CRON="0 1 * * * $TRIVY_UPDATE_CMD >> $LOG_DIR/trivy-db-update.log 2>&1"
+    if crontab -l 2>/dev/null | grep -q "trivy"; then
         print_info "Trivy DB update cron job already exists"
     else
         (crontab -l 2>/dev/null; echo "$TRIVY_CRON") | crontab -
