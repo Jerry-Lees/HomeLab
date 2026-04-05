@@ -16,3 +16,4 @@ venv/
 venv/*
 lab-documenter/services.json
 lab-documenter/mac-ouis.json
+lab-documenter/smart-scan.sh

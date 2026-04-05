@@ -248,8 +248,77 @@ class CVEScanner:
             sev = v['severity']
             summary[sev] = summary.get(sev, 0) + 1
 
+        # Pre-compute display strings so templates need no conditional logic in cells
+        for v in all_vulns:
+            sev = v['severity']
+            status = v['status']
+            uid = v['vuln_id']
+            url = v['primary_url']
+            score = v['cvss_score']
+            title = (v['title'] or uid).replace('|', '/').replace('\n', ' ')[:200]
+            desc = (v['description'] or '').replace('|', '/').replace('\n', ' ')[:400]
+            refs = v['references']
+
+            # Wiki display fields
+            if sev in ('CRITICAL', 'HIGH'):
+                v['severity_wiki'] = f"<span style=\"color:red\">'''{sev}'''</span>"
+            else:
+                v['severity_wiki'] = sev
+
+            if status == 'will_not_fix':
+                v['status_wiki'] = "<span style=\"color:darkorange\">'''WILL NOT FIX'''</span>"
+            elif status == 'end_of_life':
+                v['status_wiki'] = "<span style=\"color:darkorange\">'''End of Life'''</span>"
+            elif status == 'fix_deferred':
+                v['status_wiki'] = "<span style=\"color:darkorange\">Fix Deferred</span>"
+            else:
+                v['status_wiki'] = status.replace('_', ' ').title()
+
+            v['vuln_id_wiki'] = f"[{url} {uid}]" if url else uid
+            v['score_wiki'] = str(score) if score is not None else '-'
+            v['fixed_wiki'] = v['fixed_version'] or '-'
+            ref_links = ' '.join(f"[{r} ref]" for r in refs)
+            v['details_wiki'] = f"'''{title}'''" + (f"<br/><small>{desc}</small>" if desc else '') + (f"<br/><small>{ref_links}</small>" if ref_links else '')
+
+            # Markdown display fields
+            if sev in ('CRITICAL', 'HIGH'):
+                v['severity_md'] = f'<span style="color:red">**{sev}**</span>'
+            else:
+                v['severity_md'] = sev
+
+            if status == 'will_not_fix':
+                v['status_md'] = '<span style="color:darkorange">**WILL NOT FIX**</span>'
+            elif status == 'end_of_life':
+                v['status_md'] = '<span style="color:darkorange">**End of Life**</span>'
+            elif status == 'fix_deferred':
+                v['status_md'] = '<span style="color:darkorange">Fix Deferred</span>'
+            else:
+                v['status_md'] = status.replace('_', ' ').title()
+
+            v['vuln_id_md'] = f"[{uid}]({url})" if url else uid
+            v['score_md'] = str(score) if score is not None else '-'
+            v['fixed_md'] = v['fixed_version'] or '-'
+            ref_md = ' '.join(f"[ref]({r})" for r in refs)
+            v['details_md'] = f"**{title}**" + (f"<br><small>{desc}</small>" if desc else '') + (f"<br><small>{ref_md}</small>" if ref_md else '')
+
+        # Pre-compute summary line
+        parts_wiki = []
+        parts_md = []
+        for sev in ('CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'UNKNOWN'):
+            count = summary.get(sev, 0)
+            if count == 0:
+                continue
+            if sev in ('CRITICAL', 'HIGH'):
+                parts_wiki.append(f"<span style=\"color:red\">'''{sev.capitalize()}: {count}'''</span>")
+                parts_md.append(f'<span style="color:red">**{sev.capitalize()}: {count}**</span>')
+            else:
+                parts_wiki.append(f"{sev.capitalize()}: {count}")
+                parts_md.append(f"{sev.capitalize()}: {count}")
+
         return {
             'available': True,
             'summary': summary,
+            'summary_wiki': ' &nbsp; '.join(parts_wiki),
+            'summary_md': ' '.join(parts_md),
             'vulnerabilities': all_vulns,
         }
