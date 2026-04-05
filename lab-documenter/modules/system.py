@@ -1206,9 +1206,11 @@ class SystemCollector:
                 for line in ethtool_out.split('\n'):
                     line = line.strip()
                     if line.startswith('Speed:'):
-                        nic['speed'] = line.split(':', 1)[1].strip()
+                        val = line.split(':', 1)[1].strip()
+                        nic['speed'] = '' if 'Unknown' in val else val
                     elif line.startswith('Duplex:'):
-                        nic['duplex'] = line.split(':', 1)[1].strip()
+                        val = line.split(':', 1)[1].strip()
+                        nic['duplex'] = '' if 'Unknown' in val else val
                     elif line.startswith('Link detected:'):
                         nic['link'] = line.split(':', 1)[1].strip()
 
