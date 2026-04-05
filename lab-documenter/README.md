@@ -42,6 +42,9 @@ A comprehensive home lab documentation system that automatically discovers and d
 - **Login History**: Last boot time and recent login sessions
 - **LLDP Switch Connections**: Physical switch port mapping via lldpd — switch name, MAC, management IP, switch port, link speed, VLAN, and bond membership per interface
 - **Network Bonding/LACP**: Bond mode and per-slave interface status, speed, duplex, and switch port cross-referenced from LLDP data
+- **NIC Details**: Physical interface inventory via ethtool — speed, duplex, link state, driver, firmware version, and bus info per interface
+- **PCI Devices**: Hardware inventory via lspci — NICs, HBAs, GPUs, storage controllers, filtered to interesting device classes
+- **IPMI / BMC**: Hardware health via ipmitool — BMC IP, MAC address, and sensor readings (temperatures, fans, power); sensors table collapsible when >15 entries; only shown on hardware with a BMC present
 
 ### Advanced Features  
 - **Smart Service Discovery**: Auto-learning database that categorizes unknown services
@@ -1913,7 +1916,10 @@ For issues, questions, or contributions:
 - **LLDP Switch Port Mapping**: Physical switch connections per host with bond membership, switch MAC, management IP, link speed (trimmed), and VLAN; auto-generated per-switch wiki pages (Switch:name); Network Switches table on index; switch descriptions deduplicated
 - **Network Bonding/LACP**: Bond mode and per-slave status/speed/duplex; switch port cross-referenced from LLDP data
 - **Kubernetes Enhancements**: Node taints column, multi-line service ports, collapsible issues table
-- **Host Setup Script**: `setup-hosts.sh` deploys prerequisites (lldpd, aptitude, dmidecode, lshw) to all hosts via Ansible using the labinator inventory
+- **NIC Details**: Physical interface inventory via ethtool — speed, duplex, link state, driver, firmware version, bus info; Unknown/disconnected ports suppressed
+- **PCI Devices**: Hardware inventory via lspci — NICs, HBAs, GPUs, storage controllers; filtered to interesting device classes
+- **IPMI / BMC**: Hardware health via ipmitool — BMC IP/MAC and sensor readings; multi-channel detection (HP iLO, Dell iDRAC, etc.); sensors table collapsible at >15 entries; hidden on consumer hardware without a BMC
+- **Host Setup Script**: `setup-hosts.sh` deploys prerequisites (lldpd, aptitude, dmidecode, lshw, ethtool, pciutils, ipmitool) to all hosts via Ansible using the labinator inventory
 
 ## v1.2.0
 - **Cacti Direct Import**: SSH-based automatic device import to Cacti monitoring
