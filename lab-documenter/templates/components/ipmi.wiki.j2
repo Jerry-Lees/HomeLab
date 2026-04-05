@@ -1,4 +1,4 @@
-{% if ipmi_info and ipmi_info.available %}
+{% if ipmi_info and ipmi_info.available and (ipmi_info.bmc_ip or ipmi_info.sensors) %}
 == IPMI / BMC ==
 {% if ipmi_info.bmc_ip %}
 * '''BMC IP:''' {{ ipmi_info.bmc_ip }}
