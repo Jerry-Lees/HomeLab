@@ -479,20 +479,23 @@ class DocumentationManager:
         backup_base = 'backups/kubernetes'
         saved_count = 0
 
-        for resource_type, yaml_content in yaml_backups.items():
-            if not yaml_content or not yaml_content.strip():
+        for backup_dir, files in yaml_backups.items():
+            if not files:
                 continue
 
-            type_dir = os.path.join(backup_base, resource_type)
+            type_dir = os.path.join(backup_base, backup_dir)
             os.makedirs(type_dir, exist_ok=True)
 
-            file_path = os.path.join(type_dir, f'{resource_type}.yaml')
-            try:
-                with open(file_path, 'w', encoding='utf-8') as f:
-                    f.write(yaml_content)
-                saved_count += 1
-            except Exception as e:
-                logger.warning(f"Failed to write backup {file_path}: {e}")
+            for filename, yaml_content in files.items():
+                if not yaml_content or not yaml_content.strip():
+                    continue
+                file_path = os.path.join(type_dir, filename)
+                try:
+                    with open(file_path, 'w', encoding='utf-8') as f:
+                        f.write(yaml_content)
+                    saved_count += 1
+                except Exception as e:
+                    logger.warning(f"Failed to write backup {file_path}: {e}")
 
         if saved_count:
             logger.info(f"Kubernetes backups from {hostname}: saved {saved_count} resource type YAML files to {backup_base}/")

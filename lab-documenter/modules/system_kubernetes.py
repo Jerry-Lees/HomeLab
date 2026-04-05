@@ -134,7 +134,7 @@ class KubernetesCollector:
             k8s_info['helm_releases'] = helm_data
 
         # Collect YAML manifests for backup (written to disk by documentation.py)
-        yaml_backups = self.collect_yaml_backups()
+        yaml_backups = self.collect_yaml_backups(k8s_info)
         if yaml_backups:
             k8s_info['yaml_backups'] = yaml_backups
 
@@ -604,34 +604,79 @@ class KubernetesCollector:
 
         return ingress_list
 
-    def collect_yaml_backups(self) -> Dict[str, str]:
+    def collect_yaml_backups(self, k8s_info: Dict[str, Any]) -> Dict[str, Dict[str, str]]:
         """
-        Collect full YAML manifests for all resource types for recovery purposes.
-        Returns a dict of resource_type -> YAML string.
-        Written to backups/kubernetes/<type>/<type>.yaml by documentation.py.
+        Collect individual YAML manifests for each resource using already-collected item lists.
+        Returns {backup_dir: {filename: yaml_content}}.
+        Written to backups/kubernetes/<backup_dir>/<filename> by documentation.py.
         """
-        backups: Dict[str, str] = {}
+        backups: Dict[str, Dict[str, str]] = {}
 
-        # Namespaced resources — use -A to get all namespaces
-        namespaced = [
-            'deployments', 'statefulsets', 'daemonsets', 'services', 'ingresses',
-            'persistentvolumeclaims', 'configmaps', 'secrets', 'serviceaccounts',
-            'roles', 'rolebindings',
+        # (k8s_info_key, kubectl_singular, backup_dir)
+        namespaced_types = [
+            ('deployments',     'deployment',            'deployments'),
+            ('statefulsets',    'statefulset',           'statefulsets'),
+            ('daemonsets',      'daemonset',             'daemonsets'),
+            ('services',        'service',               'services'),
+            ('ingresses',       'ingress',               'ingresses'),
+            ('pvcs',            'persistentvolumeclaim', 'persistentvolumeclaims'),
+            ('configmaps',      'configmap',             'configmaps'),
+            ('secrets',         'secret',                'secrets'),
+            ('serviceaccounts', 'serviceaccount',        'serviceaccounts'),
+            ('roles',           'role',                  'roles'),
+            ('rolebindings',    'rolebinding',           'rolebindings'),
         ]
-        for resource in namespaced:
-            yaml_out = self.run_command(f'kubectl get {resource} -A -o yaml 2>/dev/null')
-            if yaml_out and yaml_out.strip():
-                backups[resource] = yaml_out
+        for info_key, resource, backup_dir in namespaced_types:
+            items = k8s_info.get(info_key, [])
+            type_files: Dict[str, str] = {}
+            for item in items:
+                ns = item.get('namespace', '')
+                name = item.get('name', '')
+                if not ns or not name:
+                    continue
+                yaml_out = self.run_command(
+                    f'kubectl get {resource} -n {ns} {name} -o yaml 2>/dev/null'
+                )
+                if yaml_out and yaml_out.strip():
+                    type_files[f'{ns}-{name}.yaml'] = yaml_out
+            if type_files:
+                backups[backup_dir] = type_files
 
-        # Cluster-wide resources — no -A flag
-        cluster_wide = [
-            'persistentvolumes', 'storageclasses', 'clusterroles', 'clusterrolebindings',
-            'namespaces', 'nodes',
+        # Cluster-wide resources — no namespace
+        cluster_types = [
+            ('persistent_volumes',  'persistentvolume',   'persistentvolumes'),
+            ('storageclasses',      'storageclass',        'storageclasses'),
+            ('clusterroles',        'clusterrole',         'clusterroles'),
+            ('clusterrolebindings', 'clusterrolebinding',  'clusterrolebindings'),
+            ('nodes',               'node',                'nodes'),
         ]
-        for resource in cluster_wide:
-            yaml_out = self.run_command(f'kubectl get {resource} -o yaml 2>/dev/null')
+        for info_key, resource, backup_dir in cluster_types:
+            items = k8s_info.get(info_key, [])
+            type_files = {}
+            for item in items:
+                name = item.get('name', '') if isinstance(item, dict) else str(item)
+                if not name:
+                    continue
+                yaml_out = self.run_command(
+                    f'kubectl get {resource} {name} -o yaml 2>/dev/null'
+                )
+                if yaml_out and yaml_out.strip():
+                    type_files[f'{name}.yaml'] = yaml_out
+            if type_files:
+                backups[backup_dir] = type_files
+
+        # Namespaces (stored as list of strings)
+        ns_files: Dict[str, str] = {}
+        for ns_name in k8s_info.get('namespaces', []):
+            if not ns_name:
+                continue
+            yaml_out = self.run_command(
+                f'kubectl get namespace {ns_name} -o yaml 2>/dev/null'
+            )
             if yaml_out and yaml_out.strip():
-                backups[resource] = yaml_out
+                ns_files[f'{ns_name}.yaml'] = yaml_out
+        if ns_files:
+            backups['namespaces'] = ns_files
 
         return backups
 
