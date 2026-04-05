@@ -33,7 +33,7 @@ A comprehensive home lab documentation system that automatically discovers and d
 - **Windows Features**: Server roles/features and optional features detection
 - **NAS Capabilities**: Storage pools, shares, disk health, installed packages
 - **Docker Containers**: Container names, images, and status information
-- **Kubernetes Integration**: Cluster info, nodes (with taints), pods, services, deployments with issue detection
+- **Kubernetes Integration**: Full cluster documentation — nodes, namespaces, pods, services, deployments, StatefulSets, DaemonSets, ingresses, PVs, PVCs, storage classes, ConfigMaps, secrets, service accounts, roles, cluster roles, role/cluster role bindings, and Helm releases; YAML backup manifests written to `backups/kubernetes/` for recovery
 - **Proxmox Support**: VM and container listings on Proxmox hypervisors
 - **Installed Packages**: All manually-installed packages with versions, excluding auto-pulled dependencies (Debian/Ubuntu via aptitude, RHEL via dnf, openSUSE via zypper)
 - **Scheduled Tasks**: Root crontab, /etc/crontab, and /etc/cron.d/* entries
@@ -55,7 +55,6 @@ A comprehensive home lab documentation system that automatically discovers and d
 - **Multiple Network Ranges**: Scan across different subnets in a single run
 - **Clean Operation**: Easy cleanup of generated documentation and logs
 - **Offline Mode**: Process existing data without re-scanning for iterative development
-- **Smart Scan Detection**: `smart-scan.sh` automatically uses existing data when inventory is current, or triggers a full scan when `system.py`, `servers.csv`, or `config.json` have changed
 - **Enhanced SSH Diagnostics**: Comprehensive connectivity troubleshooting tools
 - **Beep Notification**: Audio completion signal for long-running scans
 - **CSV Auto-Discovery**: Automatically add newly discovered hosts to CSV inventory
@@ -603,9 +602,11 @@ Proxmox systems are detected automatically when connected via SSH key authentica
 
 For Kubernetes cluster documentation:
 
-1. **Kubectl must be installed** on the scanning host
-2. **Kubeconfig** must be accessible from the Linux account running the scan
-3. **Cluster access** is detected automatically on systems with kubectl configured
+1. **Kubectl must be installed** on the Kubernetes master node(s) — not on the scanning host
+2. **Kubeconfig** must be accessible at the default location (`~/.kube/config`) on each master
+3. **Cluster access** is detected automatically when `kubectl` is found on the SSH target
+4. **Helm** is detected automatically if installed on the master; releases are documented if found
+5. **YAML backups** of all resource types are written to `backups/kubernetes/` on the scanning host after each run
 
 ## Command Line Options
 
@@ -816,7 +817,7 @@ nano my-servers.csv
 
 ### Linux Enhanced Detection
 - **Distribution Identification**: Detailed OS release information
-- **Container Platforms**: Docker and Kubernetes integration
+- **Container Platforms**: Docker containers; full Kubernetes cluster documentation with YAML backups
 - **Virtualization**: Proxmox hypervisor detection and VM enumeration
 - **Service Database**: Auto-learning service categorization
 
@@ -1926,12 +1927,11 @@ For issues, questions, or contributions:
 - **Per-Host Detail Collection**: Installed packages (aptitude/dnf/zypper, no cap on count), scheduled tasks (cron), firewall rules, local users with sudo, login history and last boot
 - **LLDP Switch Port Mapping**: Physical switch connections per host with bond membership, switch MAC, management IP, link speed (trimmed), and VLAN; auto-generated per-switch wiki pages (Switch:name); Network Switches table on index; switch descriptions deduplicated
 - **Network Bonding/LACP**: Bond mode and per-slave status/speed/duplex; switch port cross-referenced from LLDP data
-- **Kubernetes Enhancements**: Node taints column, multi-line service ports, collapsible issues table
+- **Kubernetes Comprehensive Documentation**: Full cluster resource inventory — StatefulSets, DaemonSets, ingresses, PVs, PVCs, storage classes, ConfigMaps, secrets (names/types), service accounts, roles, cluster roles, role bindings, cluster role bindings, and Helm releases; YAML manifests for all resource types written to `backups/kubernetes/<type>/` after each scan for use as recovery artifacts
 - **NIC Details**: Physical interface inventory via ethtool — speed, duplex, link state, driver, firmware version, bus info; Unknown/disconnected ports suppressed
 - **PCI Devices**: Hardware inventory via lspci — NICs, HBAs, GPUs, storage controllers; filtered to interesting device classes
 - **IPMI / BMC**: Hardware health via ipmitool — BMC IP/MAC and sensor readings; multi-channel detection (HP iLO, Dell iDRAC, etc.); sensors table collapsible at >15 entries; hidden on consumer hardware without a BMC
 - **CVE Vulnerability Scanning**: Per-host CVE scanning via Trivy against collected package lists; severity summary with CRITICAL/HIGH in red; collapsible table with package, version, fixed version, CVSS score, status, description, and linked references per domain; WILL NOT FIX and End of Life highlighted in orange; Linux hosts only; per-package results cached by OS/version within each scan run to avoid redundant Trivy calls; Trivy DB updated once per run; compatible with Trivy v0.51+ auto-update behavior
-- **Smart Scan Script**: `smart-scan.sh` automatically selects `--use-existing-data` or `--scan` based on whether `system.py`, `servers.csv`, or `config.json` have changed since the last inventory
 - **Host Setup Script**: `setup-hosts.sh` deploys prerequisites (lldpd, aptitude, dmidecode, lshw, ethtool, pciutils, ipmitool) to all hosts via Ansible; `install.sh` installs Trivy on the scanner host with daily DB update cron at 1 AM
 
 ## v1.2.0
