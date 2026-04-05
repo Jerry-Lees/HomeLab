@@ -47,17 +47,6 @@ These features are currently operational, but are a Work In Progress.
 - **Network Inventory CSV** - Export network-focused CSV with IP, MAC, vendor, hostname
 - **Cross-Subnet MAC Resolution via SSH Jump Hosts** - For failed hosts where the MAC isn't in the local ARP cache (common for devices on remote VLANs/subnets), SSH to a reachable host on the same subnet, run `ping -c 1 <ip> && arp -n <ip>`, and capture the MAC from there. Config file would need a per-VLAN/subnet jump host mapping (e.g. `192.168.0.0/24: jumphost.example.com`). Could also auto-select a jump host by finding any already-scanned reachable host on the same subnet, avoiding the need for dedicated infrastructure.
 
-### Per-Host Detail Collection
-- **Installed Packages** - ✅ Implemented. Top-level manually installed packages (not dependencies). Debian/Ubuntu via `aptitude ~i!~M`, RHEL/Rocky via `dnf repoquery --userinstalled`, openSUSE via `zypper`. Mac (brew) not yet implemented.
-- **Cron Jobs** - ✅ Implemented. Collects root crontab, `/etc/crontab`, and all `/etc/cron.d/` files. Collapsed if >8 entries.
-- **Firewall Rules** - ✅ Implemented. Detects ufw, firewalld, or iptables automatically. Shows type and status; rules only shown (collapsed) when firewall is active.
-- **Local Users & Sudo Access** - ✅ Implemented. Collects root + UID ≥ 1000 users with real shells. Sudo column shows Yes/No for regular users, N/A for root.
-- **Last Login / Last Boot** - ✅ Implemented. Last boot via `uptime -s` (full datetime), recent logins via `last` parsed into a table.
-- **Network Bonding / LACP** - ✅ Implemented. Reads `/proc/net/bonding/bond*` — bond mode, slave interfaces, status, speed, duplex per slave.
-- **NIC Details** - ✅ Implemented. `ethtool` — link speed, duplex, driver, firmware version per physical interface.
-- **PCI Devices** - ✅ Implemented. `lspci` — installed cards: NICs, HBAs, GPUs, storage controllers. Filtered to interesting device classes.
-- **IPMI / BMC** - ✅ Implemented. `ipmitool` — BMC IP, MAC, hardware sensors (temperatures, fans, power). Only shown on hardware with a BMC present. Sensors collapsed when >15 entries.
-
 ### Usability Improvements
 - **Progress Bar** - Show real-time progress during scanning (X of Y hosts complete)
 - **Web Dashboard** - Simple web UI to view documentation without MediaWiki
@@ -72,7 +61,6 @@ These features are currently operational, but are a Work In Progress.
 
 ### Advanced Network Discovery
 - **VLAN Detection** - Identify and document VLAN memberships for hosts
-- **Switch Port Mapping** - ✅ Implemented. Uses `lldpd`/`lldpctl -f json` on any Linux host. Filters virtual interfaces (fwpr*, fwln*, veth*, etc.) and Linux neighbors. Captures: local interface, switch name, switch MAC, mgmt IP, switch port, link speed (auto-negotiation), VLAN. Generates per-switch wiki pages (`Switch:name`) and a Network Switches table at the top of the index. Install `lldpd` on bare-metal hosts; VMs return empty gracefully. Deploy via `setup-hosts.sh`.
 - **Network Topology Map** - Generate visual network diagram showing connections. Using data already collected (hostnames, IPs, VLANs, platform types, Proxmox/K8s cluster membership), auto-generate a diagram in Graphviz DOT, Mermaid, or Draw.io XML format. Nodes grouped by type (Proxmox cluster, K8s cluster, NAS, BIG-IP pair, standalone Linux, Mac, Windows). Logical topology only (subnet/VLAN grouping) — physical topology requires switch SNMP/CDP/LLDP. Mermaid renders inline in MediaWiki with a plugin; Graphviz outputs PNG/SVG with just `apt install graphviz`. Diagram updates automatically every scan run.
 - **Gateway/Router Documentation** - Special handling for network equipment (routers, firewalls, switches)
 - **WiFi Network Documentation** - Scan and document wireless networks (SSIDs, channels, encryption)
