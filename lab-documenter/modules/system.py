@@ -1286,18 +1286,20 @@ class SystemCollector:
 
         ipmi['available'] = True
 
-        lan_out = self.run_command('ipmitool lan print 1 2>/dev/null')
-        if lan_out:
-            for line in lan_out.split('\n'):
-                if ' : ' not in line:
-                    continue
-                key, _, val = line.partition(' : ')
-                key = key.strip()
-                val = val.strip()
-                if key == 'IP Address':
-                    ipmi['bmc_ip'] = val
-                elif key == 'MAC Address':
-                    ipmi['bmc_mac'] = val
+        for channel in (1, 2, 3, 6, 8):
+            lan_out = self.run_command(f'ipmitool lan print {channel} 2>/dev/null')
+            if lan_out and 'IP Address' in lan_out:
+                for line in lan_out.split('\n'):
+                    if ' : ' not in line:
+                        continue
+                    key, _, val = line.partition(' : ')
+                    key = key.strip()
+                    val = val.strip()
+                    if key == 'IP Address':
+                        ipmi['bmc_ip'] = val
+                    elif key == 'MAC Address':
+                        ipmi['bmc_mac'] = val
+                break
 
         sdr_out = self.run_command('ipmitool sdr 2>/dev/null')
         if sdr_out:
