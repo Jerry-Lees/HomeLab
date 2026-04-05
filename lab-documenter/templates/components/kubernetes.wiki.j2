@@ -7,8 +7,8 @@
 {% if kubernetes_info.namespaces %}
 === Namespaces ({{ kubernetes_info.namespaces|length }}) ===
 {| class='wikitable'
-|-
 {% for namespace in kubernetes_info.namespaces|sort %}
+|-
 | {{ namespace }}
 {% endfor %}
 |}
@@ -173,7 +173,8 @@
 
 {% if kubernetes_info.persistent_volumes %}
 === Persistent Volumes ({{ kubernetes_info.persistent_volumes|length }}) ===
-{| class='wikitable sortable'
+{| class='wikitable sortable mw-collapsible mw-collapsed'
+|+ Persistent Volumes ({{ kubernetes_info.persistent_volumes|length }} total)
 |-
 ! Name !! Capacity !! Access Modes !! Reclaim Policy !! Status !! Claim !! Storage Class !! Age
 {% for pv in kubernetes_info.persistent_volumes %}

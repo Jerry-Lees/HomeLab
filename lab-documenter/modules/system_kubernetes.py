@@ -220,24 +220,33 @@ class KubernetesCollector:
             if line.strip():
                 parts = line.split()
                 if len(parts) >= 5:
+                    # Restarts field may include "(Xd ago)" annotation, e.g. "6 (20d ago)"
+                    # which splits into 3 tokens and shifts all subsequent columns.
+                    restarts = parts[4]
+                    idx = 5
+                    if idx < len(parts) and parts[idx].startswith('('):
+                        while idx < len(parts) and not parts[idx].endswith(')'):
+                            idx += 1
+                        idx += 1  # skip closing ')'
+
                     pod_info: Dict[str, Optional[str]] = {
                         'namespace': parts[0],
                         'name': parts[1],
                         'ready': parts[2],
                         'status': parts[3],
-                        'restarts': parts[4],
-                        'age': parts[5] if len(parts) > 5 else 'Unknown'
+                        'restarts': restarts,
+                        'age': parts[idx] if idx < len(parts) else 'Unknown'
                     }
 
                     # Add additional pod details if available
-                    if len(parts) > 6:
-                        pod_info['ip'] = parts[6] if parts[6] != '<none>' else None
-                    if len(parts) > 7:
-                        pod_info['node'] = parts[7]
-                    if len(parts) > 8:
-                        pod_info['nominated_node'] = parts[8] if parts[8] != '<none>' else None
-                    if len(parts) > 9:
-                        pod_info['readiness_gates'] = parts[9] if parts[9] != '<none>' else None
+                    if idx + 1 < len(parts):
+                        pod_info['ip'] = parts[idx + 1] if parts[idx + 1] != '<none>' else None
+                    if idx + 2 < len(parts):
+                        pod_info['node'] = parts[idx + 2] if parts[idx + 2] != '<none>' else None
+                    if idx + 3 < len(parts):
+                        pod_info['nominated_node'] = parts[idx + 3] if parts[idx + 3] != '<none>' else None
+                    if idx + 4 < len(parts):
+                        pod_info['readiness_gates'] = parts[idx + 4] if parts[idx + 4] != '<none>' else None
 
                     pods_list.append(pod_info)
 

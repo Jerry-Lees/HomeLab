@@ -165,12 +165,16 @@
 {% if kubernetes_info.persistent_volumes %}
 ### Persistent Volumes ({{ kubernetes_info.persistent_volumes|length }})
 
+<details>
+<summary><strong>Persistent Volumes ({{ kubernetes_info.persistent_volumes|length }} total)</strong></summary>
+
 | Name | Capacity | Access Modes | Reclaim Policy | Status | Claim | Storage Class | Age |
 |------|----------|-------------|----------------|--------|-------|---------------|-----|
 {% for pv in kubernetes_info.persistent_volumes %}
 | **{{ pv.name or 'Unknown' }}** | {{ pv.capacity or 'Unknown' }} | {{ pv.access_modes or 'Unknown' }} | {{ pv.reclaim_policy or 'Unknown' }} | {{ pv.status or 'Unknown' }} | {{ pv.claim or '-' }} | {{ pv.storageclass or '-' }} | {{ pv.age or 'Unknown' }} |
 {% endfor %}
 
+</details>
 {% endif %}
 
 {% if kubernetes_info.pvcs %}
