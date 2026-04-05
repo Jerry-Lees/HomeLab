@@ -1,0 +1,33 @@
+{% if ipmi_info and ipmi_info.available %}
+== IPMI / BMC ==
+{% if ipmi_info.bmc_ip %}
+* '''BMC IP:''' {{ ipmi_info.bmc_ip }}
+{% endif %}
+{% if ipmi_info.bmc_mac %}
+* '''BMC MAC:''' {{ ipmi_info.bmc_mac }}
+{% endif %}
+
+{% if ipmi_info.sensors %}
+{% if ipmi_info.sensors | length <= 15 %}
+{| class='wikitable sortable'
+|-
+! Sensor !! Value !! Unit !! Status
+{% for s in ipmi_info.sensors %}
+|-
+| {{ s.name }} || {{ s.value }} || {{ s.unit }} || {{ s.status }}
+{% endfor %}
+|}
+{% else %}
+{| class='wikitable sortable mw-collapsible mw-collapsed'
+|+ Sensors ({{ ipmi_info.sensors | length }} total)
+|-
+! Sensor !! Value !! Unit !! Status
+{% for s in ipmi_info.sensors %}
+|-
+| {{ s.name }} || {{ s.value }} || {{ s.unit }} || {{ s.status }}
+{% endfor %}
+|}
+{% endif %}
+{% endif %}
+
+{% endif %}

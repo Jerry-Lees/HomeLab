@@ -1,0 +1,12 @@
+{% if pci_devices %}
+== PCI Devices ==
+{| class='wikitable sortable'
+|-
+! Class !! Vendor !! Device !! Slot
+{% for dev in pci_devices %}
+|-
+| {{ dev.class or '-' }} || {{ dev.vendor or '-' }} || {{ dev.device or '-' }} || <code>{{ dev.slot or '-' }}</code>
+{% endfor %}
+|}
+
+{% endif %}

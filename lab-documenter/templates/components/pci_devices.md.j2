@@ -1,0 +1,9 @@
+{% if pci_devices %}
+## PCI Devices
+| Class | Vendor | Device | Slot |
+|-------|--------|--------|------|
+{% for dev in pci_devices %}
+| {{ dev.class or '-' }} | {{ dev.vendor or '-' }} | {{ dev.device or '-' }} | `{{ dev.slot or '-' }}` |
+{% endfor %}
+
+{% endif %}
