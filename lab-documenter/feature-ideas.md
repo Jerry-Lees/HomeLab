@@ -84,9 +84,6 @@ These features are currently operational, but are a Work In Progress.
 - **Backup Job Status** - Query Proxmox Backup Server or vzdump job history, show last backup date and result per VM/container
 
 ### Kubernetes Enhancements
-- **Persistent Volume Claims (PVCs)** - Document all PVCs per namespace with status, storage class, capacity, and bound volume
-- **Ingress Rules** - Document all ingress resources showing hostname → service → port mappings per namespace
-- **Helm Releases** - List installed Helm releases per namespace with chart name and version (`helm list -A`)
 - **Resource Requests vs Limits** - Show CPU/memory requests and limits per namespace, flag namespaces with no limits set
 
 ### Backup & Recovery Documentation
@@ -105,7 +102,6 @@ These features are currently operational, but are a Work In Progress.
 - **Calendar Integration** - Track maintenance windows, scheduled reboots, planned changes
 
 ### Advanced Service Discovery
-- **Container Orchestration** - Deeper Kubernetes integration (Helm releases, CRDs, operators)
 - **Database Discovery** - Connect to databases, document schemas, table sizes, user counts
 - **Web Application Detection** - Identify web frameworks (WordPress, GitLab, Nextcloud) and versions
 - **API Documentation** - Discover and document REST/GraphQL APIs

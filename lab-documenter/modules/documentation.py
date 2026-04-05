@@ -470,6 +470,33 @@ class DocumentationManager:
             logger.error(f"Error saving documentation for {hostname}: {e}")
             return False
     
+    def save_kubernetes_backups(self, hostname: str, kubernetes_info: Dict[str, Any]):
+        """Write YAML backup files for all collected Kubernetes resource types."""
+        yaml_backups = kubernetes_info.get('yaml_backups', {})
+        if not yaml_backups:
+            return
+
+        backup_base = 'backups/kubernetes'
+        saved_count = 0
+
+        for resource_type, yaml_content in yaml_backups.items():
+            if not yaml_content or not yaml_content.strip():
+                continue
+
+            type_dir = os.path.join(backup_base, resource_type)
+            os.makedirs(type_dir, exist_ok=True)
+
+            file_path = os.path.join(type_dir, f'{resource_type}.yaml')
+            try:
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(yaml_content)
+                saved_count += 1
+            except Exception as e:
+                logger.warning(f"Failed to write backup {file_path}: {e}")
+
+        if saved_count:
+            logger.info(f"Kubernetes backups from {hostname}: saved {saved_count} resource type YAML files to {backup_base}/")
+
     def save_all_documentation(self, inventory: Dict[str, Any]):
         """Save documentation files for all hosts in inventory"""
         self._services_db = self._load_services_db()
@@ -489,6 +516,12 @@ class DocumentationManager:
                     if self.save_host_documentation(hostname, host_data):
                         reachable_count += 1
                         total_files_created += 1
+                    kubernetes_info = host_data.get('kubernetes_info', {})
+                    if kubernetes_info.get('yaml_backups'):
+                        try:
+                            self.save_kubernetes_backups(hostname, kubernetes_info)
+                        except Exception as e:
+                            logger.error(f"Error saving Kubernetes backups for {hostname}: {e}")
                 else:
                     logger.debug(f"Skipping unreachable host: {hostname}")
             except Exception as e:

@@ -6,23 +6,24 @@
 
 {% if kubernetes_info.namespaces %}
 === Namespaces ({{ kubernetes_info.namespaces|length }}) ===
+{| class='wikitable'
+|-
 {% for namespace in kubernetes_info.namespaces|sort %}
-* {{ namespace }}
+| {{ namespace }}
 {% endfor %}
+|}
 {% endif %}
 
 {% if kubernetes_info.nodes %}
 === Nodes ({{ kubernetes_info.nodes|length }}) ===
-
 {| class='wikitable sortable'
 |-
-! Node !! Roles !! Status !! Taints
+! Node !! Roles !! Status !! Version !! Internal IP !! Container Runtime !! Taints
 {% for node in kubernetes_info.nodes %}
 |-
-| '''{{ node.name or 'Unknown' }}''' || {{ node.roles or 'Unknown' }} || {{ 'Ready' if node.status == 'Ready' else 'NotReady' }} || {{ node.taints or '' }}
+| '''{{ node.name or 'Unknown' }}''' || {{ node.roles or 'Unknown' }} || {{ node.status or 'Unknown' }} || {{ node.version or 'Unknown' }} || {{ node.internal_ip or '' }} || {{ node.container_runtime or '' }} || {{ node.taints or '' }}
 {% endfor %}
 |}
-
 {% endif %}
 
 {% if kubernetes_info.pods %}
@@ -34,14 +35,13 @@
 {% set pods_by_namespace = kubernetes_info.pods | groupby('namespace') %}
 {% for namespace, namespace_pods in pods_by_namespace %}
 ==== {{ namespace }} ({{ namespace_pods|list|length }} pods) ====
-
 {| class='wikitable sortable mw-collapsible mw-collapsed'
 |+ {{ namespace }} pods
 |-
-!  !! Name !! Status !! Ready !! Restarts !! Age
+! Name !! Status !! Ready !! Restarts !! Age !! IP !! Node
 {% for pod in namespace_pods|list|sort(attribute='name') %}
 |-
-| {{ '✅' if pod.status == 'Running' else '❌' if pod.status in ['Failed', 'Error', 'CrashLoopBackOff'] else '⚠️' }} || '''{{ pod.name or 'Unknown' }}''' || {{ pod.status or 'Unknown' }} || {{ pod.ready or 'Unknown' }} || {{ pod.restarts or '0' }} || {{ pod.age or 'Unknown' }}
+| '''{{ pod.name or 'Unknown' }}''' || {{ pod.status or 'Unknown' }} || {{ pod.ready or 'Unknown' }} || {{ pod.restarts or '0' }} || {{ pod.age or 'Unknown' }} || {{ pod.ip or '' }} || {{ pod.node or '' }}
 {% endfor %}
 |}
 
@@ -130,6 +130,185 @@
 
 {% endfor %}
 {% endif %}
+{% endif %}
+
+{% if kubernetes_info.statefulsets %}
+=== StatefulSets ({{ kubernetes_info.statefulsets|length }}) ===
+{| class='wikitable sortable mw-collapsible mw-collapsed'
+|+ StatefulSets ({{ kubernetes_info.statefulsets|length }} total)
+|-
+! Namespace !! Name !! Ready !! Age
+{% for ss in kubernetes_info.statefulsets %}
+|-
+| {{ ss.namespace or 'Unknown' }} || '''{{ ss.name or 'Unknown' }}''' || {{ ss.ready or 'Unknown' }} || {{ ss.age or 'Unknown' }}
+{% endfor %}
+|}
+{% endif %}
+
+{% if kubernetes_info.daemonsets %}
+=== DaemonSets ({{ kubernetes_info.daemonsets|length }}) ===
+{| class='wikitable sortable mw-collapsible mw-collapsed'
+|+ DaemonSets ({{ kubernetes_info.daemonsets|length }} total)
+|-
+! Namespace !! Name !! Desired !! Current !! Ready !! Available !! Age
+{% for ds in kubernetes_info.daemonsets %}
+|-
+| {{ ds.namespace or 'Unknown' }} || '''{{ ds.name or 'Unknown' }}''' || {{ ds.desired or '0' }} || {{ ds.current or '0' }} || {{ ds.ready or '0' }} || {{ ds.available or '0' }} || {{ ds.age or 'Unknown' }}
+{% endfor %}
+|}
+{% endif %}
+
+{% if kubernetes_info.ingresses %}
+=== Ingresses ({{ kubernetes_info.ingresses|length }}) ===
+{| class='wikitable sortable mw-collapsible mw-collapsed'
+|+ Ingresses ({{ kubernetes_info.ingresses|length }} total)
+|-
+! Namespace !! Name !! Class !! Hosts !! Address !! Ports !! Age
+{% for ing in kubernetes_info.ingresses %}
+|-
+| {{ ing.namespace or 'Unknown' }} || '''{{ ing.name or 'Unknown' }}''' || {{ ing.class or '-' }} || {{ ing.hosts or '*' }} || {{ ing.address or '-' }} || {{ ing.ports or '-' }} || {{ ing.age or 'Unknown' }}
+{% endfor %}
+|}
+{% endif %}
+
+{% if kubernetes_info.persistent_volumes %}
+=== Persistent Volumes ({{ kubernetes_info.persistent_volumes|length }}) ===
+{| class='wikitable sortable'
+|-
+! Name !! Capacity !! Access Modes !! Reclaim Policy !! Status !! Claim !! Storage Class !! Age
+{% for pv in kubernetes_info.persistent_volumes %}
+|-
+| '''{{ pv.name or 'Unknown' }}''' || {{ pv.capacity or 'Unknown' }} || {{ pv.access_modes or 'Unknown' }} || {{ pv.reclaim_policy or 'Unknown' }} || {{ pv.status or 'Unknown' }} || {{ pv.claim or '-' }} || {{ pv.storageclass or '-' }} || {{ pv.age or 'Unknown' }}
+{% endfor %}
+|}
+{% endif %}
+
+{% if kubernetes_info.pvcs %}
+=== Persistent Volume Claims ({{ kubernetes_info.pvcs|length }}) ===
+{| class='wikitable sortable mw-collapsible mw-collapsed'
+|+ PVCs ({{ kubernetes_info.pvcs|length }} total)
+|-
+! Namespace !! Name !! Status !! Volume !! Capacity !! Access Modes !! Storage Class !! Age
+{% for pvc in kubernetes_info.pvcs %}
+|-
+| {{ pvc.namespace or 'Unknown' }} || '''{{ pvc.name or 'Unknown' }}''' || {{ pvc.status or 'Unknown' }} || {{ pvc.volume or '-' }} || {{ pvc.capacity or 'Unknown' }} || {{ pvc.access_modes or 'Unknown' }} || {{ pvc.storageclass or '-' }} || {{ pvc.age or 'Unknown' }}
+{% endfor %}
+|}
+{% endif %}
+
+{% if kubernetes_info.storageclasses %}
+=== Storage Classes ({{ kubernetes_info.storageclasses|length }}) ===
+{| class='wikitable sortable'
+|-
+! Name !! Provisioner !! Reclaim Policy !! Volume Binding Mode !! Age
+{% for sc in kubernetes_info.storageclasses %}
+|-
+| '''{{ sc.name or 'Unknown' }}''' || {{ sc.provisioner or 'Unknown' }} || {{ sc.reclaim_policy or 'Unknown' }} || {{ sc.volume_binding_mode or 'Unknown' }} || {{ sc.age or 'Unknown' }}
+{% endfor %}
+|}
+{% endif %}
+
+{% if kubernetes_info.configmaps %}
+=== ConfigMaps ({{ kubernetes_info.configmaps|length }}) ===
+{| class='wikitable sortable mw-collapsible mw-collapsed'
+|+ ConfigMaps ({{ kubernetes_info.configmaps|length }} total)
+|-
+! Namespace !! Name !! Data Items !! Age
+{% for cm in kubernetes_info.configmaps %}
+|-
+| {{ cm.namespace or 'Unknown' }} || '''{{ cm.name or 'Unknown' }}''' || {{ cm.data or '0' }} || {{ cm.age or 'Unknown' }}
+{% endfor %}
+|}
+{% endif %}
+
+{% if kubernetes_info.secrets %}
+=== Secrets ({{ kubernetes_info.secrets|length }}) ===
+{| class='wikitable sortable mw-collapsible mw-collapsed'
+|+ Secrets ({{ kubernetes_info.secrets|length }} total) — full YAML in backups/kubernetes/secrets/
+|-
+! Namespace !! Name !! Type !! Data Items !! Age
+{% for sec in kubernetes_info.secrets %}
+|-
+| {{ sec.namespace or 'Unknown' }} || '''{{ sec.name or 'Unknown' }}''' || {{ sec.type or 'Unknown' }} || {{ sec.data or '0' }} || {{ sec.age or 'Unknown' }}
+{% endfor %}
+|}
+{% endif %}
+
+{% if kubernetes_info.serviceaccounts %}
+=== Service Accounts ({{ kubernetes_info.serviceaccounts|length }}) ===
+{| class='wikitable sortable mw-collapsible mw-collapsed'
+|+ Service Accounts ({{ kubernetes_info.serviceaccounts|length }} total)
+|-
+! Namespace !! Name !! Secrets !! Age
+{% for sa in kubernetes_info.serviceaccounts %}
+|-
+| {{ sa.namespace or 'Unknown' }} || '''{{ sa.name or 'Unknown' }}''' || {{ sa.secrets or '0' }} || {{ sa.age or 'Unknown' }}
+{% endfor %}
+|}
+{% endif %}
+
+{% if kubernetes_info.roles %}
+=== Roles ({{ kubernetes_info.roles|length }}) ===
+{| class='wikitable sortable mw-collapsible mw-collapsed'
+|+ Roles ({{ kubernetes_info.roles|length }} total)
+|-
+! Namespace !! Name !! Age
+{% for role in kubernetes_info.roles %}
+|-
+| {{ role.namespace or 'Unknown' }} || '''{{ role.name or 'Unknown' }}''' || {{ role.age or 'Unknown' }}
+{% endfor %}
+|}
+{% endif %}
+
+{% if kubernetes_info.clusterroles %}
+=== Cluster Roles ({{ kubernetes_info.clusterroles|length }}) ===
+{| class='wikitable sortable mw-collapsible mw-collapsed'
+|+ ClusterRoles ({{ kubernetes_info.clusterroles|length }} total)
+|-
+! Name !! Age
+{% for cr in kubernetes_info.clusterroles %}
+|-
+| '''{{ cr.name or 'Unknown' }}''' || {{ cr.age or 'Unknown' }}
+{% endfor %}
+|}
+{% endif %}
+
+{% if kubernetes_info.rolebindings %}
+=== Role Bindings ({{ kubernetes_info.rolebindings|length }}) ===
+{| class='wikitable sortable mw-collapsible mw-collapsed'
+|+ RoleBindings ({{ kubernetes_info.rolebindings|length }} total)
+|-
+! Namespace !! Name !! Role !! Age
+{% for rb in kubernetes_info.rolebindings %}
+|-
+| {{ rb.namespace or 'Unknown' }} || '''{{ rb.name or 'Unknown' }}''' || {{ rb.role or 'Unknown' }} || {{ rb.age or 'Unknown' }}
+{% endfor %}
+|}
+{% endif %}
+
+{% if kubernetes_info.clusterrolebindings %}
+=== Cluster Role Bindings ({{ kubernetes_info.clusterrolebindings|length }}) ===
+{| class='wikitable sortable mw-collapsible mw-collapsed'
+|+ ClusterRoleBindings ({{ kubernetes_info.clusterrolebindings|length }} total)
+|-
+! Name !! Role !! Age
+{% for crb in kubernetes_info.clusterrolebindings %}
+|-
+| '''{{ crb.name or 'Unknown' }}''' || {{ crb.role or 'Unknown' }} || {{ crb.age or 'Unknown' }}
+{% endfor %}
+|}
+{% endif %}
+
+{% if kubernetes_info.helm_releases %}
+=== Helm Releases ({{ kubernetes_info.helm_releases|length }}) ===
+{| class='wikitable sortable'
+|-
+! Namespace !! Name !! Chart !! App Version !! Status !! Revision
+{% for hr in kubernetes_info.helm_releases %}
+|-
+| {{ hr.namespace or 'Unknown' }} || '''{{ hr.name or 'Unknown' }}''' || {{ hr.chart or 'Unknown' }} || {{ hr.app_version or 'Unknown' }} || {{ hr.status or 'Unknown' }} || {{ hr.revision or '-' }}
+{% endfor %}
+|}
 {% endif %}
 
 {% endif %}
