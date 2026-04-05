@@ -54,9 +54,9 @@ These features are currently operational, but are a Work In Progress.
 - **Local Users & Sudo Access** - ✅ Implemented. Collects root + UID ≥ 1000 users with real shells. Sudo column shows Yes/No for regular users, N/A for root.
 - **Last Login / Last Boot** - ✅ Implemented. Last boot via `uptime -s` (full datetime), recent logins via `last` parsed into a table.
 - **Network Bonding / LACP** - ✅ Implemented. Reads `/proc/net/bonding/bond*` — bond mode, slave interfaces, status, speed, duplex per slave.
-- **NIC Details** - `ethtool` — link speed, duplex, driver, firmware version per interface. Useful for hosts without bonding.
-- **PCI Devices** - `lspci` — installed cards: NICs, HBAs, GPUs. Good for bare-metal hardware inventory.
-- **IPMI / BMC** - `ipmitool` — hardware health, fan speeds, temperatures, power consumption, remote management IP.
+- **NIC Details** - ✅ Implemented. `ethtool` — link speed, duplex, driver, firmware version per physical interface.
+- **PCI Devices** - ✅ Implemented. `lspci` — installed cards: NICs, HBAs, GPUs, storage controllers. Filtered to interesting device classes.
+- **IPMI / BMC** - ✅ Implemented. `ipmitool` — BMC IP, MAC, hardware sensors (temperatures, fans, power). Only shown on hardware with a BMC present. Sensors collapsed when >15 entries.
 
 ### Usability Improvements
 - **Progress Bar** - Show real-time progress during scanning (X of Y hosts complete)
