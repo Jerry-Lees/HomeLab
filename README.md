@@ -9,6 +9,15 @@ Also, over time there have been the inevitable "mini" disasters, both failures o
 
 This repository is intended to be "everything I need" to recover systems (not data) to get back up and running, where ever possible. The bonus is that it might help someone else implement a similar setup or solve a problem they are (or didn't realize they were) having.
 
+## Tools
+
+The homelab management tools that grew out of this repository have been 
+moved to the [PraxisSuite](https://github.com/PraxisSuite) organization:
+
+- **[Poiesis](https://github.com/PraxisSuite/Poiesis)** *(formerly Labinator)* — Proxmox VM and container provisioning
+- **[Poreia](https://github.com/PraxisSuite/Poreia)** *(formerly Porter)* — SSH/SFTP file manager and deployment packager
+- **[Theoria](https://github.com/PraxisSuite/Theoria)** *(formerly Lab Documenter)* — Automatic homelab documentation and discovery
+
 # My Setup
 This section should detail things that are "odd" about my setup. Maybe they are better, maybe not-- but they are all concious decisions made for a valid reason at one point or another along the way. We all have them.
 
