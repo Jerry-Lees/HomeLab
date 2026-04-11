@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vikunja
+  labels:
+    app: vikunja
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vikunja
+  template:
+    metadata:
+      labels:
+        app: vikunja
+    spec:
+      securityContext:
+        fsGroup: 1000
+      containers:
+      - name: vikunja
+        image: vikunja/vikunja:latest
+        imagePullPolicy: Always
+        env:
+        - name: XDG_CACHE_HOME
+          value: /app/vikunja/files/.cache
+        - name: VIKUNJA_DATABASE_PATH
+          value: /app/vikunja/files/vikunja.db
+        securityContext:
+          runAsUser: 1000
+          runAsGroup: 1000
+        ports:
+        - containerPort: 3456
+          name: vikunja-tcp
+          protocol: TCP
+        volumeMounts:
+        - mountPath: /app/vikunja/files
+          name: vikunja-data
+        - mountPath: /etc/vikunja
+          name: vikunja-config
+        - mountPath: /var/log
+          name: vikunja-oslogs
+        - mountPath: /etc/timezone
+          name: timezonefile
+        - mountPath: /etc/localtime
+          name: localtimefile
+      volumes:
+      - name: vikunja-data
+        hostPath:
+            path: /k8s/appfiles/vikunja/data
+            type: Directory
+      - name: vikunja-config
+        hostPath:
+            path: /k8s/appfiles/vikunja/config
+            type: Directory
+      - name: vikunja-oslogs
+        hostPath:
+            path: /k8s/appfiles/vikunja/oslogs
+            type: Directory
+      - name: timezonefile
+        hostPath:
+            path: /etc/timezone
+            type: File
+      - name: localtimefile
+        hostPath:
+            path: /etc/localtime
+            type: File
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vikunja-vs
+  annotations:
+    metallb.universe.tf/allow-shared-ip: default
+spec:
+  ports:
+  - port: 80
+    name: vikunja-tcp
+    targetPort: 3456
+    protocol: TCP
+  loadBalancerIP: 192.168.0.36
+  selector:
+    app: vikunja
+  type: LoadBalancer
+

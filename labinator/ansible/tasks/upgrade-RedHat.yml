@@ -1,9 +1,0 @@
----
-- name: Upgrade all installed packages
-  dnf:
-    name: '*'
-    state: latest
-
-- name: Remove unused packages (autoremove)
-  dnf:
-    autoremove: true

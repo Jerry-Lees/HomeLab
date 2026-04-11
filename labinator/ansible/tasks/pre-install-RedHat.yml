@@ -1,9 +1,0 @@
----
-- name: Install EPEL release
-  dnf:
-    name: epel-release
-    state: present
-
-- name: Update dnf cache
-  dnf:
-    update_cache: true

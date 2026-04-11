@@ -1,5 +1,0 @@
-[
-  {"hostname": "test-lxc-01",  "action": "decomm"},
-  {"hostname": "test-vm-01",   "action": "decomm"},
-  {"hostname": "staging-web",  "action": "decomm"}
-]

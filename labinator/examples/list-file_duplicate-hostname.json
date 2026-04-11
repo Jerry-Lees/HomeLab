@@ -1,4 +1,0 @@
-[
-  {"hostname": "test-box", "vmid": "111", "action": "decomm"},
-  {"hostname": "test-box", "vmid": "112", "action": "keep"}
-]

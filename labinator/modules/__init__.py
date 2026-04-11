@@ -1,1 +1,0 @@
-# labinator shared library package

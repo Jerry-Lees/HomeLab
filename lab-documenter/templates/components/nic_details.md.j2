@@ -1,9 +1,0 @@
-{% if nic_details %}
-## NIC Details
-| Interface | Speed | Duplex | Link | Driver | Firmware | Bus Info |
-|-----------|-------|--------|------|--------|----------|----------|
-{% for nic in nic_details %}
-| `{{ nic.name }}` | {{ nic.speed or '-' }} | {{ nic.duplex or '-' }} | {{ nic.link or '-' }} | {{ nic.driver or '-' }} | {{ nic.firmware or '-' }} | {{ nic.bus_info or '-' }} |
-{% endfor %}
-
-{% endif %}

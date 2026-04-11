@@ -1,5 +1,0 @@
-[
-  {"hostname": "test-lxc-01",  "action": "retag"},
-  {"hostname": "test-vm-01",   "action": "retag"},
-  {"hostname": "staging-web",  "action": "keep"}
-]
