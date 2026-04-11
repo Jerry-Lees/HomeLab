@@ -31,6 +31,9 @@ These features are currently operational, but are a Work In Progress.
 - **PDF Export** - Convert Markdown documentation to PDF format per host
 - **Hardware Age Tracking** - Add "installed_date" field to CSV, calculate and display age in documentation
 
+### Package Repository Documentation
+- **Configured Package Repositories** - Document all configured package repositories per host; Debian/Ubuntu via `/etc/apt/sources.list` and `/etc/apt/sources.list.d/`; RHEL/Rocky/Fedora via `/etc/yum.repos.d/`; openSUSE via `zypper repos`; show repo name, URL, enabled/disabled state, and GPG check status; flag disabled or unauthenticated repos
+
 ### Service Enhancements  
 - **Service URL Auto-Detection** - Detect common service URLs (http://host:port) and create clickable links
 - **Service Health Indicators** - Traffic light indicators (green/yellow/red) based on service status
@@ -86,6 +89,44 @@ These features are currently operational, but are a Work In Progress.
 ### Kubernetes Enhancements
 - **Resource Requests vs Limits** - Show CPU/memory requests and limits per namespace, flag namespaces with no limits set
 
+### BIG-IP Enhancements
+
+#### Configuration Documentation
+- **iRules** - Document all iRules with full code via `tmsh list ltm rule`; these are often critical and undocumented elsewhere
+- **SSL Profiles** - Document client and server SSL profiles including cipher suites and associated certificate names
+- **Certificate Inventory** - List all installed certificates with expiry dates via `tmsh list sys crypto cert`; flag certs expiring within 30/60/90 days
+- **Health Monitors** - Document all monitor definitions (HTTP, TCP, ICMP, custom) and their parameters via `tmsh list ltm monitor`
+- **SNAT Pools & Translations** - Document source NAT pool members and translation addresses
+- **LTM Policies** - Document traffic steering policies and their rules
+- **Data Groups** - Document named data groups used by iRules (IP lists, string lists, etc.)
+- **HTTP/TCP Profiles** - Document per-virtual-server tuning profiles and their key parameters
+- **Self IPs** - Document interface self IPs, netmasks, traffic group assignments, and port lockdown settings via `tmsh list net self`
+- **Routes** - Document static route table via `tmsh list net route`
+
+#### Health & Status
+- **Pool Member Status** - Show current up/down/disabled state per pool member via `tmsh show ltm pool`; highlight degraded or offline members
+- **Virtual Server Statistics** - Current connections and bits in/out per virtual server via `tmsh show ltm virtual`
+- **SSL Certificate Expiry Alerts** - Flag certificates expiring within configurable thresholds (30/60/90 days) on the host documentation page
+- **CPU & Memory Utilization** - System performance snapshot via `tmsh show sys performance`
+- **License Expiry** - Document license module list and expiry date via `tmsh list sys license`
+
+#### HA / Clustering
+- **Device Group Sync Status** - Current config sync state between HA peers via `tmsh show cm sync-status`
+- **Traffic Group Failover State** - Which device owns which traffic groups and current failover state
+- **Config Sync Timestamp** - When the last successful config sync occurred
+
+#### Security (if licensed)
+- **AFM Firewall Rules** - Document Advanced Firewall Manager policies and rules if AFM is provisioned
+- **ASM Policy List** - Document Application Security Manager policies and enforcement modes if ASM is provisioned
+- **DoS Profiles** - Document configured DoS protection profiles
+
+#### DNS / GTM (if licensed)
+- **Wide IPs** - Document GSLB wide IP definitions and their associated pools
+- **GTM Pools & Members** - Document GTM pool members and load balancing method across data centers
+
+#### Backup
+- **UCS Archive Backup** - Generate a UCS archive via `tmsh save sys ucs /var/tmp/<hostname>.ucs`, download it via SCP/SFTP, and store in `backups/bigip/<hostname>/` alongside a timestamp; provides a complete configuration backup restorable via `tmsh load sys ucs`
+
 ### Backup & Recovery Documentation
 - **Backup Solution Integration** - Query Veeam, Proxmox Backup Server, or Restic for backup status
 - **Recovery Point Objectives** - Document and verify backup schedules
@@ -93,6 +134,8 @@ These features are currently operational, but are a Work In Progress.
 - **Disaster Recovery Playbook** - Auto-generate DR procedures based on dependencies
 
 ### External Integrations
+- **Uptime Kuma Integration** - Query Uptime Kuma REST API for monitor status per host; display current up/down state and response time on each host's documentation page; link directly to the relevant Uptime Kuma monitor; match monitors to hosts by hostname or IP
+- **Docker Hub Image Currency** - For each running container collected via SSH, query the Docker Hub API (or GitHub Container Registry / GHCR for ghcr.io images) to compare the running image tag/digest against the latest available; flag outdated containers on the host documentation page with the current tag, latest available tag, and how far behind they are; support pinned tags (e.g. `nginx:1.25`) as well as floating tags (e.g. `nginx:latest`); respect private registries where credentials are configured; rate limiting handled via Docker Hub's unauthenticated (100 pulls/6hr) or authenticated (200 pulls/6hr) tier — cache results within a scan run to avoid redundant API calls
 - **Prometheus Integration** - Query Prometheus for metrics, incorporate into documentation
 - **Grafana Dashboard Links** - Auto-discover and link to relevant Grafana dashboards
 - **Zabbix Host Import** - Generate Zabbix host definitions from discovered infrastructure
@@ -161,6 +204,9 @@ These features are currently operational, but are a Work In Progress.
 - **Hypervisor Expansion** - VMware ESXi, Hyper-V, Xen, KVM/QEMU direct integration
 - **Storage Systems** - TrueNAS API, Synology API, QNAP API for deeper storage insights
 - **Networking Equipment** - Ubiquiti UniFi, Cisco, Juniper, MikroTik SNMP/API integration
+- **Ubiquiti UniFi Integration** - Query UniFi Controller REST API (port 443/8443) for APs, switches, port configs, connected clients with MACs/IPs/VLANs, and VLAN definitions; cross-reference with scanned host inventory; `pyunifi` or `aiounifi` Python libraries available
+- **Cisco Nexus API Integration** - Query NX-API (REST/JSON) on Nexus switches for interface status/speed/duplex, VLAN assignments, CDP/LLDP neighbors (complements per-host lldpd data), and port-channel/vPC configs; falls back to SSH CLI scraping if NX-API (`feature nxapi`) is not enabled
+- **Netgear Orbi Integration** *(very low priority)* - Pull connected client inventory (hostname, MAC, IP, connection type) and basic router status via the reverse-engineered SOAP/HNAP1 interface using `pynetgear`; satellites are not individually queryable — all data flows through the router; no official API, prone to breaking on firmware updates
 
 ### Novel Capabilities
 - **Time-Series Database Integration** - Store all metrics in InfluxDB/TimescaleDB for unlimited history
